@@ -1,6 +1,6 @@
 # 🤖 AI Invest - Investment Advisor
 
-Ein KI-gestützter Investment Advisor für Trade Republic als Progressive Web App (PWA).
+An AI-powered Investment Advisor for Trade Republic as a Progressive Web App (PWA).
 
 ![React](https://img.shields.io/badge/React-19-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)
@@ -9,71 +9,71 @@ Ein KI-gestützter Investment Advisor für Trade Republic als Progressive Web Ap
 
 ## ✨ Features
 
-- 📊 **Portfolio-Management** - Aktien, ETFs und ETCs verwalten mit ISIN-Support
-- 🤖 **KI-Analyse** - Claude AI analysiert dein Portfolio und gibt Empfehlungen
-- 💰 **Cash-Tracking** - Verfügbares Kapital verwalten
-- 📈 **Live-Kurse** - Automatische Kursaktualisierung via Yahoo Finance (in EUR)
-- ✏️ **Manuelle Kurse** - Kurse manuell bearbeiten für schwer zu findende Wertpapiere
-- 🆕 **Neue Kaufempfehlungen** - KI schlägt 3-5 konkrete Aktien zum Kauf vor
-- 📱 **Telegram-Benachrichtigungen** - Push-Notifications für wichtige Signale
-- ✉️ **E-Mail-Benachrichtigungen** - Via EmailJS Integration
-- 📲 **PWA** - Installierbar auf Smartphone und Desktop
+- 📊 **Portfolio Management** - Manage stocks, ETFs and ETCs with ISIN support
+- 🤖 **AI Analysis** - Claude AI analyzes your portfolio and gives recommendations
+- 💰 **Cash Tracking** - Manage available capital
+- 📈 **Live Prices** - Automatic price updates via Yahoo Finance (in EUR)
+- ✏️ **Manual Prices** - Manually edit prices for hard-to-find securities
+- 🆕 **New Buy Recommendations** - AI suggests 3-5 specific stocks to buy
+- 📱 **Telegram Notifications** - Push notifications for important signals
+- ✉️ **Email Notifications** - Via EmailJS integration
+- 📲 **PWA** - Installable on smartphone and desktop
 
-## 🚀 Schnellstart
+## 🚀 Quick Start
 
 ```bash
-# Repository klonen
-git clone https://github.com/DEIN_USERNAME/ai-invest.git
+# Clone repository
+git clone https://github.com/lolo1969/ai-invest.git
 cd ai-invest
 
-# Dependencies installieren
+# Install dependencies
 npm install
 
-# Entwicklungsserver starten
+# Start development server
 npm run dev
 ```
 
-Öffne http://localhost:5173
+Open http://localhost:5173
 
-## ⚙️ Konfiguration
+## ⚙️ Configuration
 
-### API Keys einrichten
+### Setting up API Keys
 
-1. **Claude API Key** (für KI-Analyse)
-   - Account erstellen: https://console.anthropic.com
-   - API Key generieren: https://console.anthropic.com/settings/keys
+1. **Claude API Key** (for AI analysis)
+   - Create account: https://console.anthropic.com
+   - Generate API key: https://console.anthropic.com/settings/keys
 
-2. **Telegram Bot** (optional, für Benachrichtigungen)
-   - BotFather kontaktieren: https://t.me/BotFather
-   - `/newbot` eingeben und Anweisungen folgen
-   - Bot Token kopieren
-   - Chat-ID via @userinfobot holen
+2. **Telegram Bot** (optional, for notifications)
+   - Contact BotFather: https://t.me/BotFather
+   - Enter `/newbot` and follow instructions
+   - Copy Bot Token
+   - Get Chat-ID via @userinfobot
 
-3. **EmailJS** (optional, für E-Mail-Benachrichtigungen)
-   - Account erstellen: https://www.emailjs.com
-   - E-Mail-Service verbinden (Gmail, Outlook, etc.)
-   - Template erstellen mit Variablen: `to_email`, `subject`, `stock_name`, `stock_symbol`, `signal_type`, `price`, `change`, `confidence`, `risk_level`, `reasoning`, `target_price`, `stop_loss`, `date`
+3. **EmailJS** (optional, for email notifications)
+   - Create account: https://www.emailjs.com
+   - Connect email service (Gmail, Outlook, etc.)
+   - Create template with variables: `to_email`, `subject`, `stock_name`, `stock_symbol`, `signal_type`, `price`, `change`, `confidence`, `risk_level`, `reasoning`, `target_price`, `stop_loss`, `date`
 
-## 📁 Projektstruktur
+## 📁 Project Structure
 
 ```
 src/
 ├── components/
-│   ├── Dashboard.tsx      # Hauptübersicht & Schnellanalyse
-│   ├── Portfolio.tsx      # Portfolio-Management & KI-Analyse
-│   ├── Settings.tsx       # Einstellungen & API Keys
-│   ├── Notifications.tsx  # Benachrichtigungs-Übersicht
-│   ├── Signals.tsx        # Investment-Signale
-│   ├── Watchlist.tsx      # Aktien-Watchlist
+│   ├── Dashboard.tsx      # Main overview & quick analysis
+│   ├── Portfolio.tsx      # Portfolio management & AI analysis
+│   ├── Settings.tsx       # Settings & API keys
+│   ├── Notifications.tsx  # Notification overview
+│   ├── Signals.tsx        # Investment signals
+│   ├── Watchlist.tsx      # Stock watchlist
 │   └── Sidebar.tsx        # Navigation
 ├── services/
-│   ├── aiService.ts       # Claude AI Integration
+│   ├── aiService.ts       # Claude AI integration
 │   ├── marketData.ts      # Yahoo Finance API
 │   └── notifications.ts   # Telegram & EmailJS
 ├── store/
-│   └── useAppStore.ts     # Zustand State Management
+│   └── useAppStore.ts     # Zustand state management
 ├── types/
-│   └── index.ts           # TypeScript Types
+│   └── index.ts           # TypeScript types
 ├── App.tsx
 └── main.tsx
 ```
@@ -83,34 +83,34 @@ src/
 - **Frontend:** React 19 + TypeScript
 - **Build Tool:** Vite 7.3
 - **Styling:** Tailwind CSS 4.1
-- **State Management:** Zustand (mit localStorage Persistenz)
-- **KI:** Claude API (claude-sonnet-4-20250514)
-- **Kursdaten:** Yahoo Finance via CORS Proxy
+- **State Management:** Zustand (with localStorage persistence)
+- **AI:** Claude API (claude-sonnet-4-20250514)
+- **Price Data:** Yahoo Finance via CORS Proxy
 - **Notifications:** Telegram Bot API + EmailJS
 - **PWA:** vite-plugin-pwa
 
-## 📊 Unterstützte Wertpapiere
+## 📊 Supported Securities
 
-Die App unterstützt alle bei Trade Republic handelbaren Wertpapiere:
-- 🇺🇸 US-Aktien (automatische USD → EUR Umrechnung)
-- 🇩🇪 Deutsche Aktien
-- 🇪🇺 EU-Aktien
-- 📈 ETFs (z.B. MSCI World, EM IMI)
-- 🥇 ETCs (z.B. Gold, Silber)
+The app supports all securities tradable on Trade Republic:
+- 🇺🇸 US Stocks (automatic USD → EUR conversion)
+- 🇩🇪 German Stocks
+- 🇪🇺 EU Stocks
+- 📈 ETFs (e.g. MSCI World, EM IMI)
+- 🥇 ETCs (e.g. Gold, Silver)
 
-## 🔐 Sicherheit
+## 🔐 Security
 
-- API Keys werden nur im lokalen Browser-Storage gespeichert
-- Keine Daten werden an externe Server gesendet (außer an die APIs)
-- Claude API läuft direkt im Browser
+- API keys are only stored in local browser storage
+- No data is sent to external servers (except to the APIs)
+- Claude API runs directly in the browser
 
-## 📝 Lizenz
+## 📝 License
 
 MIT License
 
-## 🤝 Beitragen
+## 🤝 Contributing
 
-Pull Requests sind willkommen! Für größere Änderungen bitte erst ein Issue eröffnen.
+Pull requests are welcome! For major changes, please open an issue first.
 
 ---
 
