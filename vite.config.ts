@@ -14,7 +14,7 @@ export default defineConfig({
       manifest: {
         name: 'AI Invest - Investment Advisor',
         short_name: 'AI Invest',
-        description: 'KI-gestützter Investment-Berater',,
+        description: 'KI-gestützter Investment-Berater',
         theme_color: '#1a1a2e',
         background_color: '#1a1a2e',
         display: 'standalone',
