@@ -13,7 +13,7 @@ import { marketDataService } from '../services/marketData';
 export function Watchlist() {
   const { settings, updateSettings, watchlist, addToWatchlist, removeFromWatchlist } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{ symbol: string; name: string }[]>([]);
+  const [searchResults, setSearchResults] = useState<{ symbol: string; name: string; price?: number; change?: number; changePercent?: number }[]>([]);
   const [searching, setSearching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -23,7 +23,23 @@ export function Watchlist() {
     setSearching(true);
     try {
       const results = await marketDataService.searchStocks(searchQuery);
-      setSearchResults(results);
+      // Fetch prices for each result
+      const resultsWithPrices = await Promise.all(
+        results.map(async (result) => {
+          try {
+            const quote = await marketDataService.getQuote(result.symbol);
+            return {
+              ...result,
+              price: quote?.price,
+              change: quote?.change,
+              changePercent: quote?.changePercent
+            };
+          } catch {
+            return result;
+          }
+        })
+      );
+      setSearchResults(resultsWithPrices);
     } catch (error) {
       console.error('Search failed:', error);
     } finally {
@@ -123,18 +139,30 @@ export function Watchlist() {
                 className="flex items-center justify-between px-4 py-3 
                          hover:bg-[#252542] border-b border-[#252542] last:border-b-0"
               >
-                <div>
+                <div className="flex-1">
                   <span className="font-medium text-white">{result.symbol}</span>
                   <span className="text-gray-400 ml-2">{result.name}</span>
                 </div>
-                <button
-                  onClick={() => addStock(result.symbol)}
-                  disabled={settings.watchlist.includes(result.symbol)}
-                  className="p-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 
-                           text-white rounded-lg transition-colors"
-                >
-                  <Plus size={18} />
-                </button>
+                <div className="flex items-center gap-4">
+                  {result.price !== undefined && (
+                    <div className="text-right">
+                      <span className="text-white font-medium">{result.price.toFixed(2)} EUR</span>
+                      {result.changePercent !== undefined && (
+                        <span className={`ml-2 text-sm ${result.changePercent >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          {result.changePercent >= 0 ? '+' : ''}{result.changePercent.toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => addStock(result.symbol)}
+                    disabled={settings.watchlist.includes(result.symbol)}
+                    className="p-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 
+                             text-white rounded-lg transition-colors"
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

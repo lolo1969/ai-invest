@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Briefcase, 
   TrendingUp,
@@ -45,6 +45,8 @@ export function Portfolio() {
   const [editQuantityValue, setEditQuantityValue] = useState('');
   const [editingBuyPrice, setEditingBuyPrice] = useState<string | null>(null);
   const [editBuyPriceValue, setEditBuyPriceValue] = useState('');
+  const [yahooPrices, setYahooPrices] = useState<Record<string, number>>({});
+  const [loadingYahooPrices, setLoadingYahooPrices] = useState(false);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -62,6 +64,36 @@ export function Portfolio() {
   const totalCurrentValue = userPositions.reduce((sum, p) => sum + (p.quantity * p.currentPrice), 0);
   const totalProfitLoss = totalCurrentValue - totalInvested;
   const totalProfitLossPercent = totalInvested > 0 ? (totalProfitLoss / totalInvested) * 100 : 0;
+
+  // Fetch Yahoo Finance prices for comparison
+  useEffect(() => {
+    const fetchYahooPrices = async () => {
+      if (userPositions.length === 0) return;
+      
+      setLoadingYahooPrices(true);
+      const prices: Record<string, number> = {};
+      
+      for (const position of userPositions) {
+        const symbolToFetch = position.symbol && position.symbol !== position.isin 
+          ? position.symbol 
+          : position.isin || position.symbol;
+        
+        try {
+          const quote = await marketDataService.getQuote(symbolToFetch);
+          if (quote && quote.price > 0) {
+            prices[position.id] = quote.price;
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+      
+      setYahooPrices(prices);
+      setLoadingYahooPrices(false);
+    };
+    
+    fetchYahooPrices();
+  }, [userPositions.length]);
 
   const handleAddPosition = () => {
     if ((!formData.symbol && !formData.isin) || !formData.quantity || !formData.buyPrice || !formData.currentPrice) {
@@ -682,6 +714,16 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
                               {position.isin && (
                                 <span className="block text-xs text-gray-500 font-mono mt-0.5">
                                   {position.isin}
+                                </span>
+                              )}
+                              {yahooPrices[position.id] !== undefined && (
+                                <span className="block text-xs text-yellow-500 mt-0.5" title="Yahoo Finance Preis">
+                                  Yahoo: {yahooPrices[position.id].toFixed(2)} EUR
+                                </span>
+                              )}
+                              {loadingYahooPrices && !yahooPrices[position.id] && (
+                                <span className="block text-xs text-gray-500 mt-0.5 animate-pulse">
+                                  Lade Yahoo...
                                 </span>
                               )}
                             </div>
