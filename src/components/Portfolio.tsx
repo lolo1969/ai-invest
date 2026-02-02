@@ -43,6 +43,8 @@ export function Portfolio() {
   const [editPriceValue, setEditPriceValue] = useState('');
   const [editingQuantity, setEditingQuantity] = useState<string | null>(null);
   const [editQuantityValue, setEditQuantityValue] = useState('');
+  const [editingBuyPrice, setEditingBuyPrice] = useState<string | null>(null);
+  const [editBuyPriceValue, setEditBuyPriceValue] = useState('');
   
   // Form state
   const [formData, setFormData] = useState({
@@ -312,6 +314,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
             <Plus size={18} />
             Position hinzufügen
           </button>
+          {/* Kurse aktualisieren Button deaktiviert - Preise weichen von Broker ab
           <button
             onClick={refreshPrices}
             disabled={refreshingPrices || userPositions.length === 0}
@@ -330,6 +333,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
               </>
             )}
           </button>
+          */}
           <button
             onClick={analyzePortfolio}
             disabled={analyzing || userPositions.length === 0}
@@ -751,8 +755,61 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
                           </div>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-right text-gray-400">
-                        {position.buyPrice.toFixed(2)} {position.currency}
+                      <td className="px-6 py-4 text-right">
+                        {editingBuyPrice === position.id ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={editBuyPriceValue}
+                              onChange={(e) => setEditBuyPriceValue(e.target.value)}
+                              className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-right"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const newBuyPrice = parseFloat(editBuyPriceValue);
+                                  if (newBuyPrice > 0) {
+                                    updateUserPosition(position.id, { buyPrice: newBuyPrice });
+                                  }
+                                  setEditingBuyPrice(null);
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={() => {
+                                const newBuyPrice = parseFloat(editBuyPriceValue);
+                                if (newBuyPrice > 0) {
+                                  updateUserPosition(position.id, { buyPrice: newBuyPrice });
+                                }
+                                setEditingBuyPrice(null);
+                              }}
+                              className="p-1 bg-green-500/20 hover:bg-green-500/30 rounded text-green-500"
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              onClick={() => setEditingBuyPrice(null)}
+                              className="p-1 bg-red-500/20 hover:bg-red-500/30 rounded text-red-500"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-gray-400">{position.buyPrice.toFixed(2)} {position.currency}</span>
+                            <button
+                              onClick={() => {
+                                setEditBuyPriceValue(position.buyPrice.toString());
+                                setEditingBuyPrice(position.id);
+                              }}
+                              className="p-1 hover:bg-[#252542] rounded text-gray-400 hover:text-white"
+                              title="Kaufpreis bearbeiten"
+                            >
+                              <Edit3 size={12} />
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-right">
                         {editingPrice === position.id ? (
