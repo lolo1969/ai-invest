@@ -1,6 +1,6 @@
 # 🤖 AI Invest - Investment Advisor
 
-An AI-powered Investment Advisor for Trade Republic as a Progressive Web App (PWA).
+An AI-powered Investment Advisor as a Progressive Web App (PWA).
 
 ![React](https://img.shields.io/badge/React-19-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)
@@ -91,7 +91,7 @@ src/
 
 ## 📊 Supported Securities
 
-The app supports all securities tradable on Trade Republic:
+The app supports the following securities:
 - 🇺🇸 US Stocks (automatic USD → EUR conversion)
 - 🇩🇪 German Stocks
 - 🇪🇺 EU Stocks

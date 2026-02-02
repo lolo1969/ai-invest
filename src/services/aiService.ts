@@ -91,7 +91,7 @@ KONTEXT:
 - Investmentstrategie: ${strategyDesc}
 - Risikotoleranz: ${riskDesc}
 - Verfügbares Budget: ${request.budget.toFixed(2)} EUR
-- Fokus: Trade Republic (deutsche/europäische und US-Aktien)
+- Fokus: Deutsche/europäische und US-Aktien
 
 AKTUELLE KURSE:
 ${stocksInfo}

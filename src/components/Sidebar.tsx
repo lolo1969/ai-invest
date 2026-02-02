@@ -101,7 +101,7 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
           {/* Footer */}
           <div className="p-4 border-t border-[#252542]">
             <div className="px-4 py-3 bg-[#252542] rounded-lg">
-              <p className="text-xs text-gray-400">Trade Republic Advisor</p>
+              <p className="text-xs text-gray-400">AI Investment Advisor</p>
               <p className="text-xs text-gray-500 mt-1">v1.0.0</p>
             </div>
           </div>
