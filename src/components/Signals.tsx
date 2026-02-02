@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -12,10 +13,16 @@ import type { InvestmentSignal } from '../types';
 
 export function Signals() {
   const { signals, clearSignals } = useAppStore();
+  const [filter, setFilter] = useState<'ALL' | 'BUY' | 'SELL' | 'HOLD'>('ALL');
 
   const buySignals = signals.filter(s => s.signal === 'BUY');
   const sellSignals = signals.filter(s => s.signal === 'SELL');
   const holdSignals = signals.filter(s => s.signal === 'HOLD');
+
+  // Gefilterte Signale
+  const filteredSignals = filter === 'ALL' 
+    ? signals 
+    : signals.filter(s => s.signal === filter);
 
   return (
     <div className="p-6 space-y-6">
@@ -35,38 +42,69 @@ export function Signals() {
         )}
       </div>
 
-      {/* Signal Stats */}
+      {/* Signal Stats - Klickbar zum Filtern */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-4 flex items-center gap-4">
+        <button
+          onClick={() => setFilter(filter === 'BUY' ? 'ALL' : 'BUY')}
+          className={`bg-green-500/20 border rounded-xl p-4 flex items-center gap-4 transition-all
+                     ${filter === 'BUY' ? 'border-green-500 ring-2 ring-green-500/50' : 'border-green-500/30 hover:border-green-500/60'}`}
+        >
           <div className="p-3 bg-green-500/20 rounded-lg">
             <TrendingUp size={24} className="text-green-500" />
           </div>
-          <div>
+          <div className="text-left">
             <p className="text-green-400 text-sm">Kaufsignale</p>
             <p className="text-2xl font-bold text-white">{buySignals.length}</p>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-4 flex items-center gap-4">
+        <button
+          onClick={() => setFilter(filter === 'SELL' ? 'ALL' : 'SELL')}
+          className={`bg-red-500/20 border rounded-xl p-4 flex items-center gap-4 transition-all
+                     ${filter === 'SELL' ? 'border-red-500 ring-2 ring-red-500/50' : 'border-red-500/30 hover:border-red-500/60'}`}
+        >
           <div className="p-3 bg-red-500/20 rounded-lg">
             <TrendingDown size={24} className="text-red-500" />
           </div>
-          <div>
+          <div className="text-left">
             <p className="text-red-400 text-sm">Verkaufssignale</p>
             <p className="text-2xl font-bold text-white">{sellSignals.length}</p>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-4 flex items-center gap-4">
+        <button
+          onClick={() => setFilter(filter === 'HOLD' ? 'ALL' : 'HOLD')}
+          className={`bg-yellow-500/20 border rounded-xl p-4 flex items-center gap-4 transition-all
+                     ${filter === 'HOLD' ? 'border-yellow-500 ring-2 ring-yellow-500/50' : 'border-yellow-500/30 hover:border-yellow-500/60'}`}
+        >
           <div className="p-3 bg-yellow-500/20 rounded-lg">
             <Minus size={24} className="text-yellow-500" />
           </div>
-          <div>
+          <div className="text-left">
             <p className="text-yellow-400 text-sm">Halten</p>
             <p className="text-2xl font-bold text-white">{holdSignals.length}</p>
           </div>
-        </div>
+        </button>
       </div>
+
+      {/* Filter-Anzeige */}
+      {filter !== 'ALL' && (
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400">Filter aktiv:</span>
+          <span className={`px-3 py-1 rounded-full text-sm font-medium
+            ${filter === 'BUY' ? 'bg-green-500/20 text-green-400' : ''}
+            ${filter === 'SELL' ? 'bg-red-500/20 text-red-400' : ''}
+            ${filter === 'HOLD' ? 'bg-yellow-500/20 text-yellow-400' : ''}`}>
+            {filter === 'BUY' ? 'Kaufen' : filter === 'SELL' ? 'Verkaufen' : 'Halten'}
+          </span>
+          <button
+            onClick={() => setFilter('ALL')}
+            className="text-gray-500 hover:text-white text-sm underline"
+          >
+            Filter zurücksetzen
+          </button>
+        </div>
+      )}
 
       {/* Signals List */}
       {signals.length === 0 ? (
@@ -77,9 +115,17 @@ export function Signals() {
             Starte eine KI-Analyse im Dashboard, um Investment-Signale zu erhalten.
           </p>
         </div>
+      ) : filteredSignals.length === 0 ? (
+        <div className="bg-[#1a1a2e] rounded-xl p-12 border border-[#252542] text-center">
+          <AlertTriangle size={48} className="mx-auto text-gray-500 mb-4" />
+          <h3 className="text-xl font-semibold text-white mb-2">Keine Signale für diesen Filter</h3>
+          <p className="text-gray-400">
+            Es gibt keine {filter === 'BUY' ? 'Kauf' : filter === 'SELL' ? 'Verkauf' : 'Halten'}-Signale.
+          </p>
+        </div>
       ) : (
         <div className="space-y-4">
-          {signals.map((signal) => (
+          {filteredSignals.map((signal) => (
             <SignalDetailCard key={signal.id} signal={signal} />
           ))}
         </div>

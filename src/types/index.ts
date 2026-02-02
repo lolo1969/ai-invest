@@ -57,6 +57,7 @@ export interface UserPosition {
   buyPrice: number;
   currentPrice: number;
   currency: string;
+  useYahooPrice?: boolean;  // Auto-update price from Yahoo Finance
 }
 
 export interface UserSettings {

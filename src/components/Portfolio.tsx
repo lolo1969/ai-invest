@@ -85,6 +85,10 @@ export function Portfolio() {
           console.log('Result for', symbolToFetch, ':', quote);
           if (quote && quote.price > 0) {
             prices[position.id] = quote.price;
+            // Auto-update if useYahooPrice is enabled
+            if (position.useYahooPrice) {
+              updateUserPosition(position.id, { currentPrice: quote.price });
+            }
           }
         } catch (e) {
           console.error('Error fetching', symbolToFetch, ':', e);
@@ -896,19 +900,51 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
                           </div>
                         ) : (
                           <div className="flex items-center justify-end gap-2">
-                            <span className="text-white font-medium">
-                              {position.currentPrice.toFixed(2)} {position.currency}
-                            </span>
-                            <button
-                              onClick={() => {
-                                setEditPriceValue(position.currentPrice.toString());
-                                setEditingPrice(position.id);
-                              }}
-                              className="p-1 hover:bg-[#252542] rounded text-gray-400 hover:text-white"
-                              title="Preis bearbeiten"
-                            >
-                              <Edit3 size={12} />
-                            </button>
+                            <div className="text-right">
+                              <span className="text-white font-medium">
+                                {position.currentPrice.toFixed(2)} {position.currency}
+                              </span>
+                              {yahooPrices[position.id] !== undefined && (
+                                <span className="block text-xs text-yellow-500 mt-0.5">
+                                  Yahoo: {yahooPrices[position.id].toFixed(2)} EUR
+                                </span>
+                              )}
+                              {loadingYahooPrices && yahooPrices[position.id] === undefined && (
+                                <span className="block text-xs text-gray-500 mt-0.5 animate-pulse">
+                                  Lade...
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <button
+                                onClick={() => {
+                                  setEditPriceValue(position.currentPrice.toString());
+                                  setEditingPrice(position.id);
+                                }}
+                                className="p-1 hover:bg-[#252542] rounded text-gray-400 hover:text-white"
+                                title="Preis bearbeiten"
+                              >
+                                <Edit3 size={12} />
+                              </button>
+                              {yahooPrices[position.id] !== undefined && (
+                                <button
+                                  onClick={() => {
+                                    updateUserPosition(position.id, { 
+                                      currentPrice: yahooPrices[position.id],
+                                      useYahooPrice: !position.useYahooPrice 
+                                    });
+                                  }}
+                                  className={`p-1 rounded text-xs ${
+                                    position.useYahooPrice 
+                                      ? 'bg-yellow-500/30 text-yellow-400' 
+                                      : 'hover:bg-[#252542] text-gray-500 hover:text-yellow-400'
+                                  }`}
+                                  title={position.useYahooPrice ? 'Yahoo Live-Preis aktiv' : 'Yahoo-Preis übernehmen'}
+                                >
+                                  <RefreshCw size={12} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                       </td>
