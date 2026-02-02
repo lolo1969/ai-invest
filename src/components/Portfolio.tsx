@@ -41,6 +41,8 @@ export function Portfolio() {
   const [editSymbol, setEditSymbol] = useState('');
   const [editingPrice, setEditingPrice] = useState<string | null>(null);
   const [editPriceValue, setEditPriceValue] = useState('');
+  const [editingQuantity, setEditingQuantity] = useState<string | null>(null);
+  const [editQuantityValue, setEditQuantityValue] = useState('');
   
   // Form state
   const [formData, setFormData] = useState({
@@ -693,7 +695,62 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
                         )}
                       </td>
                       <td className="px-6 py-4 text-gray-300">{position.name}</td>
-                      <td className="px-6 py-4 text-right text-white">{position.quantity}</td>
+                      <td className="px-6 py-4 text-right">
+                        {editingQuantity === position.id ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={editQuantityValue}
+                              onChange={(e) => setEditQuantityValue(e.target.value)}
+                              className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-right"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const newQuantity = parseFloat(editQuantityValue);
+                                  if (newQuantity > 0) {
+                                    updateUserPosition(position.id, { quantity: newQuantity });
+                                  }
+                                  setEditingQuantity(null);
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={() => {
+                                const newQuantity = parseFloat(editQuantityValue);
+                                if (newQuantity > 0) {
+                                  updateUserPosition(position.id, { quantity: newQuantity });
+                                }
+                                setEditingQuantity(null);
+                              }}
+                              className="p-1 bg-green-500/20 hover:bg-green-500/30 rounded text-green-500"
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              onClick={() => setEditingQuantity(null)}
+                              className="p-1 bg-red-500/20 hover:bg-red-500/30 rounded text-red-500"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-white">{position.quantity}</span>
+                            <button
+                              onClick={() => {
+                                setEditQuantityValue(position.quantity.toString());
+                                setEditingQuantity(position.id);
+                              }}
+                              className="p-1 hover:bg-[#252542] rounded text-gray-400 hover:text-white"
+                              title="Anzahl bearbeiten"
+                            >
+                              <Edit3 size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-right text-gray-400">
                         {position.buyPrice.toFixed(2)} {position.currency}
                       </td>
