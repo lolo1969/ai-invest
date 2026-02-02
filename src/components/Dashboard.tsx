@@ -184,12 +184,14 @@ export function Dashboard() {
                       <td className="py-3 font-medium text-white">{stock.symbol}</td>
                       <td className="py-3 text-gray-300">{stock.name}</td>
                       <td className="py-3 text-right text-white">
-                        {stock.price.toFixed(2)} {stock.currency}
+                        {stock.price?.toFixed(2) ?? '-'} {stock.currency}
                       </td>
                       <td className={`py-3 text-right font-medium ${
-                        stock.changePercent >= 0 ? 'text-green-500' : 'text-red-500'
+                        (stock.changePercent ?? 0) >= 0 ? 'text-green-500' : 'text-red-500'
                       }`}>
-                        {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                        {stock.changePercent != null && !isNaN(stock.changePercent) 
+                          ? `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%`
+                          : '-'}
                       </td>
                     </tr>
                   ))}

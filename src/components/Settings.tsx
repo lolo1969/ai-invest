@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { 
   Save, 
   Key, 
@@ -7,19 +7,98 @@ import {
   Target, 
   Shield,
   Check,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Upload
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { notificationService } from '../services/notifications';
 import type { InvestmentStrategy, RiskLevel } from '../types';
 
 export function Settings() {
-  const { settings, updateSettings } = useAppStore();
+  const { settings, updateSettings, userPositions, watchlist, cashBalance, setCashBalance } = useAppStore();
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const [testingEmail, setTestingEmail] = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<'success' | 'error' | null>(null);
+  const [importStatus, setImportStatus] = useState<'success' | 'error' | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Export all data as JSON
+  const handleExport = () => {
+    const exportData = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      settings,
+      userPositions,
+      watchlist,
+      cashBalance
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ai-invest-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Import data from JSON file
+  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importData = JSON.parse(e.target?.result as string);
+        
+        // Restore settings
+        if (importData.settings) {
+          updateSettings(importData.settings);
+        }
+        
+        // Restore positions
+        if (importData.userPositions) {
+          const store = useAppStore.getState();
+          // Clear existing and add imported positions
+          importData.userPositions.forEach((pos: any) => {
+            store.addUserPosition(pos);
+          });
+        }
+        
+        // Restore watchlist
+        if (importData.watchlist) {
+          const store = useAppStore.getState();
+          importData.watchlist.forEach((stock: any) => {
+            store.addToWatchlist(stock);
+          });
+        }
+        
+        // Restore cash balance
+        if (importData.cashBalance !== undefined) {
+          setCashBalance(importData.cashBalance);
+        }
+        
+        setImportStatus('success');
+        setTimeout(() => setImportStatus(null), 3000);
+      } catch (error) {
+        console.error('Import failed:', error);
+        setImportStatus('error');
+        setTimeout(() => setImportStatus(null), 3000);
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleSave = () => {
     setSaved(true);
@@ -375,6 +454,55 @@ export function Settings() {
           3. Erstelle ein Template mit diesen Variablen: to_email, subject, stock_name, stock_symbol, signal_type, price, change, confidence, risk_level, reasoning, target_price, stop_loss, date<br />
           4. Kopiere Service ID, Template ID und Public Key hierher
         </p>
+      </section>
+
+      {/* Backup & Restore */}
+      <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-4">
+        <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+          <Download size={20} className="text-indigo-500" />
+          Backup & Wiederherstellung
+        </h2>
+        
+        <p className="text-gray-400 text-sm">
+          Exportiere alle deine Daten (Einstellungen, Portfolio, Watchlist) als JSON-Datei zum Backup oder zum Übertragen auf ein anderes Gerät.
+        </p>
+
+        <div className="flex flex-wrap gap-4">
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 
+                     text-white rounded-lg transition-colors"
+          >
+            <Download size={18} />
+            Daten exportieren (JSON)
+          </button>
+
+          <label className="flex items-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 
+                          text-white rounded-lg transition-colors cursor-pointer">
+            <Upload size={18} />
+            Backup importieren
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleImport}
+              className="hidden"
+            />
+          </label>
+        </div>
+
+        {importStatus === 'success' && (
+          <div className="flex items-center gap-2 text-green-500 text-sm">
+            <Check size={16} />
+            Import erfolgreich! Daten wurden wiederhergestellt.
+          </div>
+        )}
+        {importStatus === 'error' && (
+          <div className="flex items-center gap-2 text-red-500 text-sm">
+            <AlertCircle size={16} />
+            Import fehlgeschlagen. Bitte prüfe die Datei.
+          </div>
+        )}
       </section>
 
       {/* Save Button */}

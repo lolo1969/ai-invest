@@ -70,6 +70,7 @@ export function Portfolio() {
     const fetchYahooPrices = async () => {
       if (userPositions.length === 0) return;
       
+      console.log('Fetching Yahoo prices for', userPositions.length, 'positions...');
       setLoadingYahooPrices(true);
       const prices: Record<string, number> = {};
       
@@ -78,16 +79,19 @@ export function Portfolio() {
           ? position.symbol 
           : position.isin || position.symbol;
         
+        console.log('Fetching price for:', symbolToFetch);
         try {
           const quote = await marketDataService.getQuote(symbolToFetch);
+          console.log('Result for', symbolToFetch, ':', quote);
           if (quote && quote.price > 0) {
             prices[position.id] = quote.price;
           }
         } catch (e) {
-          // Ignore errors
+          console.error('Error fetching', symbolToFetch, ':', e);
         }
       }
       
+      console.log('Final Yahoo prices:', prices);
       setYahooPrices(prices);
       setLoadingYahooPrices(false);
     };
@@ -716,16 +720,12 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
                                   {position.isin}
                                 </span>
                               )}
-                              {yahooPrices[position.id] !== undefined && (
-                                <span className="block text-xs text-yellow-500 mt-0.5" title="Yahoo Finance Preis">
-                                  Yahoo: {yahooPrices[position.id].toFixed(2)} EUR
-                                </span>
-                              )}
-                              {loadingYahooPrices && !yahooPrices[position.id] && (
-                                <span className="block text-xs text-gray-500 mt-0.5 animate-pulse">
-                                  Lade Yahoo...
-                                </span>
-                              )}
+                              <span className="block text-xs text-yellow-500 mt-0.5" title="Yahoo Finance Preis">
+                                {loadingYahooPrices ? 'Lade Yahoo...' : 
+                                 yahooPrices[position.id] !== undefined ? 
+                                   `Yahoo: ${yahooPrices[position.id].toFixed(2)} EUR` : 
+                                   'Yahoo: nicht verfügbar'}
+                              </span>
                             </div>
                             <button
                               onClick={() => {
