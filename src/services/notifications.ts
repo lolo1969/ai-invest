@@ -55,6 +55,39 @@ _AI Invest - ${new Date().toLocaleString('de-DE')}_
     }
   }
 
+  // Send simple Telegram message (for price alerts)
+  async sendTelegramMessage(
+    botToken: string,
+    chatId: string,
+    message: string
+  ): Promise<boolean> {
+    if (!botToken || !chatId) {
+      console.warn('Telegram credentials not configured');
+      return false;
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${botToken}/sendMessage`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: message,
+            parse_mode: 'Markdown',
+          }),
+        }
+      );
+
+      const data = await response.json();
+      return data.ok === true;
+    } catch (error) {
+      console.error('Telegram message failed:', error);
+      return false;
+    }
+  }
+
   // Send email notification using EmailJS
   async sendEmail(
     to: string,

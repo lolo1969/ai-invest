@@ -5,10 +5,13 @@ import {
   Trash2, 
   TrendingUp, 
   TrendingDown,
-  RefreshCw
+  RefreshCw,
+  BarChart3
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
+import { StockChart } from './StockChart';
+import type { Stock } from '../types';
 
 export function Watchlist() {
   const { settings, updateSettings, watchlist, addToWatchlist, removeFromWatchlist } = useAppStore();
@@ -16,6 +19,7 @@ export function Watchlist() {
   const [searchResults, setSearchResults] = useState<{ symbol: string; name: string; price?: number; change?: number; changePercent?: number }[]>([]);
   const [searching, setSearching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -97,6 +101,11 @@ export function Watchlist() {
           Aktualisieren
         </button>
       </div>
+
+      {/* Stock Chart Modal */}
+      {selectedStock && (
+        <StockChart stock={selectedStock} onClose={() => setSelectedStock(null)} />
+      )}
 
       {/* Search */}
       <div className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542]">
@@ -194,6 +203,7 @@ export function Watchlist() {
                   <th className="px-6 py-4 text-right">Preis</th>
                   <th className="px-6 py-4 text-right">Änderung</th>
                   <th className="px-6 py-4 text-right">Börse</th>
+                  <th className="px-6 py-4 text-center">Chart</th>
                   <th className="px-6 py-4 text-center">Aktion</th>
                 </tr>
               </thead>
@@ -227,6 +237,15 @@ export function Watchlist() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-right text-gray-400">{stock.exchange || '-'}</td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => setSelectedStock(stock)}
+                        className="p-2 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors"
+                        title="Chart anzeigen"
+                      >
+                        <BarChart3 size={18} />
+                      </button>
+                    </td>
                     <td className="px-6 py-4 text-center">
                       <button
                         onClick={() => removeStock(stock.symbol)}

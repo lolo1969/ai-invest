@@ -94,6 +94,21 @@ export interface APIKeys {
   marketData: string;
 }
 
+// Price Alert Types
+export type AlertCondition = 'above' | 'below';
+
+export interface PriceAlert {
+  id: string;
+  symbol: string;
+  name: string;
+  targetPrice: number;
+  condition: AlertCondition;
+  currentPrice: number;
+  createdAt: Date;
+  triggered: boolean;
+  triggeredAt?: Date;
+}
+
 // Market Data Types
 export interface MarketQuote {
   symbol: string;

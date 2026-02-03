@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -9,36 +9,28 @@ import {
   Brain
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { marketDataService } from '../services/marketData';
-import { getAIService } from '../services/aiService';
+import { useStocksWithRange, useAIAnalysis } from '../hooks/useMarketData';
 import { notificationService } from '../services/notifications';
-import type { Stock, InvestmentSignal } from '../types';
+import type { InvestmentSignal } from '../types';
 
 export function Dashboard() {
-  const { settings, signals, addSignal, addToWatchlist, setLoading, isLoading, setError, cashBalance } = useAppStore();
-  const [stocks, setStocks] = useState<Stock[]>([]);
-  const [analyzing, setAnalyzing] = useState(false);
+  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance } = useAppStore();
+  
+  // Use React Query for stock data
+  const { 
+    data: stocks = [], 
+    isLoading, 
+    refetch,
+    isRefetching 
+  } = useStocksWithRange(settings.watchlist);
+  
+  // AI Analysis mutation
+  const aiAnalysis = useAIAnalysis(settings.apiKeys.claude);
 
-  // Fetch stock data with 52-week range for better analysis
+  // Add stocks to watchlist when data updates
   useEffect(() => {
-    const fetchStocks = async () => {
-      setLoading(true);
-      try {
-        // Use getQuotesWithRange for 52-week data (used in AI analysis)
-        const data = await marketDataService.getQuotesWithRange(settings.watchlist);
-        setStocks(data);
-        data.forEach(stock => addToWatchlist(stock));
-      } catch (error) {
-        console.error('Failed to fetch stocks:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStocks();
-    const interval = setInterval(fetchStocks, 60000); // Update every minute
-    return () => clearInterval(interval);
-  }, [settings.watchlist]);
+    stocks.forEach(stock => addToWatchlist(stock));
+  }, [stocks, addToWatchlist]);
 
   // Run AI analysis
   const runAnalysis = async () => {
@@ -52,18 +44,13 @@ export function Dashboard() {
       return;
     }
 
-    console.log('Starting AI analysis with stocks:', stocks);
-    setAnalyzing(true);
     try {
-      const aiService = getAIService(settings.apiKeys.claude);
-      console.log('Calling AI service...');
-      const response = await aiService.analyzeMarket({
+      const response = await aiAnalysis.mutateAsync({
         stocks,
         strategy: settings.strategy,
         riskTolerance: settings.riskTolerance,
         budget: cashBalance,
       });
-      console.log('AI response:', response);
 
       // Add signals and send notifications
       for (const signal of response.signals) {
@@ -91,8 +78,6 @@ export function Dashboard() {
       }
     } catch (error: any) {
       setError(error.message || 'Analyse fehlgeschlagen');
-    } finally {
-      setAnalyzing(false);
     }
   };
 
@@ -108,24 +93,35 @@ export function Dashboard() {
           <h1 className="text-3xl font-bold text-white">Dashboard</h1>
           <p className="text-gray-400">Dein KI-Investment-Überblick</p>
         </div>
-        <button
-          onClick={runAnalysis}
-          disabled={analyzing || isLoading}
-          className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 
-                     disabled:bg-indigo-600/50 text-white rounded-lg transition-colors"
-        >
-          {analyzing ? (
-            <>
-              <RefreshCw className="animate-spin" size={20} />
-              Analysiere...
-            </>
-          ) : (
-            <>
-              <Brain size={20} />
-              KI-Analyse starten
-            </>
-          )}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="flex items-center gap-2 px-4 py-3 bg-[#252542] hover:bg-[#3a3a5a] 
+                       disabled:opacity-50 text-white rounded-lg transition-colors"
+            title="Kurse aktualisieren"
+          >
+            <RefreshCw className={isRefetching ? 'animate-spin' : ''} size={20} />
+          </button>
+          <button
+            onClick={runAnalysis}
+            disabled={aiAnalysis.isPending || isLoading}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 
+                       disabled:bg-indigo-600/50 text-white rounded-lg transition-colors"
+          >
+            {aiAnalysis.isPending ? (
+              <>
+                <RefreshCw className="animate-spin" size={20} />
+                Analysiere...
+              </>
+            ) : (
+              <>
+                <Brain size={20} />
+                KI-Analyse starten
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}

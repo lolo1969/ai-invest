@@ -7,7 +7,8 @@ import {
   Briefcase,
   Search,
   Menu,
-  X
+  X,
+  BellRing
 } from 'lucide-react';
 
 interface NavItem {
@@ -26,6 +27,7 @@ const navItems: NavItem[] = [
   { id: 'signals', label: 'Signale', icon: <TrendingUp size={20} /> },
   { id: 'portfolio', label: 'Portfolio', icon: <Briefcase size={20} /> },
   { id: 'watchlist', label: 'Watchlist', icon: <Search size={20} /> },
+  { id: 'price-alerts', label: 'Preisalarme', icon: <BellRing size={20} /> },
   { id: 'notifications', label: 'Alerts', icon: <Bell size={20} /> },
   { id: 'settings', label: 'Einstellungen', icon: <Settings size={20} /> },
 ];

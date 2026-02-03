@@ -6,6 +6,7 @@ import { Signals } from './components/Signals';
 import { Watchlist } from './components/Watchlist';
 import { Portfolio } from './components/Portfolio';
 import { Notifications } from './components/Notifications';
+import { PriceAlerts } from './components/PriceAlerts';
 import { useAppStore } from './store/useAppStore';
 import { AlertCircle, X } from 'lucide-react';
 
@@ -27,6 +28,8 @@ function App() {
         return <Portfolio />;
       case 'notifications':
         return <Notifications />;
+      case 'price-alerts':
+        return <PriceAlerts />;
       default:
         return <Dashboard />;
     }

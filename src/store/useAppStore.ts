@@ -5,7 +5,8 @@ import type {
   InvestmentSignal, 
   Portfolio, 
   Stock,
-  UserPosition
+  UserPosition,
+  PriceAlert
 } from '../types';
 
 interface AppState {
@@ -38,6 +39,12 @@ interface AppState {
   watchlist: Stock[];
   addToWatchlist: (stock: Stock) => void;
   removeFromWatchlist: (symbol: string) => void;
+  
+  // Price Alerts
+  priceAlerts: PriceAlert[];
+  addPriceAlert: (alert: PriceAlert) => void;
+  removePriceAlert: (id: string) => void;
+  triggerPriceAlert: (id: string) => void;
   
   // UI State
   isLoading: boolean;
@@ -130,6 +137,23 @@ export const useAppStore = create<AppState>()(
           watchlist: state.watchlist.filter((s) => s.symbol !== symbol),
         })),
 
+      // Price Alerts
+      priceAlerts: [],
+      addPriceAlert: (alert) =>
+        set((state) => ({
+          priceAlerts: [...state.priceAlerts, alert],
+        })),
+      removePriceAlert: (id) =>
+        set((state) => ({
+          priceAlerts: state.priceAlerts.filter((a) => a.id !== id),
+        })),
+      triggerPriceAlert: (id) =>
+        set((state) => ({
+          priceAlerts: state.priceAlerts.map((a) =>
+            a.id === id ? { ...a, triggered: true, triggeredAt: new Date() } : a
+          ),
+        })),
+
       // UI
       isLoading: false,
       setLoading: (loading) => set({ isLoading: loading }),
@@ -145,6 +169,7 @@ export const useAppStore = create<AppState>()(
         cashBalance: state.cashBalance,
         watchlist: state.watchlist,
         signals: state.signals,
+        priceAlerts: state.priceAlerts,
       }),
     }
   )
