@@ -84,8 +84,8 @@ export class MarketDataService {
       }
 
       const meta = result.meta;
-      let price = meta.regularMarketPrice;
-      let previousClose = meta.previousClose;
+      let price = meta.regularMarketPrice || 0;
+      let previousClose = meta.previousClose || meta.chartPreviousClose || price;
       const originalCurrency = meta.currency || 'USD';
       
       // Convert to EUR if price is in USD
@@ -96,12 +96,18 @@ export class MarketDataService {
         console.log(`Converted ${symbol}: ${meta.regularMarketPrice} USD → ${price.toFixed(2)} EUR`);
       }
       
+      // Calculate change safely
+      const change = previousClose > 0 ? price - previousClose : 0;
+      const changePercent = previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : 0;
+      
+      console.log(`[${symbol}] Price: ${price.toFixed(2)}, PrevClose: ${previousClose.toFixed(2)}, Change: ${changePercent.toFixed(2)}%`);
+      
       return {
         symbol: meta.symbol,
         name: meta.shortName || meta.longName || symbol,
         price: price,
-        change: price - previousClose,
-        changePercent: ((price - previousClose) / previousClose) * 100,
+        change: change,
+        changePercent: changePercent,
         currency: 'EUR', // Always EUR
         exchange: meta.exchangeName || 'Unknown',
       };
