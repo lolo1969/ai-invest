@@ -667,7 +667,9 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
                 </tr>
               </thead>
               <tbody>
-                {userPositions.map((position) => {
+                {[...userPositions]
+                  .sort((a, b) => (b.quantity * b.currentPrice) - (a.quantity * a.currentPrice))
+                  .map((position) => {
                   const pl = getProfitLoss(position);
                   return (
                     <tr 
