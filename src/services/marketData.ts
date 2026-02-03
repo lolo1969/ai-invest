@@ -182,6 +182,54 @@ export class MarketDataService {
     }
   }
 
+  // Fetch quote with 52-week high/low data for better analysis
+  async getQuoteWithRange(symbol: string): Promise<Stock | null> {
+    try {
+      // First get current quote
+      const quote = await this.getQuote(symbol);
+      if (!quote) return null;
+
+      // Then fetch 1-year historical data to calculate 52-week high/low
+      const historicalData = await this.getHistoricalData(symbol, '1y');
+      
+      if (historicalData.length > 0) {
+        const highs = historicalData.map(d => d.high).filter(h => h > 0);
+        const lows = historicalData.map(d => d.low).filter(l => l > 0);
+        
+        if (highs.length > 0 && lows.length > 0) {
+          const week52High = Math.max(...highs);
+          const week52Low = Math.min(...lows);
+          const range = week52High - week52Low;
+          
+          // Calculate where the current price sits in the 52-week range (0% = at low, 100% = at high)
+          const week52ChangePercent = range > 0 
+            ? ((quote.price - week52Low) / range) * 100 
+            : 50;
+          
+          console.log(`[${symbol}] 52W: Low=${week52Low.toFixed(2)}, High=${week52High.toFixed(2)}, Current=${quote.price.toFixed(2)} (${week52ChangePercent.toFixed(1)}% im Bereich)`);
+          
+          return {
+            ...quote,
+            week52High,
+            week52Low,
+            week52ChangePercent
+          };
+        }
+      }
+      
+      return quote;
+    } catch (error) {
+      console.error(`Failed to fetch extended quote for ${symbol}:`, error);
+      return this.getQuote(symbol);
+    }
+  }
+
+  // Fetch multiple quotes with 52-week range data
+  async getQuotesWithRange(symbols: string[]): Promise<Stock[]> {
+    const quotes = await Promise.all(symbols.map((s) => this.getQuoteWithRange(s)));
+    return quotes.filter((q): q is Stock => q !== null);
+  }
+
   // Get market news (using Finnhub if API key is available)
   async getMarketNews(): Promise<any[]> {
     if (!this.apiKey) return [];

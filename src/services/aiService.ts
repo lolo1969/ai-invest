@@ -82,7 +82,17 @@ export class AIService {
     }[request.riskTolerance];
 
     const stocksInfo = request.stocks
-      .map(s => `${s.symbol} (${s.name}): ${s.price.toFixed(2)} ${s.currency} (${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%)`)
+      .map(s => {
+        let info = `${s.symbol} (${s.name}): ${s.price.toFixed(2)} ${s.currency} (${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%)`;
+        
+        // Add 52-week range data if available
+        if (s.week52High && s.week52Low) {
+          const positionInRange = s.week52ChangePercent?.toFixed(0) || 'N/A';
+          info += ` | 52W: ${s.week52Low.toFixed(2)}-${s.week52High.toFixed(2)} (${positionInRange}% im Bereich)`;
+        }
+        
+        return info;
+      })
       .join('\n');
 
     return `Du bist ein erfahrener Investment-Analyst. Analysiere die folgenden Aktien und gib konkrete Kauf-/Verkaufsempfehlungen.
@@ -93,8 +103,15 @@ KONTEXT:
 - Verfügbares Budget: ${request.budget.toFixed(2)} EUR
 - Fokus: Deutsche/europäische und US-Aktien
 
-AKTUELLE KURSE:
+AKTUELLE KURSE (mit 52-Wochen-Bereich):
 ${stocksInfo}
+
+WICHTIG - TIMING-ANALYSE:
+- Berücksichtige den 52-Wochen-Bereich für optimale Einstiegs-/Ausstiegspunkte
+- Empfehle KAUF bevorzugt wenn der Preis näher am 52W-Tief ist (unter 40% im Bereich)
+- Empfehle VERKAUF bevorzugt wenn der Preis näher am 52W-Hoch ist (über 80% im Bereich)
+- Preise nahe am Allzeithoch (>90%) sollten mit Vorsicht behandelt werden
+- Bei HOLD: Gib an, bei welchem Preis ein guter Einstieg/Ausstieg wäre
 
 ${request.currentPositions?.length ? `
 AKTUELLE POSITIONEN:
@@ -105,10 +122,11 @@ AUFGABE:
 Analysiere jede Aktie und gib für jede eine Empfehlung (BUY/SELL/HOLD) mit:
 1. Signal (BUY, SELL, oder HOLD)
 2. Konfidenz (0-100%)
-3. Begründung (2-3 Sätze)
-4. Zielpreis (optional)
-5. Stop-Loss (optional)
-6. Risikoeinschätzung (low/medium/high)
+3. Begründung (2-3 Sätze, berücksichtige die Position im 52W-Bereich)
+4. Idealer Einstiegspreis (bei BUY: Warte-Preis falls aktuell zu hoch)
+5. Zielpreis
+6. Stop-Loss
+7. Risikoeinschätzung (low/medium/high)
 
 Antworte im folgenden JSON-Format:
 {
@@ -117,9 +135,10 @@ Antworte im folgenden JSON-Format:
       "symbol": "AAPL",
       "signal": "BUY",
       "confidence": 75,
-      "reasoning": "Begründung hier...",
+      "reasoning": "Begründung hier, inkl. Timing-Empfehlung basierend auf 52W-Bereich...",
+      "idealEntryPrice": 165.00,
       "targetPrice": 180.00,
-      "stopLoss": 165.00,
+      "stopLoss": 155.00,
       "riskLevel": "medium"
     }
   ],
@@ -152,6 +171,7 @@ Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
           strategy: 'middle' as InvestmentStrategy,
           confidence: s.confidence || 50,
           reasoning: s.reasoning || '',
+          idealEntryPrice: s.idealEntryPrice,
           targetPrice: s.targetPrice,
           stopLoss: s.stopLoss,
           createdAt: new Date(),

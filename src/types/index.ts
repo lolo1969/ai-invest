@@ -11,6 +11,10 @@ export interface Stock {
   changePercent: number;
   currency: string;
   exchange: string;
+  // 52-Wochen-Daten (optional, für erweiterte Analyse)
+  week52High?: number;
+  week52Low?: number;
+  week52ChangePercent?: number;  // Wo steht der Preis im 52-Wochen-Bereich (0-100%)
 }
 
 export interface InvestmentSignal {
@@ -20,6 +24,7 @@ export interface InvestmentSignal {
   strategy: InvestmentStrategy;
   confidence: number; // 0-100
   reasoning: string;
+  idealEntryPrice?: number;  // Empfohlener Einstiegspreis
   targetPrice?: number;
   stopLoss?: number;
   createdAt: Date;

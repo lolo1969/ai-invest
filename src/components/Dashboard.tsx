@@ -19,12 +19,13 @@ export function Dashboard() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
 
-  // Fetch stock data
+  // Fetch stock data with 52-week range for better analysis
   useEffect(() => {
     const fetchStocks = async () => {
       setLoading(true);
       try {
-        const data = await marketDataService.getQuotes(settings.watchlist);
+        // Use getQuotesWithRange for 52-week data (used in AI analysis)
+        const data = await marketDataService.getQuotesWithRange(settings.watchlist);
         setStocks(data);
         data.forEach(stock => addToWatchlist(stock));
       } catch (error) {

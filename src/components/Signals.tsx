@@ -6,7 +6,8 @@ import {
   AlertTriangle,
   Clock,
   Target,
-  Shield
+  Shield,
+  DollarSign
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import type { InvestmentSignal } from '../types';
@@ -210,6 +211,17 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
                 </p>
                 <p className="text-green-400 font-medium">
                   {signal.targetPrice.toFixed(2)} {signal.stock.currency}
+                </p>
+              </div>
+            )}
+
+            {signal.idealEntryPrice && (
+              <div>
+                <p className="text-gray-500 flex items-center gap-1">
+                  <DollarSign size={14} /> Idealer Einstieg
+                </p>
+                <p className="text-blue-400 font-medium">
+                  {signal.idealEntryPrice.toFixed(2)} {signal.stock.currency}
                 </p>
               </div>
             )}
