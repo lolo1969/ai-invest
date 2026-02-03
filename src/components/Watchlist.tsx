@@ -144,10 +144,10 @@ export function Watchlist() {
                   <span className="text-gray-400 ml-2">{result.name}</span>
                 </div>
                 <div className="flex items-center gap-4">
-                  {result.price !== undefined && (
+                  {result.price !== undefined && !isNaN(result.price) && (
                     <div className="text-right">
                       <span className="text-white font-medium">{result.price.toFixed(2)} EUR</span>
-                      {result.changePercent !== undefined && (
+                      {result.changePercent !== undefined && !isNaN(result.changePercent) && (
                         <span className={`ml-2 text-sm ${result.changePercent >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                           {result.changePercent >= 0 ? '+' : ''}{result.changePercent.toFixed(2)}%
                         </span>
@@ -208,21 +208,25 @@ export function Watchlist() {
                     </td>
                     <td className="px-6 py-4 text-gray-300">{stock.name}</td>
                     <td className="px-6 py-4 text-right text-white font-medium">
-                      {stock.price.toFixed(2)} {stock.currency}
+                      {stock.price != null && !isNaN(stock.price) ? `${stock.price.toFixed(2)} ${stock.currency}` : '-'}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <span className={`flex items-center justify-end gap-1 font-medium ${
-                        stock.changePercent >= 0 ? 'text-green-500' : 'text-red-500'
-                      }`}>
-                        {stock.changePercent >= 0 ? (
-                          <TrendingUp size={16} />
-                        ) : (
-                          <TrendingDown size={16} />
-                        )}
-                        {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
-                      </span>
+                      {stock.changePercent != null && !isNaN(stock.changePercent) ? (
+                        <span className={`flex items-center justify-end gap-1 font-medium ${
+                          stock.changePercent >= 0 ? 'text-green-500' : 'text-red-500'
+                        }`}>
+                          {stock.changePercent >= 0 ? (
+                            <TrendingUp size={16} />
+                          ) : (
+                            <TrendingDown size={16} />
+                          )}
+                          {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                        </span>
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
                     </td>
-                    <td className="px-6 py-4 text-right text-gray-400">{stock.exchange}</td>
+                    <td className="px-6 py-4 text-right text-gray-400">{stock.exchange || '-'}</td>
                     <td className="px-6 py-4 text-center">
                       <button
                         onClick={() => removeStock(stock.symbol)}

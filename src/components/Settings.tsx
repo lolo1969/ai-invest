@@ -16,7 +16,7 @@ import { notificationService } from '../services/notifications';
 import type { InvestmentStrategy, RiskLevel } from '../types';
 
 export function Settings() {
-  const { settings, updateSettings, userPositions, watchlist, cashBalance, setCashBalance } = useAppStore();
+  const { settings, updateSettings, userPositions, watchlist, cashBalance, setCashBalance, signals, addSignal, clearSignals } = useAppStore();
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
@@ -33,6 +33,7 @@ export function Settings() {
       settings,
       userPositions,
       watchlist,
+      signals,
       cashBalance
     };
     
@@ -56,26 +57,42 @@ export function Settings() {
     reader.onload = (e) => {
       try {
         const importData = JSON.parse(e.target?.result as string);
+        const store = useAppStore.getState();
         
-        // Restore settings
+        // Restore settings (includes watchlist symbols)
         if (importData.settings) {
           updateSettings(importData.settings);
         }
         
-        // Restore positions
-        if (importData.userPositions) {
-          const store = useAppStore.getState();
-          // Clear existing and add imported positions
+        // Restore positions - clear existing first, then add imported
+        if (importData.userPositions && Array.isArray(importData.userPositions)) {
+          // Remove all existing positions
+          store.userPositions.forEach((pos: any) => {
+            store.removeUserPosition(pos.id);
+          });
+          // Add imported positions
           importData.userPositions.forEach((pos: any) => {
             store.addUserPosition(pos);
           });
         }
         
-        // Restore watchlist
-        if (importData.watchlist) {
-          const store = useAppStore.getState();
+        // Restore watchlist stocks
+        if (importData.watchlist && Array.isArray(importData.watchlist)) {
+          // Clear existing watchlist
+          store.watchlist.forEach((stock: any) => {
+            store.removeFromWatchlist(stock.symbol);
+          });
+          // Add imported watchlist
           importData.watchlist.forEach((stock: any) => {
             store.addToWatchlist(stock);
+          });
+        }
+        
+        // Restore signals
+        if (importData.signals && Array.isArray(importData.signals)) {
+          clearSignals();
+          importData.signals.forEach((signal: any) => {
+            addSignal(signal);
           });
         }
         

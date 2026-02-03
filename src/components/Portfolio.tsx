@@ -33,7 +33,6 @@ export function Portfolio() {
   
   const [showAddForm, setShowAddForm] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [editingCash, setEditingCash] = useState(false);
   const [cashInput, setCashInput] = useState('');
@@ -65,43 +64,70 @@ export function Portfolio() {
   const totalProfitLoss = totalCurrentValue - totalInvested;
   const totalProfitLossPercent = totalInvested > 0 ? (totalProfitLoss / totalInvested) * 100 : 0;
 
+  // Timestamp for last update
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+
+  // Fetch Yahoo prices function - extracted for manual refresh
+  const fetchYahooPrices = async () => {
+    if (userPositions.length === 0) return;
+    
+    console.log('[Yahoo] Fetching prices for', userPositions.length, 'positions...');
+    setLoadingYahooPrices(true);
+    const prices: Record<string, number> = {};
+    
+    // Get current positions from store to avoid stale closure
+    const currentPositions = useAppStore.getState().userPositions;
+    
+    for (const position of currentPositions) {
+      const symbolToFetch = position.symbol && position.symbol !== position.isin 
+        ? position.symbol 
+        : position.isin || position.symbol;
+      
+      console.log('[Yahoo] Fetching:', symbolToFetch);
+      try {
+        const quote = await marketDataService.getQuote(symbolToFetch);
+        console.log('[Yahoo] Result for', symbolToFetch, ':', quote);
+        if (quote && quote.price > 0 && !isNaN(quote.price)) {
+          prices[position.id] = quote.price;
+          // Auto-update if useYahooPrice is enabled
+          if (position.useYahooPrice) {
+            console.log('[Yahoo] Auto-updating position', position.id, 'to price:', quote.price);
+            useAppStore.getState().updateUserPosition(position.id, { currentPrice: quote.price });
+          }
+        }
+      } catch (e) {
+        console.error('[Yahoo] Error fetching', symbolToFetch, ':', e);
+      }
+    }
+    
+    console.log('[Yahoo] Final prices:', prices);
+    setYahooPrices(prices);
+    setLoadingYahooPrices(false);
+    setLastUpdate(new Date());
+  };
+
   // Fetch Yahoo Finance prices for comparison
   useEffect(() => {
-    const fetchYahooPrices = async () => {
-      if (userPositions.length === 0) return;
-      
-      console.log('Fetching Yahoo prices for', userPositions.length, 'positions...');
-      setLoadingYahooPrices(true);
-      const prices: Record<string, number> = {};
-      
-      for (const position of userPositions) {
-        const symbolToFetch = position.symbol && position.symbol !== position.isin 
-          ? position.symbol 
-          : position.isin || position.symbol;
-        
-        console.log('Fetching price for:', symbolToFetch);
-        try {
-          const quote = await marketDataService.getQuote(symbolToFetch);
-          console.log('Result for', symbolToFetch, ':', quote);
-          if (quote && quote.price > 0) {
-            prices[position.id] = quote.price;
-            // Auto-update if useYahooPrice is enabled
-            if (position.useYahooPrice) {
-              updateUserPosition(position.id, { currentPrice: quote.price });
-            }
-          }
-        } catch (e) {
-          console.error('Error fetching', symbolToFetch, ':', e);
-        }
-      }
-      
-      console.log('Final Yahoo prices:', prices);
-      setYahooPrices(prices);
-      setLoadingYahooPrices(false);
-    };
-    
+    // Fetch immediately on mount
     fetchYahooPrices();
-  }, [userPositions.length]);
+    
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(fetchYahooPrices, 60000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Refetch when positions change or useYahooPrice toggles change
+  const positionCount = userPositions.length;
+  const yahooEnabledSignature = userPositions.map(p => `${p.id}:${p.useYahooPrice}`).join(',');
+  
+  useEffect(() => {
+    if (positionCount > 0) {
+      console.log('[Yahoo] Positions or settings changed, refetching...');
+      fetchYahooPrices();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positionCount, yahooEnabledSignature]);
 
   const handleAddPosition = () => {
     if ((!formData.symbol && !formData.isin) || !formData.quantity || !formData.buyPrice || !formData.currentPrice) {
@@ -131,50 +157,6 @@ export function Portfolio() {
       absolute: current - invested,
       percent: ((current - invested) / invested) * 100
     };
-  };
-
-  // Refresh live prices for all positions
-  const refreshPrices = async () => {
-    if (userPositions.length === 0) return;
-    
-    setRefreshingPrices(true);
-    let updatedCount = 0;
-    let failedCount = 0;
-    const errors: string[] = [];
-    
-    try {
-      for (const position of userPositions) {
-        // Use symbol if available, otherwise try ISIN
-        const symbolToFetch = position.symbol && position.symbol !== position.isin 
-          ? position.symbol 
-          : position.isin || position.symbol;
-        
-        try {
-          console.log(`Fetching price for ${symbolToFetch}...`);
-          const quote = await marketDataService.getQuote(symbolToFetch);
-          console.log(`Result for ${symbolToFetch}:`, quote);
-          
-          if (quote && quote.price > 0) {
-            updateUserPosition(position.id, { currentPrice: quote.price });
-            updatedCount++;
-          } else {
-            errors.push(`${position.name}: Kein Kurs gefunden`);
-            failedCount++;
-          }
-        } catch (e) {
-          errors.push(`${position.name}: Fehler beim Abruf`);
-          failedCount++;
-        }
-      }
-      
-      if (errors.length > 0) {
-        setError(`${updatedCount} aktualisiert, ${failedCount} fehlgeschlagen: ${errors.slice(0, 3).join(', ')}${errors.length > 3 ? '...' : ''}`);
-      }
-    } catch (error: any) {
-      setError('Fehler beim Aktualisieren der Kurse: ' + error.message);
-    } finally {
-      setRefreshingPrices(false);
-    }
   };
 
   // AI Portfolio Analysis
@@ -343,7 +325,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white">Mein Portfolio</h1>
-          <p className="text-gray-400">Verwalte und analysiere deine Aktien</p>
+          <p className="text-gray-400">
+            Verwalte und analysiere deine Aktien
+            {lastUpdate && (
+              <span className="ml-2 text-xs text-gray-500">
+                • Preise aktualisiert: {lastUpdate.toLocaleTimeString()}
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
@@ -354,26 +343,6 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
             <Plus size={18} />
             Position hinzufügen
           </button>
-          {/* Kurse aktualisieren Button deaktiviert - Preise weichen von Broker ab
-          <button
-            onClick={refreshPrices}
-            disabled={refreshingPrices || userPositions.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 
-                     disabled:bg-blue-600/50 text-white rounded-lg transition-colors"
-          >
-            {refreshingPrices ? (
-              <>
-                <RefreshCw className="animate-spin" size={18} />
-                Aktualisiere...
-              </>
-            ) : (
-              <>
-                <RefreshCw size={18} />
-                Kurse aktualisieren
-              </>
-            )}
-          </button>
-          */}
           <button
             onClick={analyzePortfolio}
             disabled={analyzing || userPositions.length === 0}
@@ -389,6 +358,25 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
               <>
                 <Brain size={18} />
                 KI-Analyse
+              </>
+            )}
+          </button>
+          <button
+            onClick={fetchYahooPrices}
+            disabled={loadingYahooPrices || userPositions.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 
+                     disabled:bg-blue-600/50 text-white rounded-lg transition-colors"
+            title={lastUpdate ? `Zuletzt aktualisiert: ${lastUpdate.toLocaleTimeString()}` : 'Noch nicht aktualisiert'}
+          >
+            {loadingYahooPrices ? (
+              <>
+                <RefreshCw className="animate-spin" size={18} />
+                Lade...
+              </>
+            ) : (
+              <>
+                <RefreshCw size={18} />
+                Preise aktualisieren
               </>
             )}
           </button>

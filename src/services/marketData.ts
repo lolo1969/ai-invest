@@ -1,9 +1,23 @@
 import axios from 'axios';
 import type { Stock, HistoricalData } from '../types';
 
-// CORS Proxy for browser requests
-const CORS_PROXY = 'https://corsproxy.io/?';
+// Use own PHP proxy on production, Vite proxy for local dev
+const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
+const OWN_PROXY = '/api/proxy.php?url=';
+// For localhost, use Vite's built-in proxy (no encoding needed)
+const LOCAL_PROXY = '/yahoo-api';
 const FINNHUB_API = 'https://finnhub.io/api/v1';
+
+// Helper to build URL based on environment
+function buildYahooUrl(path: string): string {
+  if (isProduction) {
+    // Production: use PHP proxy with full URL encoded
+    return `${OWN_PROXY}${encodeURIComponent(`https://query1.finance.yahoo.com${path}`)}`;
+  } else {
+    // Local dev: use Vite proxy directly
+    return `${LOCAL_PROXY}${path}`;
+  }
+}
 
 // Cache for exchange rate
 let cachedEurUsdRate: { rate: number; timestamp: number } | null = null;
@@ -36,7 +50,7 @@ export class MarketDataService {
 
     try {
       // Use Yahoo Finance to get EUR/USD rate
-      const url = `${CORS_PROXY}${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/EURUSD=X?interval=1d&range=1d')}`;
+      const url = buildYahooUrl('/v8/finance/chart/EURUSD=X?interval=1d&range=1d');
       const response = await axios.get(url, { timeout: 10000 });
       const result = response.data.chart.result?.[0];
       
@@ -58,7 +72,7 @@ export class MarketDataService {
   // Fetch quote using Yahoo Finance with CORS proxy - always returns EUR
   async getQuote(symbol: string): Promise<Stock | null> {
     try {
-      const url = `${CORS_PROXY}${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`)}`;
+      const url = buildYahooUrl(`/v8/finance/chart/${symbol}?interval=1d&range=1d`);
       console.log('Fetching stock:', symbol);
       
       const response = await axios.get(url, { timeout: 10000 });
@@ -110,7 +124,7 @@ export class MarketDataService {
     range: '1d' | '5d' | '1mo' | '3mo' | '6mo' | '1y' = '1mo'
   ): Promise<HistoricalData[]> {
     try {
-      const url = `${CORS_PROXY}${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${range === '1d' ? '5m' : '1d'}&range=${range}`)}`;
+      const url = buildYahooUrl(`/v8/finance/chart/${symbol}?interval=${range === '1d' ? '5m' : '1d'}&range=${range}`);
       const response = await axios.get(url, { timeout: 10000 });
 
       const result = response.data.chart.result?.[0];
@@ -136,7 +150,7 @@ export class MarketDataService {
   // Search for stocks
   async searchStocks(query: string): Promise<{ symbol: string; name: string }[]> {
     try {
-      const url = `${CORS_PROXY}${encodeURIComponent(`https://query1.finance.yahoo.com/v1/finance/search?q=${query}&quotesCount=10&newsCount=0`)}`;
+      const url = buildYahooUrl(`/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`);
       const response = await axios.get(url, { timeout: 10000 });
 
       return (response.data.quotes || []).map((q: any) => ({
