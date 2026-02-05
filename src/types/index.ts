@@ -1,7 +1,8 @@
 // Investment Types
-export type InvestmentStrategy = 'short' | 'middle';
+export type InvestmentStrategy = 'short' | 'middle' | 'long';
 export type SignalType = 'BUY' | 'SELL' | 'HOLD';
 export type RiskLevel = 'low' | 'medium' | 'high';
+export type AIProvider = 'claude' | 'openai';
 
 export interface Stock {
   symbol: string;
@@ -72,6 +73,7 @@ export interface UserSettings {
   watchlist: string[];
   notifications: NotificationSettings;
   apiKeys: APIKeys;
+  aiProvider: AIProvider;
 }
 
 export interface NotificationSettings {
@@ -91,6 +93,7 @@ export interface NotificationSettings {
 
 export interface APIKeys {
   claude: string;
+  openai: string;
   marketData: string;
 }
 

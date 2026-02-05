@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { notificationService } from '../services/notifications';
-import type { InvestmentStrategy, RiskLevel } from '../types';
+import type { InvestmentStrategy, RiskLevel, AIProvider } from '../types';
 
 export function Settings() {
   const { settings, updateSettings, userPositions, watchlist, cashBalance, setCashBalance, signals, addSignal, clearSignals } = useAppStore();
@@ -179,6 +179,7 @@ export function Settings() {
             >
               <option value="short">Kurzfristig (Tage-Wochen)</option>
               <option value="middle">Mittelfristig (Wochen-Monate)</option>
+              <option value="long">Langfristig (10+ Jahre)</option>
             </select>
           </div>
 
@@ -213,12 +214,42 @@ export function Settings() {
       <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-6">
         <h2 className="text-xl font-semibold text-white flex items-center gap-2">
           <Key size={20} className="text-indigo-500" />
-          API-Schlüssel
+          API-Schlüssel & KI-Anbieter
         </h2>
 
+        {/* AI Provider Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
+            KI-Anbieter auswählen
+          </label>
+          <div className="flex gap-4">
+            {(['claude', 'openai'] as AIProvider[]).map((provider) => (
+              <button
+                key={provider}
+                onClick={() => updateSettings({ aiProvider: provider })}
+                className={`flex-1 px-4 py-3 rounded-lg border transition-colors ${
+                  settings.aiProvider === provider
+                    ? 'bg-indigo-600 border-indigo-500 text-white'
+                    : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-indigo-500'
+                }`}
+              >
+                {provider === 'claude' && '🟣 Claude (Anthropic)'}
+                {provider === 'openai' && '🟢 GPT-4o (OpenAI)'}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            {settings.aiProvider === 'claude' 
+              ? 'Claude bietet exzellente Analysefähigkeiten und ist gut für detaillierte Finanzanalysen.'
+              : 'GPT-4o ist schnell und liefert strukturierte JSON-Antworten für Finanzanalysen.'}
+          </p>
+        </div>
+
+        {/* Claude API Key */}
+        <div className={settings.aiProvider !== 'claude' ? 'opacity-50' : ''}>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
             Claude API-Schlüssel (Anthropic)
+            {settings.aiProvider === 'claude' && <span className="text-indigo-400 ml-2">• Aktiv</span>}
           </label>
           <input
             type="password"
@@ -239,6 +270,35 @@ export function Settings() {
               className="text-indigo-400 hover:underline"
             >
               console.anthropic.com
+            </a>
+          </p>
+        </div>
+
+        {/* OpenAI API Key */}
+        <div className={settings.aiProvider !== 'openai' ? 'opacity-50' : ''}>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            OpenAI API-Schlüssel
+            {settings.aiProvider === 'openai' && <span className="text-green-400 ml-2">• Aktiv</span>}
+          </label>
+          <input
+            type="password"
+            value={settings.apiKeys.openai}
+            onChange={(e) => updateSettings({ 
+              apiKeys: { ...settings.apiKeys, openai: e.target.value } 
+            })}
+            placeholder="sk-..."
+            className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                     text-white focus:outline-none focus:border-indigo-500"
+          />
+          <p className="text-xs text-gray-500 mt-2">
+            Erhalte deinen API-Key auf{' '}
+            <a 
+              href="https://platform.openai.com/api-keys" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-indigo-400 hover:underline"
+            >
+              platform.openai.com
             </a>
           </p>
         </div>

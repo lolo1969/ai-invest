@@ -74,8 +74,10 @@ const defaultSettings: UserSettings = {
   },
   apiKeys: {
     claude: '',
+    openai: '',
     marketData: '',
   },
+  aiProvider: 'claude',
 };
 
 export const useAppStore = create<AppState>()(

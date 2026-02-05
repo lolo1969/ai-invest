@@ -14,7 +14,7 @@ import { notificationService } from '../services/notifications';
 import type { InvestmentSignal } from '../types';
 
 export function Dashboard() {
-  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance } = useAppStore();
+  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance, userPositions } = useAppStore();
   
   // Use React Query for stock data
   const { 
@@ -24,8 +24,11 @@ export function Dashboard() {
     isRefetching 
   } = useStocksWithRange(settings.watchlist);
   
-  // AI Analysis mutation
-  const aiAnalysis = useAIAnalysis(settings.apiKeys.claude);
+  // AI Analysis mutation - use selected provider and corresponding API key
+  const activeApiKey = settings.aiProvider === 'openai' 
+    ? settings.apiKeys.openai 
+    : settings.apiKeys.claude;
+  const aiAnalysis = useAIAnalysis(activeApiKey, settings.aiProvider);
 
   // Add stocks to watchlist when data updates
   useEffect(() => {
@@ -34,8 +37,10 @@ export function Dashboard() {
 
   // Run AI analysis
   const runAnalysis = async () => {
-    if (!settings.apiKeys.claude) {
-      setError('Bitte füge deinen Claude API-Schlüssel in den Einstellungen hinzu.');
+    const providerName = settings.aiProvider === 'openai' ? 'OpenAI' : 'Claude';
+    
+    if (!activeApiKey) {
+      setError(`Bitte füge deinen ${providerName} API-Schlüssel in den Einstellungen hinzu.`);
       return;
     }
 
@@ -45,11 +50,39 @@ export function Dashboard() {
     }
 
     try {
+      // Convert userPositions to Position format for AI analysis
+      const currentPositions = userPositions.map(up => {
+        const stockData = stocks.find(s => s.symbol === up.symbol);
+        const currentPrice = up.useYahooPrice && stockData ? stockData.price : up.currentPrice;
+        const profitLoss = (currentPrice - up.buyPrice) * up.quantity;
+        const profitLossPercent = ((currentPrice - up.buyPrice) / up.buyPrice) * 100;
+        
+        return {
+          id: up.id,
+          stock: stockData || {
+            symbol: up.symbol,
+            name: up.name,
+            price: currentPrice,
+            change: 0,
+            changePercent: 0,
+            currency: up.currency,
+            exchange: '',
+          },
+          quantity: up.quantity,
+          averageBuyPrice: up.buyPrice,
+          currentPrice,
+          profitLoss,
+          profitLossPercent,
+          boughtAt: new Date(),
+        };
+      });
+
       const response = await aiAnalysis.mutateAsync({
         stocks,
         strategy: settings.strategy,
         riskTolerance: settings.riskTolerance,
         budget: cashBalance,
+        currentPositions,
       });
 
       // Add signals and send notifications

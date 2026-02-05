@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { marketDataService } from '../services/marketData';
 import { getAIService } from '../services/aiService';
-import type { Stock, AIAnalysisRequest, AIAnalysisResponse } from '../types';
+import type { Stock, AIAnalysisRequest, AIAnalysisResponse, AIProvider } from '../types';
 
 // Query Keys
 export const queryKeys = {
@@ -70,15 +70,15 @@ export function useSearchStocks(query: string, enabled = true) {
 }
 
 // Hook: AI Analysis mutation
-export function useAIAnalysis(apiKey: string) {
+export function useAIAnalysis(apiKey: string, provider: AIProvider = 'claude') {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (request: AIAnalysisRequest): Promise<AIAnalysisResponse> => {
       if (!apiKey) {
-        throw new Error('Claude API key is required');
+        throw new Error(`${provider === 'claude' ? 'Claude' : 'OpenAI'} API key is required`);
       }
-      const aiService = getAIService(apiKey);
+      const aiService = getAIService(apiKey, provider);
       return aiService.analyzeMarket(request);
     },
     onSuccess: () => {
