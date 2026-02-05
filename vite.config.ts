@@ -49,4 +49,17 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendor chunks
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-charts': ['recharts'],
+          'vendor-state': ['zustand', '@tanstack/react-query'],
+          'vendor-utils': ['axios', 'lucide-react'],
+        }
+      }
+    }
+  }
 })

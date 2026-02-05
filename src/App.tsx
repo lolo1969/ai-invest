@@ -1,14 +1,23 @@
-import { useState } from 'react';
+import { useState, Suspense, lazy } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { Dashboard } from './components/Dashboard';
-import { Settings } from './components/Settings';
-import { Signals } from './components/Signals';
-import { Watchlist } from './components/Watchlist';
-import { Portfolio } from './components/Portfolio';
-import { Notifications } from './components/Notifications';
-import { PriceAlerts } from './components/PriceAlerts';
 import { useAppStore } from './store/useAppStore';
-import { AlertCircle, X } from 'lucide-react';
+import { AlertCircle, X, Loader2 } from 'lucide-react';
+
+// Lazy-loaded components für Code-Splitting
+const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
+const Settings = lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })));
+const Signals = lazy(() => import('./components/Signals').then(m => ({ default: m.Signals })));
+const Watchlist = lazy(() => import('./components/Watchlist').then(m => ({ default: m.Watchlist })));
+const Portfolio = lazy(() => import('./components/Portfolio').then(m => ({ default: m.Portfolio })));
+const Notifications = lazy(() => import('./components/Notifications').then(m => ({ default: m.Notifications })));
+const PriceAlerts = lazy(() => import('./components/PriceAlerts').then(m => ({ default: m.PriceAlerts })));
+
+// Loading Spinner Komponente
+const LoadingSpinner = () => (
+  <div className="flex items-center justify-center h-full min-h-[400px]">
+    <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
+  </div>
+);
 
 function App() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -58,7 +67,9 @@ function App() {
           </div>
         )}
 
-        {renderView()}
+        <Suspense fallback={<LoadingSpinner />}>
+          {renderView()}
+        </Suspense>
       </main>
     </div>
   );
