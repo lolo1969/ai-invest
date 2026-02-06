@@ -26,9 +26,9 @@ export class AIService {
     
     try {
       if (this.provider === 'openai') {
-        return await this.callOpenAI(prompt, request.stocks);
+        return await this.callOpenAI(prompt, request.stocks, request.strategy);
       } else {
-        return await this.callClaude(prompt, request.stocks);
+        return await this.callClaude(prompt, request.stocks, request.strategy);
       }
     } catch (error: any) {
       console.error('AI analysis error:', error);
@@ -39,7 +39,7 @@ export class AIService {
     }
   }
 
-  private async callClaude(prompt: string, stocks: Stock[]): Promise<AIAnalysisResponse> {
+  private async callClaude(prompt: string, stocks: Stock[], strategy?: InvestmentStrategy): Promise<AIAnalysisResponse> {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -77,10 +77,10 @@ export class AIService {
     console.log('Claude API Response:', data);
     const content = data.content[0]?.text || '';
 
-    return this.parseAIResponse(content, stocks);
+    return this.parseAIResponse(content, stocks, strategy);
   }
 
-  private async callOpenAI(prompt: string, stocks: Stock[]): Promise<AIAnalysisResponse> {
+  private async callOpenAI(prompt: string, stocks: Stock[], strategy?: InvestmentStrategy): Promise<AIAnalysisResponse> {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -121,7 +121,7 @@ export class AIService {
     console.log('OpenAI API Response:', data);
     const content = data.choices[0]?.message?.content || '';
 
-    return this.parseAIResponse(content, stocks);
+    return this.parseAIResponse(content, stocks, strategy);
   }
 
   private buildAnalysisPrompt(request: AIAnalysisRequest): string {
@@ -277,7 +277,7 @@ Antworte im folgenden JSON-Format:
 Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
   }
 
-  private parseAIResponse(content: string, stocks: Stock[]): AIAnalysisResponse {
+  private parseAIResponse(content: string, stocks: Stock[], strategy?: InvestmentStrategy): AIAnalysisResponse {
     try {
       // Extract JSON from response
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -295,7 +295,7 @@ Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
           id: `${s.symbol}-${Date.now()}`,
           stock,
           signal: s.signal as 'BUY' | 'SELL' | 'HOLD',
-          strategy: 'middle' as InvestmentStrategy,
+          strategy: strategy || ('middle' as InvestmentStrategy),
           confidence: s.confidence || 50,
           reasoning: s.reasoning || '',
           idealEntryPrice: s.idealEntryPrice,

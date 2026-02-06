@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Briefcase, 
   TrendingUp,
@@ -19,6 +19,14 @@ import { marketDataService } from '../services/marketData';
 import emailjs from '@emailjs/browser';
 import type { UserPosition } from '../types';
 
+interface SymbolSuggestion {
+  symbol: string;
+  name: string;
+  price?: number;
+  changePercent?: number;
+  loading?: boolean;
+}
+
 export function Portfolio() {
   const { 
     settings, 
@@ -26,6 +34,7 @@ export function Portfolio() {
     addUserPosition, 
     removeUserPosition,
     updateUserPosition,
+    watchlist,
     cashBalance,
     setCashBalance,
     setError 
@@ -46,6 +55,10 @@ export function Portfolio() {
   const [editBuyPriceValue, setEditBuyPriceValue] = useState('');
   const [yahooPrices, setYahooPrices] = useState<Record<string, number>>({});
   const [loadingYahooPrices, setLoadingYahooPrices] = useState(false);
+  const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolSuggestion[]>([]);
+  const [searchingSymbol, setSearchingSymbol] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const symbolSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -129,6 +142,68 @@ export function Portfolio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positionCount, yahooEnabledSignature]);
 
+  // Symbol search with debounce
+  const handleSymbolSearch = (query: string) => {
+    setFormData(prev => ({ ...prev, symbol: query }));
+    
+    if (symbolSearchTimeout.current) {
+      clearTimeout(symbolSearchTimeout.current);
+    }
+    
+    if (query.trim().length < 1) {
+      setSymbolSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    
+    setShowSuggestions(true);
+    symbolSearchTimeout.current = setTimeout(async () => {
+      setSearchingSymbol(true);
+      try {
+        const results = await marketDataService.searchStocks(query);
+        // Show results immediately, then fetch prices
+        const suggestions: SymbolSuggestion[] = results.slice(0, 6).map(r => ({
+          ...r,
+          loading: true,
+        }));
+        setSymbolSuggestions(suggestions);
+        
+        // Fetch prices for each result
+        const withPrices = await Promise.all(
+          suggestions.map(async (s) => {
+            try {
+              const quote = await marketDataService.getQuote(s.symbol);
+              return {
+                ...s,
+                price: quote?.price,
+                changePercent: quote?.changePercent,
+                loading: false,
+              };
+            } catch {
+              return { ...s, loading: false };
+            }
+          })
+        );
+        setSymbolSuggestions(withPrices);
+      } catch (error) {
+        console.error('Symbol search failed:', error);
+      } finally {
+        setSearchingSymbol(false);
+      }
+    }, 400);
+  };
+
+  const selectSuggestion = (suggestion: SymbolSuggestion) => {
+    setFormData(prev => ({
+      ...prev,
+      symbol: suggestion.symbol,
+      name: suggestion.name,
+      currentPrice: suggestion.price ? suggestion.price.toFixed(2) : prev.currentPrice,
+    }));
+    setShowSuggestions(false);
+    setSymbolSuggestions([]);
+  };
+
   const handleAddPosition = () => {
     if ((!formData.symbol && !formData.isin) || !formData.quantity || !formData.buyPrice || !formData.currentPrice) {
       return;
@@ -161,8 +236,13 @@ export function Portfolio() {
 
   // AI Portfolio Analysis
   const analyzePortfolio = async () => {
-    if (!settings.apiKeys.claude) {
-      setError('Bitte füge deinen Claude API-Schlüssel in den Einstellungen hinzu.');
+    const activeApiKey = settings.aiProvider === 'openai' 
+      ? settings.apiKeys.openai 
+      : settings.apiKeys.claude;
+    const providerName = settings.aiProvider === 'openai' ? 'OpenAI' : 'Claude';
+    
+    if (!activeApiKey) {
+      setError(`Bitte füge deinen ${providerName} API-Schlüssel in den Einstellungen hinzu.`);
       return;
     }
 
@@ -182,24 +262,37 @@ export function Portfolio() {
         return `${identifier}: ${p.quantity} Stück, Kaufpreis: ${p.buyPrice.toFixed(2)} ${p.currency}, Aktuell: ${p.currentPrice.toFixed(2)} ${p.currency}, P/L: ${pl.percent >= 0 ? '+' : ''}${pl.percent.toFixed(2)}% (${pl.absolute >= 0 ? '+' : ''}${pl.absolute.toFixed(2)} ${p.currency})`;
       }).join('\n');
 
-      // Direct API call for portfolio analysis
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': settings.apiKeys.claude,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          messages: [
-            {
-              role: 'user',
-              content: `Du bist ein erfahrener Investment-Analyst. Analysiere mein aktuelles Portfolio und gib konkrete Empfehlungen.
+      // Direct API call for portfolio analysis - use selected provider
+      const isOpenAI = settings.aiProvider === 'openai';
+      const apiUrl = isOpenAI 
+        ? 'https://api.openai.com/v1/chat/completions'
+        : 'https://api.anthropic.com/v1/messages';
+      const apiHeaders: Record<string, string> = isOpenAI
+        ? {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${activeApiKey}`,
+          }
+        : {
+            'Content-Type': 'application/json',
+            'x-api-key': activeApiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          };
 
-MEIN PORTFOLIO:
+      // Build watchlist context (stocks NOT in portfolio, for new recommendations)
+      const portfolioSymbols = userPositions.map(p => p.symbol.toUpperCase());
+      const watchlistOnly = watchlist.filter(s => !portfolioSymbols.includes(s.symbol.toUpperCase()));
+      const watchlistSummary = watchlistOnly.length > 0
+        ? watchlistOnly.map(s => 
+            `${s.symbol} (${s.name}): ${s.price?.toFixed(2) ?? '?'} ${s.currency} (${s.changePercent != null ? (s.changePercent >= 0 ? '+' : '') + s.changePercent.toFixed(2) + '%' : '?'})`
+          ).join('\n')
+        : 'Keine Watchlist-Aktien vorhanden.';
+
+      const promptContent = `Du bist ein erfahrener Investment-Analyst. Analysiere mein aktuelles Portfolio und gib konkrete Empfehlungen.
+
+═══════════════════════════════════════
+MEIN PORTFOLIO (NUR diese ${userPositions.length} Positionen besitze ich!):
+═══════════════════════════════════════
 ${portfolioSummary}
 
 GESAMTWERT:
@@ -210,15 +303,24 @@ GESAMTWERT:
 VERFÜGBARES CASH: ${cashBalance.toFixed(2)} EUR
 
 MEINE STRATEGIE:
-- Anlagehorizont: ${settings.strategy === 'short' ? 'Kurzfristig (Tage-Wochen)' : 'Mittelfristig (Wochen-Monate)'}
+- Anlagehorizont: ${settings.strategy === 'short' ? 'Kurzfristig (Tage-Wochen)' : settings.strategy === 'middle' ? 'Mittelfristig (Wochen-Monate)' : 'Langfristig (10+ Jahre, Buy & Hold)'}
 - Risikotoleranz: ${settings.riskTolerance === 'low' ? 'Konservativ' : settings.riskTolerance === 'medium' ? 'Ausgewogen' : 'Aggressiv'}
+
+═══════════════════════════════════════
+MEINE WATCHLIST (beobachtete Aktien, die ich NICHT besitze):
+═══════════════════════════════════════
+${watchlistSummary}
 
 HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })}
 
+═══════════════════════════════════════
 AUFGABE:
+═══════════════════════════════════════
 
-📊 **1. PORTFOLIO-ANALYSE**
-Analysiere jede Position:
+📊 **1. PORTFOLIO-ANALYSE** (NUR meine ${userPositions.length} oben gelisteten Positionen!)
+WICHTIG: Analysiere AUSSCHLIESSLICH die Positionen die oben unter "MEIN PORTFOLIO" aufgelistet sind.
+Erfinde KEINE zusätzlichen Positionen! Füge KEINE Watchlist-Aktien hier hinzu!
+Für jede meiner Positionen:
 - HALTEN, NACHKAUFEN, TEILVERKAUF oder VERKAUFEN
 - Begründung (2-3 Sätze)
 - Konkreter Aktionsvorschlag mit Zielpreis
@@ -227,22 +329,43 @@ Analysiere jede Position:
 - Diversifikations-Check (Branchen, Regionen, Risiko)
 - Risiko-Einschätzung des Gesamtportfolios
 
-🆕 **3. NEUE KAUFEMPFEHLUNGEN** (WICHTIG!)
+🆕 **3. NEUE KAUFEMPFEHLUNGEN** (aus Watchlist und darüber hinaus)
 Basierend auf meinem verfügbaren Cash von ${cashBalance.toFixed(2)} EUR und meiner Strategie:
-- Empfehle 3-5 konkrete Aktien/ETFs zum Kauf
+- Prüfe zuerst meine Watchlist-Aktien oben und empfehle die besten daraus
+- Ergänze mit weiteren Aktien/ETFs falls nötig (insgesamt 3-5 Empfehlungen)
 - Für jede Empfehlung: Name, Ticker-Symbol, aktueller ungefährer Kurs in EUR
 - Begründung warum diese Aktie jetzt interessant ist
 - Vorgeschlagene Investitionssumme in EUR
 - Berücksichtige aktuelle Markttrends 2025/2026
+- WICHTIG: Empfehle hier KEINE Aktien die ich bereits im Portfolio habe!
 
 🎯 **4. AKTIONSPLAN**
 - Priorisierte Liste der nächsten Schritte
 - Was sofort tun, was beobachten
 
-Antworte auf Deutsch mit Emojis für bessere Übersicht.`
-            },
-          ],
-        }),
+Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
+
+      const apiBody = isOpenAI
+        ? JSON.stringify({
+            model: 'gpt-4o',
+            max_tokens: 4096,
+            messages: [
+              { role: 'system', content: 'Du bist ein erfahrener Investment-Analyst. Antworte auf Deutsch mit Emojis.' },
+              { role: 'user', content: promptContent },
+            ],
+          })
+        : JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 4096,
+            messages: [
+              { role: 'user', content: promptContent },
+            ],
+          });
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: apiHeaders,
+        body: apiBody,
       });
 
       if (!response.ok) {
@@ -251,7 +374,9 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
       }
 
       const data = await response.json();
-      const content = data.content[0]?.text || 'Keine Antwort erhalten';
+      const content = isOpenAI 
+        ? (data.choices?.[0]?.message?.content || 'Keine Antwort erhalten')
+        : (data.content?.[0]?.text || 'Keine Antwort erhalten');
       
       setAnalysisResult(content);
 
@@ -518,18 +643,61 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-medium text-gray-300 mb-1">
                     Symbol
                   </label>
-                  <input
-                    type="text"
-                    value={formData.symbol}
-                    onChange={(e) => setFormData({ ...formData, symbol: e.target.value })}
-                    placeholder="z.B. AAPL, MSFT"
-                    className="w-full px-4 py-2 bg-[#252542] border border-[#3a3a5a] rounded-lg 
-                             text-white focus:outline-none focus:border-indigo-500"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formData.symbol}
+                      onChange={(e) => handleSymbolSearch(e.target.value)}
+                      onFocus={() => { if (symbolSuggestions.length > 0) setShowSuggestions(true); }}
+                      placeholder="z.B. AAPL, MSFT"
+                      autoComplete="off"
+                      className="w-full px-4 py-2 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                               text-white focus:outline-none focus:border-indigo-500"
+                    />
+                    {searchingSymbol && (
+                      <RefreshCw size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-indigo-400 animate-spin" />
+                    )}
+                  </div>
+                  {/* Symbol Suggestions Dropdown */}
+                  {showSuggestions && symbolSuggestions.length > 0 && (
+                    <div className="absolute z-[60] left-0 right-0 mt-1 bg-[#1e1e3a] border border-[#3a3a5a] rounded-lg shadow-xl overflow-hidden"
+                         style={{ width: 'calc(200% + 1rem)' }}>
+                      {symbolSuggestions.map((s) => (
+                        <button
+                          key={s.symbol}
+                          type="button"
+                          onClick={() => selectSuggestion(s)}
+                          className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-[#252542] 
+                                   transition-colors text-left border-b border-[#252542] last:border-b-0"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <span className="font-medium text-white text-sm">{s.symbol}</span>
+                            <span className="text-gray-400 text-xs ml-2 truncate">{s.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 ml-2 shrink-0">
+                            {s.loading ? (
+                              <RefreshCw size={12} className="text-gray-500 animate-spin" />
+                            ) : s.price !== undefined && !isNaN(s.price) ? (
+                              <>
+                                <span className="text-white font-medium text-sm">{s.price.toFixed(2)} €</span>
+                                {s.changePercent !== undefined && !isNaN(s.changePercent) && (
+                                  <span className={`text-xs font-medium ${s.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {s.changePercent >= 0 ? '+' : ''}{s.changePercent.toFixed(2)}%
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-gray-500 text-xs">—</span>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -545,7 +713,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`
                   />
                 </div>
               </div>
-              <p className="text-xs text-gray-500">Gib Symbol ODER ISIN ein (eines reicht)</p>
+              <p className="text-xs text-gray-500">Gib Symbol ODER ISIN ein (eines reicht) – Vorschläge erscheinen beim Tippen</p>
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">

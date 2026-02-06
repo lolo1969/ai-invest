@@ -167,7 +167,7 @@ export function Dashboard() {
         />
         <StatCard
           title="Strategie"
-          value={settings.strategy === 'short' ? 'Kurzfristig' : 'Mittelfristig'}
+          value={settings.strategy === 'short' ? 'Kurzfristig' : settings.strategy === 'middle' ? 'Mittelfristig' : 'Langfristig'}
           icon={<Target size={24} />}
           color="blue"
         />
