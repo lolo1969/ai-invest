@@ -17,7 +17,18 @@ import { notificationService } from '../services/notifications';
 import type { InvestmentStrategy, RiskLevel, AIProvider, ClaudeModel, OpenAIModel, GeminiModel } from '../types';
 
 export function Settings() {
-  const { settings, updateSettings, userPositions, watchlist, cashBalance, setCashBalance, signals, addSignal, clearSignals } = useAppStore();
+  const { 
+    settings, updateSettings, 
+    userPositions, 
+    watchlist, 
+    cashBalance, setCashBalance, 
+    signals, addSignal, clearSignals,
+    orders, orderSettings,
+    priceAlerts,
+    portfolios,
+    lastAnalysis, lastAnalysisDate,
+    analysisHistory
+  } = useAppStore();
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
@@ -29,13 +40,20 @@ export function Settings() {
   // Export all data as JSON
   const handleExport = () => {
     const exportData = {
-      version: '1.0',
+      version: '1.1',
       exportDate: new Date().toISOString(),
       settings,
       userPositions,
       watchlist,
       signals,
-      cashBalance
+      cashBalance,
+      orders,
+      orderSettings,
+      priceAlerts,
+      portfolios,
+      lastAnalysis,
+      lastAnalysisDate,
+      analysisHistory
     };
     
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -100,6 +118,49 @@ export function Settings() {
         // Restore cash balance
         if (importData.cashBalance !== undefined) {
           setCashBalance(importData.cashBalance);
+        }
+
+        // Restore orders
+        if (importData.orders && Array.isArray(importData.orders)) {
+          // Remove existing orders
+          store.orders.forEach((o: any) => store.removeOrder(o.id));
+          // Add imported orders
+          importData.orders.forEach((o: any) => store.addOrder(o));
+        }
+
+        // Restore order settings
+        if (importData.orderSettings) {
+          store.updateOrderSettings(importData.orderSettings);
+        }
+
+        // Restore price alerts
+        if (importData.priceAlerts && Array.isArray(importData.priceAlerts)) {
+          store.priceAlerts.forEach((a: any) => store.removePriceAlert(a.id));
+          importData.priceAlerts.forEach((a: any) => store.addPriceAlert(a));
+        }
+
+        // Restore portfolios
+        if (importData.portfolios && Array.isArray(importData.portfolios)) {
+          // Portfolios werden ergänzt (nicht gelöscht, da kein removePortfolio existiert)
+          importData.portfolios.forEach((p: any) => {
+            if (!store.portfolios.find((ep: any) => ep.id === p.id)) {
+              store.addPortfolio(p);
+            }
+          });
+        }
+
+        // Restore last analysis
+        if (importData.lastAnalysis !== undefined) {
+          store.setLastAnalysis(importData.lastAnalysis);
+        }
+
+        // Restore analysis history
+        if (importData.analysisHistory && Array.isArray(importData.analysisHistory)) {
+          store.clearAnalysisHistory();
+          // Älteste zuerst hinzufügen, da addAnalysisHistory am Anfang einfügt
+          [...importData.analysisHistory].reverse().forEach((entry: any) => {
+            store.addAnalysisHistory(entry);
+          });
         }
         
         setImportStatus('success');
