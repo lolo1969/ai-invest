@@ -9,7 +9,8 @@ import {
   Menu,
   X,
   BellRing,
-  ShoppingCart
+  ShoppingCart,
+  Bot
 } from 'lucide-react';
 
 interface NavItem {
@@ -25,6 +26,7 @@ interface SidebarProps {
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
+  { id: 'autopilot', label: 'Autopilot', icon: <Bot size={20} /> },
   { id: 'signals', label: 'Signale', icon: <TrendingUp size={20} /> },
   { id: 'portfolio', label: 'Portfolio', icon: <Briefcase size={20} /> },
   { id: 'watchlist', label: 'Watchlist', icon: <Search size={20} /> },

@@ -27,7 +27,8 @@ export function Settings() {
     priceAlerts,
     portfolios,
     lastAnalysis, lastAnalysisDate,
-    analysisHistory
+    analysisHistory,
+    autopilotSettings, autopilotLog, autopilotState
   } = useAppStore();
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -53,7 +54,10 @@ export function Settings() {
       portfolios,
       lastAnalysis,
       lastAnalysisDate,
-      analysisHistory
+      analysisHistory,
+      autopilotSettings,
+      autopilotLog,
+      autopilotState
     };
     
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -161,6 +165,25 @@ export function Settings() {
           [...importData.analysisHistory].reverse().forEach((entry: any) => {
             store.addAnalysisHistory(entry);
           });
+        }
+
+        // Restore autopilot settings
+        if (importData.autopilotSettings) {
+          store.updateAutopilotSettings(importData.autopilotSettings);
+        }
+
+        // Restore autopilot log
+        if (importData.autopilotLog && Array.isArray(importData.autopilotLog)) {
+          store.clearAutopilotLog();
+          // Älteste zuerst hinzufügen
+          [...importData.autopilotLog].reverse().forEach((entry: any) => {
+            store.addAutopilotLog(entry);
+          });
+        }
+
+        // Restore autopilot state
+        if (importData.autopilotState) {
+          store.updateAutopilotState(importData.autopilotState);
         }
         
         setImportStatus('success');

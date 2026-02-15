@@ -9,7 +9,10 @@ import type {
   PriceAlert,
   AnalysisHistoryEntry,
   Order,
-  OrderSettings
+  OrderSettings,
+  AutopilotSettings,
+  AutopilotLogEntry,
+  AutopilotState
 } from '../types';
 
 interface AppState {
@@ -74,6 +77,16 @@ interface AppState {
   setLoading: (loading: boolean) => void;
   error: string | null;
   setError: (error: string | null) => void;
+
+  // Autopilot
+  autopilotSettings: AutopilotSettings;
+  autopilotLog: AutopilotLogEntry[];
+  autopilotState: AutopilotState;
+  updateAutopilotSettings: (settings: Partial<AutopilotSettings>) => void;
+  addAutopilotLog: (entry: AutopilotLogEntry) => void;
+  clearAutopilotLog: () => void;
+  updateAutopilotState: (state: Partial<AutopilotState>) => void;
+  resetAutopilotState: () => void;
 }
 
 const defaultSettings: UserSettings = {
@@ -294,6 +307,55 @@ export const useAppStore = create<AppState>()(
       setLoading: (loading) => set({ isLoading: loading }),
       error: null,
       setError: (error) => set({ error }),
+
+      // Autopilot
+      autopilotSettings: {
+        enabled: false,
+        mode: 'suggest-only',
+        intervalMinutes: 240,
+        activeHoursOnly: true,
+        maxTradesPerCycle: 3,
+        maxPositionPercent: 20,
+        minCashReservePercent: 10,
+        minConfidence: 70,
+        allowBuy: true,
+        allowSell: true,
+        allowNewPositions: false,
+        watchlistOnly: true,
+      },
+      autopilotLog: [],
+      autopilotState: {
+        isRunning: false,
+        lastRunAt: null,
+        nextRunAt: null,
+        cycleCount: 0,
+        totalOrdersCreated: 0,
+        totalOrdersExecuted: 0,
+      },
+      updateAutopilotSettings: (newSettings) =>
+        set((state) => ({
+          autopilotSettings: { ...state.autopilotSettings, ...newSettings },
+        })),
+      addAutopilotLog: (entry) =>
+        set((state) => ({
+          autopilotLog: [entry, ...state.autopilotLog].slice(0, 200), // Max 200 Einträge
+        })),
+      clearAutopilotLog: () => set({ autopilotLog: [] }),
+      updateAutopilotState: (newState) =>
+        set((state) => ({
+          autopilotState: { ...state.autopilotState, ...newState },
+        })),
+      resetAutopilotState: () =>
+        set({
+          autopilotState: {
+            isRunning: false,
+            lastRunAt: null,
+            nextRunAt: null,
+            cycleCount: 0,
+            totalOrdersCreated: 0,
+            totalOrdersExecuted: 0,
+          },
+        }),
     }),
     {
       name: 'ai-invest-storage',
@@ -310,6 +372,9 @@ export const useAppStore = create<AppState>()(
         lastAnalysis: state.lastAnalysis,
         lastAnalysisDate: state.lastAnalysisDate,
         analysisHistory: state.analysisHistory,
+        autopilotSettings: state.autopilotSettings,
+        autopilotLog: state.autopilotLog,
+        autopilotState: state.autopilotState,
       }),
     }
   )

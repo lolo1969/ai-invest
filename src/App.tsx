@@ -12,6 +12,7 @@ const Portfolio = lazy(() => import('./components/Portfolio').then(m => ({ defau
 const Notifications = lazy(() => import('./components/Notifications').then(m => ({ default: m.Notifications })));
 const PriceAlerts = lazy(() => import('./components/PriceAlerts').then(m => ({ default: m.PriceAlerts })));
 const Orders = lazy(() => import('./components/Orders').then(m => ({ default: m.Orders })));
+const Autopilot = lazy(() => import('./components/Autopilot').then(m => ({ default: m.Autopilot })));
 
 // Loading Spinner Komponente
 const LoadingSpinner = () => (
@@ -42,6 +43,8 @@ function App() {
         return <PriceAlerts />;
       case 'orders':
         return <Orders />;
+      case 'autopilot':
+        return <Autopilot />;
       default:
         return <Dashboard />;
     }

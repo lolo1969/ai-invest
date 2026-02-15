@@ -215,3 +215,49 @@ export interface AnalysisHistoryEntry {
   strategy: InvestmentStrategy;
   aiProvider: AIProvider;
 }
+
+// Autopilot Types
+export type AutopilotMode = 'full-auto' | 'suggest-only' | 'confirm-each';
+
+export interface AutopilotSettings {
+  enabled: boolean;
+  mode: AutopilotMode;
+  
+  // Timing
+  intervalMinutes: number;        // z.B. 60, 240, 1440
+  activeHoursOnly: boolean;       // Nur Börsenzeiten (Mo-Fr 9:30-16:00 EST)
+  
+  // Risikolimits
+  maxTradesPerCycle: number;      // Max Orders pro Durchlauf
+  maxPositionPercent: number;     // Max % des Portfolios pro Einzelposition
+  minCashReservePercent: number;  // Min. Cash-Puffer
+  minConfidence: number;          // Min. KI-Konfidenz (0-100)
+  
+  // Scope
+  allowBuy: boolean;
+  allowSell: boolean;
+  allowNewPositions: boolean;     // Darf neue Aktien kaufen?
+  watchlistOnly: boolean;         // Nur Watchlist-Aktien handeln?
+}
+
+export type AutopilotLogType = 'info' | 'analysis' | 'order-created' | 'order-executed' | 'warning' | 'error' | 'skipped';
+
+export interface AutopilotLogEntry {
+  id: string;
+  timestamp: string;  // ISO string
+  type: AutopilotLogType;
+  message: string;
+  details?: string;    // Längerer Text (z.B. KI-Begründung)
+  symbol?: string;
+  orderId?: string;
+}
+
+export interface AutopilotState {
+  isRunning: boolean;
+  lastRunAt: string | null;      // ISO string
+  nextRunAt: string | null;      // ISO string
+  cycleCount: number;
+  totalOrdersCreated: number;
+  totalOrdersExecuted: number;
+}
+
