@@ -9,11 +9,12 @@ import {
   Check,
   AlertCircle,
   Download,
-  Upload
+  Upload,
+  MessageSquareText
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { notificationService } from '../services/notifications';
-import type { InvestmentStrategy, RiskLevel, AIProvider } from '../types';
+import type { InvestmentStrategy, RiskLevel, AIProvider, ClaudeModel, OpenAIModel, GeminiModel } from '../types';
 
 export function Settings() {
   const { settings, updateSettings, userPositions, watchlist, cashBalance, setCashBalance, signals, addSignal, clearSignals } = useAppStore();
@@ -208,6 +209,29 @@ export function Settings() {
             </div>
           </div>
         </div>
+
+        {/* Custom Prompt */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            <MessageSquareText size={16} className="inline mr-1" />
+            Persönliche Anweisungen für die KI
+          </label>
+          <p className="text-xs text-gray-500 mb-2">
+            Hier kannst du der KI spezifische Vorgaben geben, z.B. Präferenzen für ETF-Typen, steuerliche Besonderheiten, Branchen-Ausschlüsse etc.
+          </p>
+          <textarea
+            value={settings.customPrompt || ''}
+            onChange={(e) => updateSettings({ customPrompt: e.target.value })}
+            placeholder="z.B.: Ich wohne in Luxemburg. Bevorzuge thesaurierende ETFs statt ausschüttende (steuerlich vorteilhafter). Keine Rüstungsaktien. Fokus auf europäische Märkte..."
+            rows={4}
+            className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                     text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500
+                     resize-y min-h-[100px]"
+          />
+          <p className="text-xs text-gray-600 mt-1">
+            {(settings.customPrompt || '').length} Zeichen
+          </p>
+        </div>
       </section>
 
       {/* API Keys */}
@@ -223,7 +247,7 @@ export function Settings() {
             KI-Anbieter auswählen
           </label>
           <div className="flex gap-4">
-            {(['claude', 'openai'] as AIProvider[]).map((provider) => (
+            {(['gemini', 'claude', 'openai'] as AIProvider[]).map((provider) => (
               <button
                 key={provider}
                 onClick={() => updateSettings({ aiProvider: provider })}
@@ -234,15 +258,88 @@ export function Settings() {
                 }`}
               >
                 {provider === 'claude' && '🟣 Claude (Anthropic)'}
-                {provider === 'openai' && '🟢 GPT-4o (OpenAI)'}
+                {provider === 'openai' && '🟢 OpenAI (ChatGPT)'}
+                {provider === 'gemini' && '🔵 Gemini (Google)'}
               </button>
             ))}
           </div>
           <p className="text-xs text-gray-500 mt-2">
             {settings.aiProvider === 'claude' 
               ? 'Claude bietet exzellente Analysefähigkeiten und ist gut für detaillierte Finanzanalysen.'
-              : 'GPT-4o ist schnell und liefert strukturierte JSON-Antworten für Finanzanalysen.'}
+              : settings.aiProvider === 'gemini'
+              ? '🆓 Gemini bietet einen kostenlosen API-Key – ideal zum Einstieg! Hol dir deinen Key auf ai.google.dev'
+              : 'OpenAI liefert strukturierte JSON-Antworten für Finanzanalysen.'}
           </p>
+        </div>
+
+        {/* Model Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            KI-Modell auswählen
+          </label>
+          {settings.aiProvider === 'claude' ? (
+            <div className="flex gap-3 flex-wrap">
+              {([
+                { value: 'claude-opus-4-6' as ClaudeModel, label: '🔮 Claude Opus 4.6', desc: 'Beste Qualität (neuestes Modell)' },
+                { value: 'claude-sonnet-4-5-20250929' as ClaudeModel, label: '🟣 Claude Sonnet 4.5', desc: 'Schnell & intelligent' },
+                { value: 'claude-haiku-4-5-20251001' as ClaudeModel, label: '⚡ Claude Haiku 4.5', desc: 'Am schnellsten' },
+              ]).map((model) => (
+                <button
+                  key={model.value}
+                  onClick={() => updateSettings({ claudeModel: model.value })}
+                  className={`flex-1 min-w-[140px] px-4 py-3 rounded-lg border transition-colors text-left ${
+                    (settings.claudeModel || 'claude-opus-4-6') === model.value
+                      ? 'bg-purple-600 border-purple-500 text-white'
+                      : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-purple-500'
+                  }`}
+                >
+                  <div className="font-medium">{model.label}</div>
+                  <div className="text-xs mt-1 opacity-75">{model.desc}</div>
+                </button>
+              ))}
+            </div>
+          ) : settings.aiProvider === 'gemini' ? (
+            <div className="flex gap-3 flex-wrap">
+              {([
+                { value: 'gemini-2.5-flash' as GeminiModel, label: '⚡ Gemini 2.5 Flash', desc: 'Schnell & kostenlos' },
+                { value: 'gemini-2.5-pro' as GeminiModel, label: '🔵 Gemini 2.5 Pro', desc: 'Leistungsstärkstes Modell' },
+              ]).map((model) => (
+                <button
+                  key={model.value}
+                  onClick={() => updateSettings({ geminiModel: model.value })}
+                  className={`flex-1 min-w-[140px] px-4 py-3 rounded-lg border transition-colors text-left ${
+                    (settings.geminiModel || 'gemini-2.5-flash') === model.value
+                      ? 'bg-blue-600 border-blue-500 text-white'
+                      : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-blue-500'
+                  }`}
+                >
+                  <div className="font-medium">{model.label}</div>
+                  <div className="text-xs mt-1 opacity-75">{model.desc}</div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex gap-3 flex-wrap">
+              {([
+                { value: 'gpt-5.2' as OpenAIModel, label: '🟢 GPT-5.2', desc: 'Beste Qualität (neuestes Modell)' },
+                { value: 'gpt-5-mini' as OpenAIModel, label: '🟡 GPT-5 Mini', desc: 'Schnell & günstig' },
+                { value: 'gpt-4o' as OpenAIModel, label: '⚪ GPT-4o', desc: 'Bewährt & zuverlässig' },
+              ]).map((model) => (
+                <button
+                  key={model.value}
+                  onClick={() => updateSettings({ openaiModel: model.value })}
+                  className={`flex-1 min-w-[140px] px-4 py-3 rounded-lg border transition-colors text-left ${
+                    (settings.openaiModel || 'gpt-5.2') === model.value
+                      ? 'bg-green-600 border-green-500 text-white'
+                      : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-green-500'
+                  }`}
+                >
+                  <div className="font-medium">{model.label}</div>
+                  <div className="text-xs mt-1 opacity-75">{model.desc}</div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Claude API Key */}
@@ -271,6 +368,36 @@ export function Settings() {
             >
               console.anthropic.com
             </a>
+          </p>
+        </div>
+
+        {/* Gemini API Key */}
+        <div className={settings.aiProvider !== 'gemini' ? 'opacity-50' : ''}>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Gemini API-Schlüssel (Google)
+            {settings.aiProvider === 'gemini' && <span className="text-blue-400 ml-2">• Aktiv</span>}
+          </label>
+          <input
+            type="password"
+            value={settings.apiKeys.gemini}
+            onChange={(e) => updateSettings({ 
+              apiKeys: { ...settings.apiKeys, gemini: e.target.value } 
+            })}
+            placeholder="AIza..."
+            className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                     text-white focus:outline-none focus:border-indigo-500"
+          />
+          <p className="text-xs text-gray-500 mt-2">
+            🆓 Kostenloser API-Key auf{' '}
+            <a 
+              href="https://aistudio.google.com/apikey" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:underline"
+            >
+              aistudio.google.com/apikey
+            </a>
+            {' '}– Ideal zum Starten ohne Kosten!
           </p>
         </div>
 

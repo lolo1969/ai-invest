@@ -14,7 +14,7 @@ import { notificationService } from '../services/notifications';
 import type { InvestmentSignal } from '../types';
 
 export function Dashboard() {
-  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance, userPositions } = useAppStore();
+  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance, userPositions, orders, addOrder, cancelOrder } = useAppStore();
   
   // Use React Query for stock data
   const { 
@@ -27,8 +27,16 @@ export function Dashboard() {
   // AI Analysis mutation - use selected provider and corresponding API key
   const activeApiKey = settings.aiProvider === 'openai' 
     ? settings.apiKeys.openai 
+    : settings.aiProvider === 'gemini'
+    ? settings.apiKeys.gemini
     : settings.apiKeys.claude;
-  const aiAnalysis = useAIAnalysis(activeApiKey, settings.aiProvider);
+  const aiAnalysis = useAIAnalysis(
+    activeApiKey, 
+    settings.aiProvider,
+    settings.claudeModel || 'claude-opus-4-6',
+    settings.openaiModel || 'gpt-5.2',
+    settings.geminiModel || 'gemini-2.5-flash'
+  );
 
   // Add stocks to watchlist when data updates
   useEffect(() => {
@@ -37,7 +45,7 @@ export function Dashboard() {
 
   // Run AI analysis
   const runAnalysis = async () => {
-    const providerName = settings.aiProvider === 'openai' ? 'OpenAI' : 'Claude';
+    const providerName = settings.aiProvider === 'openai' ? 'OpenAI' : settings.aiProvider === 'gemini' ? 'Google Gemini' : 'Claude';
     
     if (!activeApiKey) {
       setError(`Bitte füge deinen ${providerName} API-Schlüssel in den Einstellungen hinzu.`);
@@ -83,7 +91,38 @@ export function Dashboard() {
         riskTolerance: settings.riskTolerance,
         budget: cashBalance,
         currentPositions,
+        previousSignals: signals.slice(0, 10), // Pass last 10 signals for AI memory
+        activeOrders: orders.filter(o => o.status === 'active'), // Aktive Orders für KI-Bewertung
+        customPrompt: settings.customPrompt || undefined,
       });
+
+      // Process AI-suggested orders: override existing orders for same symbol
+      if (response.suggestedOrders && response.suggestedOrders.length > 0) {
+        for (const suggested of response.suggestedOrders) {
+          // Storniere bestehende aktive Orders für dieses Symbol/Typ
+          const existingOrders = orders.filter(
+            o => o.status === 'active' && o.symbol === suggested.symbol && o.orderType === suggested.orderType
+          );
+          for (const existing of existingOrders) {
+            cancelOrder(existing.id);
+          }
+
+          // Erstelle neue Order aus KI-Vorschlag
+          const stockData = stocks.find(s => s.symbol === suggested.symbol);
+          addOrder({
+            id: crypto.randomUUID(),
+            symbol: suggested.symbol,
+            name: stockData?.name || suggested.symbol,
+            orderType: suggested.orderType,
+            quantity: suggested.quantity,
+            triggerPrice: suggested.triggerPrice,
+            currentPrice: stockData?.price || suggested.triggerPrice,
+            status: 'active',
+            createdAt: new Date(),
+            note: `🤖 KI: ${suggested.reasoning}`,
+          });
+        }
+      }
 
       // Add signals and send notifications
       for (const signal of response.signals) {

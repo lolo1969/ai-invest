@@ -17,7 +17,7 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
 import emailjs from '@emailjs/browser';
-import type { UserPosition } from '../types';
+import type { UserPosition, AnalysisHistoryEntry } from '../types';
 
 interface SymbolSuggestion {
   symbol: string;
@@ -42,7 +42,7 @@ export function Portfolio() {
   
   const [showAddForm, setShowAddForm] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const { lastAnalysis: analysisResult, lastAnalysisDate, setLastAnalysis: setAnalysisResult, addAnalysisHistory } = useAppStore();
   const [editingCash, setEditingCash] = useState(false);
   const [cashInput, setCashInput] = useState('');
   const [editingPosition, setEditingPosition] = useState<string | null>(null);
@@ -238,8 +238,10 @@ export function Portfolio() {
   const analyzePortfolio = async () => {
     const activeApiKey = settings.aiProvider === 'openai' 
       ? settings.apiKeys.openai 
+      : settings.aiProvider === 'gemini'
+      ? settings.apiKeys.gemini
       : settings.apiKeys.claude;
-    const providerName = settings.aiProvider === 'openai' ? 'OpenAI' : 'Claude';
+    const providerName = settings.aiProvider === 'openai' ? 'OpenAI' : settings.aiProvider === 'gemini' ? 'Google Gemini' : 'Claude';
     
     if (!activeApiKey) {
       setError(`Bitte füge deinen ${providerName} API-Schlüssel in den Einstellungen hinzu.`);
@@ -264,13 +266,20 @@ export function Portfolio() {
 
       // Direct API call for portfolio analysis - use selected provider
       const isOpenAI = settings.aiProvider === 'openai';
+      const isGemini = settings.aiProvider === 'gemini';
       const apiUrl = isOpenAI 
         ? 'https://api.openai.com/v1/chat/completions'
+        : isGemini
+        ? `https://generativelanguage.googleapis.com/v1beta/models/${settings.geminiModel || 'gemini-2.5-flash'}:generateContent?key=${activeApiKey}`
         : 'https://api.anthropic.com/v1/messages';
       const apiHeaders: Record<string, string> = isOpenAI
         ? {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${activeApiKey}`,
+          }
+        : isGemini
+        ? {
+            'Content-Type': 'application/json',
           }
         : {
             'Content-Type': 'application/json',
@@ -287,6 +296,118 @@ export function Portfolio() {
             `${s.symbol} (${s.name}): ${s.price?.toFixed(2) ?? '?'} ${s.currency} (${s.changePercent != null ? (s.changePercent >= 0 ? '+' : '') + s.changePercent.toFixed(2) + '%' : '?'})`
           ).join('\n')
         : 'Keine Watchlist-Aktien vorhanden.';
+
+      // Build AI memory context from previous analyses
+      const memoryContext = (() => {
+        const history = useAppStore.getState().analysisHistory;
+        if (history.length === 0) return '';
+
+        const lastEntry = history[0];
+        const lastDate = new Date(lastEntry.date).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        
+        // Detect changes since last analysis
+        const prevPositions = lastEntry.portfolioSnapshot.positions;
+        const currentSymbols = userPositions.map(p => p.symbol.toUpperCase());
+        const prevSymbols = prevPositions.map(p => p.symbol.toUpperCase());
+        
+        const newPositions = userPositions.filter(p => !prevSymbols.includes(p.symbol.toUpperCase()));
+        const removedPositions = prevPositions.filter(p => !currentSymbols.includes(p.symbol.toUpperCase()));
+        const changedPositions = userPositions.filter(p => {
+          const prev = prevPositions.find(pp => pp.symbol.toUpperCase() === p.symbol.toUpperCase());
+          if (!prev) return false;
+          return prev.quantity !== p.quantity || Math.abs(prev.buyPrice - p.buyPrice) > 0.01;
+        });
+
+        const prevCash = lastEntry.portfolioSnapshot.cashBalance;
+        const cashChanged = Math.abs(prevCash - cashBalance) > 0.01;
+
+        const prevWatchlistSymbols = lastEntry.watchlistSymbols || [];
+        const currentWatchlistSymbols = watchlist.map(s => s.symbol.toUpperCase());
+        const newWatchlistItems = currentWatchlistSymbols.filter(s => !prevWatchlistSymbols.includes(s));
+        const removedWatchlistItems = prevWatchlistSymbols.filter(s => !currentWatchlistSymbols.includes(s));
+
+        let changes = '';
+        if (newPositions.length > 0) {
+          changes += `\n✅ NEU GEKAUFT seit letzter Analyse:\n${newPositions.map(p => `  - ${p.name} (${p.symbol}): ${p.quantity} Stück zu ${p.buyPrice.toFixed(2)} ${p.currency}`).join('\n')}`;
+        }
+        if (removedPositions.length > 0) {
+          changes += `\n❌ VERKAUFT seit letzter Analyse:\n${removedPositions.map(p => `  - ${p.name} (${p.symbol}): ${p.quantity} Stück (war zu ${p.buyPrice.toFixed(2)})`).join('\n')}`;
+        }
+        if (changedPositions.length > 0) {
+          changes += `\n🔄 POSITION GEÄNDERT seit letzter Analyse:\n${changedPositions.map(p => {
+            const prev = prevPositions.find(pp => pp.symbol.toUpperCase() === p.symbol.toUpperCase())!;
+            const qtyChange = p.quantity !== prev.quantity ? ` Menge: ${prev.quantity} → ${p.quantity}` : '';
+            const priceChange = Math.abs(prev.buyPrice - p.buyPrice) > 0.01 ? ` Kaufpreis: ${prev.buyPrice.toFixed(2)} → ${p.buyPrice.toFixed(2)}` : '';
+            return `  - ${p.name} (${p.symbol}):${qtyChange}${priceChange}`;
+          }).join('\n')}`;
+        }
+        if (cashChanged) {
+          changes += `\n💰 CASH GEÄNDERT: ${prevCash.toFixed(2)} EUR → ${cashBalance.toFixed(2)} EUR`;
+        }
+        if (newWatchlistItems.length > 0) {
+          changes += `\n👀 NEU AUF WATCHLIST: ${newWatchlistItems.join(', ')}`;
+        }
+        if (removedWatchlistItems.length > 0) {
+          changes += `\n🗑️ VON WATCHLIST ENTFERNT: ${removedWatchlistItems.join(', ')}`;
+        }
+
+        const noChanges = !newPositions.length && !removedPositions.length && !changedPositions.length && !cashChanged && !newWatchlistItems.length && !removedWatchlistItems.length;
+
+        // Smart truncation: preserve buy recommendations section which often appears later in the text
+        const buildPrevAnalysisSummary = (text: string, maxLen: number): string => {
+          if (text.length <= maxLen) return text;
+          
+          // Try to find and preserve the "Neue Kaufempfehlungen" / recommendations section
+          const recPatterns = [
+            /🆕.*?(?:KAUFEMPFEHLUNG|Kaufempfehlung)/i,
+            /(?:neue|new).*?(?:kaufempfehlung|empfehlung|recommendation)/i,
+            /🎯.*?(?:AKTIONSPLAN|Aktionsplan)/i,
+          ];
+          
+          let recSectionStart = -1;
+          for (const pattern of recPatterns) {
+            const match = text.search(pattern);
+            if (match > maxLen && match !== -1) {
+              recSectionStart = match;
+              break;
+            }
+          }
+          
+          if (recSectionStart > 0) {
+            // Include beginning + recommendations section
+            const firstPartLen = Math.floor(maxLen * 0.55);
+            const secondPartLen = maxLen - firstPartLen - 50; // reserve space for separator
+            const firstPart = text.substring(0, firstPartLen);
+            const secondPart = text.substring(recSectionStart, recSectionStart + secondPartLen);
+            return firstPart + '\n... (Portfolio-Bewertung gekürzt) ...\n' + secondPart + (recSectionStart + secondPartLen < text.length ? '\n... (gekürzt)' : '');
+          }
+          
+          // Fallback: simple truncation with higher limit
+          return text.substring(0, maxLen) + '\n... (gekürzt)';
+        };
+        
+        const prevAnalysisTruncated = buildPrevAnalysisSummary(lastEntry.analysisText, 5000);
+
+        return `
+═══════════════════════════════════════
+🧠 KI-GEDÄCHTNIS: LETZTE ANALYSE (${lastDate})
+═══════════════════════════════════════
+${prevAnalysisTruncated}
+
+═══════════════════════════════════════
+📋 ÄNDERUNGEN SEIT LETZTER ANALYSE:
+═══════════════════════════════════════
+${noChanges ? '⚪ Keine Änderungen am Portfolio seit der letzten Analyse.' : changes}
+
+WICHTIG FÜR DIESE ANALYSE:
+- Beziehe dich auf deine vorherige Analyse und erkenne an, welche Empfehlungen bereits umgesetzt wurden
+- Wenn der Nutzer Aktien gekauft hat die du empfohlen hast, bestätige dies positiv
+- Wenn Empfehlungen NICHT umgesetzt wurden, wiederhole sie falls noch aktuell, oder aktualisiere sie
+- Vermeide es, die gleichen Empfehlungen wortwörtlich zu wiederholen - entwickle die Analyse weiter
+- Gib einen kurzen Abschnitt "📝 Umsetzungs-Check" am Anfang, der zusammenfasst was seit letztem Mal passiert ist
+
+`;
+      })();
 
       const promptContent = `Du bist ein erfahrener Investment-Analyst. Analysiere mein aktuelles Portfolio und gib konkrete Empfehlungen.
 
@@ -312,7 +433,7 @@ MEINE WATCHLIST (beobachtete Aktien, die ich NICHT besitze):
 ${watchlistSummary}
 
 HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })}
-
+${memoryContext}
 ═══════════════════════════════════════
 AUFGABE:
 ═══════════════════════════════════════
@@ -320,7 +441,12 @@ AUFGABE:
 📊 **1. PORTFOLIO-ANALYSE** (NUR meine ${userPositions.length} oben gelisteten Positionen!)
 WICHTIG: Analysiere AUSSCHLIESSLICH die Positionen die oben unter "MEIN PORTFOLIO" aufgelistet sind.
 Erfinde KEINE zusätzlichen Positionen! Füge KEINE Watchlist-Aktien hier hinzu!
-Für jede meiner Positionen:
+
+⚠️ DU MUSST JEDE EINZELNE DER ${userPositions.length} POSITIONEN BEWERTEN! Keine auslassen!
+Hier ist die vollständige Liste der zu bewertenden Positionen:
+${userPositions.map((p, i) => `  ${i + 1}. ${p.name} (${p.symbol})`).join('\n')}
+
+Für JEDE dieser ${userPositions.length} Positionen MUSS eine Bewertung enthalten sein:
 - HALTEN, NACHKAUFEN, TEILVERKAUF oder VERKAUFEN
 - Begründung (2-3 Sätze)
 - Konkreter Aktionsvorschlag mit Zielpreis
@@ -343,20 +469,49 @@ Basierend auf meinem verfügbaren Cash von ${cashBalance.toFixed(2)} EUR und mei
 - Priorisierte Liste der nächsten Schritte
 - Was sofort tun, was beobachten
 
+${settings.customPrompt ? `
+═══════════════════════════════════════
+⚙️ PERSÖNLICHE ANWEISUNGEN (UNBEDINGT BEACHTEN!):
+═══════════════════════════════════════
+${settings.customPrompt}
+` : ''}
 Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
+
+      const modelName = isOpenAI 
+        ? (settings.openaiModel || 'gpt-5.2')
+        : isGemini
+        ? (settings.geminiModel || 'gemini-2.5-flash')
+        : (settings.claudeModel || 'claude-opus-4-6');
+      const modelDisplayNames: Record<string, string> = {
+        'claude-sonnet-4-5-20250929': 'Claude Sonnet 4.5',
+        'claude-opus-4-6': 'Claude Opus 4.6',
+        'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
+        'gpt-5.2': 'OpenAI GPT-5.2',
+        'gpt-5-mini': 'OpenAI GPT-5 Mini',
+        'gpt-4o': 'OpenAI GPT-4o',
+        'gemini-2.5-flash': 'Google Gemini 2.5 Flash',
+        'gemini-2.5-pro': 'Google Gemini 2.5 Pro',
+      };
+      const modelDisplayName = modelDisplayNames[modelName] || modelName;
 
       const apiBody = isOpenAI
         ? JSON.stringify({
-            model: 'gpt-4o',
-            max_tokens: 4096,
+            model: modelName,
+            max_completion_tokens: 16384,
             messages: [
               { role: 'system', content: 'Du bist ein erfahrener Investment-Analyst. Antworte auf Deutsch mit Emojis.' },
               { role: 'user', content: promptContent },
             ],
           })
+        : isGemini
+        ? JSON.stringify({
+            contents: [{ parts: [{ text: promptContent }] }],
+            systemInstruction: { parts: [{ text: 'Du bist ein erfahrener Investment-Analyst. Antworte auf Deutsch mit Emojis.' }] },
+            generationConfig: { maxOutputTokens: 16384, temperature: 0.7 },
+          })
         : JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 4096,
+            model: modelName,
+            max_tokens: 16384,
             messages: [
               { role: 'user', content: promptContent },
             ],
@@ -376,24 +531,105 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       const data = await response.json();
       const content = isOpenAI 
         ? (data.choices?.[0]?.message?.content || 'Keine Antwort erhalten')
+        : isGemini
+        ? (data.candidates?.[0]?.content?.parts?.[0]?.text || 'Keine Antwort erhalten')
         : (data.content?.[0]?.text || 'Keine Antwort erhalten');
       
       setAnalysisResult(content);
 
-      // Send to Telegram if enabled
+      // Save analysis to history for AI memory
+      const historyEntry: AnalysisHistoryEntry = {
+        id: `analysis-${Date.now()}`,
+        date: new Date().toISOString(),
+        analysisText: content,
+        portfolioSnapshot: {
+          positions: userPositions.map(p => ({
+            symbol: p.symbol,
+            name: p.name,
+            quantity: p.quantity,
+            buyPrice: p.buyPrice,
+            currentPrice: p.currentPrice,
+          })),
+          cashBalance,
+          totalValue: totalCurrentValue,
+        },
+        watchlistSymbols: watchlist.map(s => s.symbol.toUpperCase()),
+        strategy: settings.strategy,
+        aiProvider: settings.aiProvider,
+      };
+      addAnalysisHistory(historyEntry);
+
+      // Send to Telegram if enabled - split into multiple messages if needed
       if (settings.notifications.telegram.enabled) {
-        await fetch(
-          `https://api.telegram.org/bot${settings.notifications.telegram.botToken}/sendMessage`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: settings.notifications.telegram.chatId,
-              text: `📊 *Portfolio-Analyse*\n\n${content.substring(0, 4000)}`,
-              parse_mode: 'Markdown',
-            }),
+        const telegramHeader = `📊 *Portfolio-Analyse*\n🤖 KI-Modell: ${modelDisplayName}\n\n`;
+        const maxTelegramLength = 4096;
+        const headerLength = telegramHeader.length;
+        const chunkSize = maxTelegramLength - headerLength - 50; // Reserve space for part indicators
+        
+        // Split content into chunks at line breaks
+        const splitContentForTelegram = (text: string, maxLen: number): string[] => {
+          const chunks: string[] = [];
+          let remaining = text;
+          while (remaining.length > 0) {
+            if (remaining.length <= maxLen) {
+              chunks.push(remaining);
+              break;
+            }
+            // Find last newline before maxLen
+            let splitAt = remaining.lastIndexOf('\n', maxLen);
+            if (splitAt <= 0) splitAt = maxLen;
+            chunks.push(remaining.substring(0, splitAt));
+            remaining = remaining.substring(splitAt).trimStart();
           }
-        );
+          return chunks;
+        };
+
+        const chunks = splitContentForTelegram(content, chunkSize);
+        const totalParts = chunks.length;
+
+        for (let i = 0; i < chunks.length; i++) {
+          const partIndicator = totalParts > 1 ? `(Teil ${i + 1}/${totalParts})\n` : '';
+          const messageText = i === 0 
+            ? `${telegramHeader}${partIndicator}${chunks[i]}`
+            : `📊 *Portfolio-Analyse* ${partIndicator}\n${chunks[i]}`;
+          
+          try {
+            await fetch(
+              `https://api.telegram.org/bot${settings.notifications.telegram.botToken}/sendMessage`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: settings.notifications.telegram.chatId,
+                  text: messageText,
+                  parse_mode: 'Markdown',
+                }),
+              }
+            );
+          } catch (telegramError) {
+            console.error(`Failed to send Telegram part ${i + 1}:`, telegramError);
+            // Retry without Markdown parse_mode in case of formatting issues
+            try {
+              await fetch(
+                `https://api.telegram.org/bot${settings.notifications.telegram.botToken}/sendMessage`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: settings.notifications.telegram.chatId,
+                    text: messageText,
+                  }),
+                }
+              );
+            } catch (retryError) {
+              console.error(`Telegram retry failed for part ${i + 1}:`, retryError);
+            }
+          }
+          // Small delay between messages to avoid rate limiting
+          if (i < chunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
       }
 
       // Send to Email if enabled
@@ -416,15 +652,15 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             settings.notifications.email.templateId,
             {
               to_email: settings.notifications.email.address,
-              subject: '📊 AI Invest Portfolio-Analyse',
+              subject: `📊 AI Invest Portfolio-Analyse (${modelDisplayName})`,
               stock_name: 'Portfolio-Analyse',
               stock_symbol: 'PORTFOLIO',
-              signal_type: 'ANALYSE',
+              signal_type: `ANALYSE (${modelDisplayName})`,
               price: `${totalCurrentValue.toFixed(2)} EUR`,
               change: `${totalProfitLossPercent >= 0 ? '+' : ''}${totalProfitLossPercent.toFixed(2)}%`,
               confidence: '-',
               risk_level: settings.riskTolerance === 'low' ? 'Niedrig' : settings.riskTolerance === 'medium' ? 'Mittel' : 'Hoch',
-              reasoning: content.substring(0, 2000),
+              reasoning: `🤖 KI-Modell: ${modelDisplayName}\n\n${content}`,
               target_price: '-',
               stop_loss: '-',
               date: new Date().toLocaleString('de-DE'),
@@ -830,6 +1066,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                   <th className="px-6 py-4 text-right">Anzahl</th>
                   <th className="px-6 py-4 text-right">Kaufpreis</th>
                   <th className="px-6 py-4 text-right">Aktuell</th>
+                  <th className="px-6 py-4 text-right">Wert</th>
                   <th className="px-6 py-4 text-right">G/V</th>
                   <th className="px-6 py-4 text-center">Aktion</th>
                 </tr>
@@ -1107,6 +1344,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
+                        <div className="text-white font-medium">
+                          {(position.quantity * position.currentPrice).toFixed(2)} {position.currency}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {totalCurrentValue > 0 ? ((position.quantity * position.currentPrice) / totalCurrentValue * 100).toFixed(1) : '0.0'}%
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
                         <div className={`font-medium ${pl.absolute >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                           <div className="flex items-center justify-end gap-1">
                             {pl.absolute >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
@@ -1142,6 +1387,11 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               <Brain size={20} className="text-indigo-500" />
               KI-Portfolio-Analyse
             </h2>
+            {lastAnalysisDate && (
+              <span className="text-xs text-gray-500">
+                {new Date(lastAnalysisDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
             <button
               onClick={() => setAnalysisResult(null)}
               className="p-1 hover:bg-[#252542] rounded"

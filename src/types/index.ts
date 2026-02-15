@@ -2,7 +2,10 @@
 export type InvestmentStrategy = 'short' | 'middle' | 'long';
 export type SignalType = 'BUY' | 'SELL' | 'HOLD';
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type AIProvider = 'claude' | 'openai';
+export type AIProvider = 'claude' | 'openai' | 'gemini';
+export type ClaudeModel = 'claude-sonnet-4-5-20250929' | 'claude-opus-4-6' | 'claude-haiku-4-5-20251001';
+export type OpenAIModel = 'gpt-5.2' | 'gpt-5-mini' | 'gpt-4o';
+export type GeminiModel = 'gemini-2.5-flash' | 'gemini-2.5-pro';
 
 export interface Stock {
   symbol: string;
@@ -74,6 +77,10 @@ export interface UserSettings {
   notifications: NotificationSettings;
   apiKeys: APIKeys;
   aiProvider: AIProvider;
+  claudeModel: ClaudeModel;
+  openaiModel: OpenAIModel;
+  geminiModel: GeminiModel;
+  customPrompt: string; // Persönliche Anweisungen für die KI
 }
 
 export interface NotificationSettings {
@@ -94,6 +101,7 @@ export interface NotificationSettings {
 export interface APIKeys {
   claude: string;
   openai: string;
+  gemini: string;
   marketData: string;
 }
 
@@ -144,6 +152,17 @@ export interface AIAnalysisRequest {
   riskTolerance: RiskLevel;
   budget: number;
   currentPositions?: Position[];
+  previousSignals?: InvestmentSignal[]; // Last signals for AI memory
+  activeOrders?: Order[]; // Aktive Orders für KI-Bewertung
+  customPrompt?: string; // Persönliche Anweisungen
+}
+
+export interface AISuggestedOrder {
+  symbol: string;
+  orderType: OrderType;
+  quantity: number;
+  triggerPrice: number;
+  reasoning: string;
 }
 
 export interface AIAnalysisResponse {
@@ -151,5 +170,48 @@ export interface AIAnalysisResponse {
   marketSummary: string;
   recommendations: string[];
   warnings: string[];
+  suggestedOrders: AISuggestedOrder[];
   analyzedAt: Date;
+}
+
+// Order Types
+export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'stop-buy';
+export type OrderStatus = 'active' | 'executed' | 'cancelled' | 'expired';
+
+export interface Order {
+  id: string;
+  symbol: string;
+  name: string;
+  orderType: OrderType;
+  quantity: number;
+  triggerPrice: number;       // Preis bei dem die Order ausgelöst wird
+  currentPrice: number;       // Letzter bekannter Preis
+  status: OrderStatus;
+  createdAt: Date;
+  executedAt?: Date;
+  executedPrice?: number;     // Tatsächlicher Ausführungspreis
+  expiresAt?: Date;           // Optionales Ablaufdatum
+  note?: string;              // Optionale Notiz
+}
+
+export interface OrderSettings {
+  autoExecute: boolean;       // Automatische Ausführung aktiviert
+  checkIntervalSeconds: number; // Prüfintervall in Sekunden
+}
+
+// Analysis History for AI Memory
+export interface PortfolioSnapshot {
+  positions: { symbol: string; name: string; quantity: number; buyPrice: number; currentPrice: number }[];
+  cashBalance: number;
+  totalValue: number;
+}
+
+export interface AnalysisHistoryEntry {
+  id: string;
+  date: string; // ISO string
+  analysisText: string; // The full AI response (truncated for context)
+  portfolioSnapshot: PortfolioSnapshot;
+  watchlistSymbols: string[];
+  strategy: InvestmentStrategy;
+  aiProvider: AIProvider;
 }

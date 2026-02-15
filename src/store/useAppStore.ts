@@ -6,7 +6,10 @@ import type {
   Portfolio, 
   Stock,
   UserPosition,
-  PriceAlert
+  PriceAlert,
+  AnalysisHistoryEntry,
+  Order,
+  OrderSettings
 } from '../types';
 
 interface AppState {
@@ -46,6 +49,26 @@ interface AppState {
   removePriceAlert: (id: string) => void;
   triggerPriceAlert: (id: string) => void;
   
+  // Orders
+  orders: Order[];
+  orderSettings: OrderSettings;
+  addOrder: (order: Order) => void;
+  removeOrder: (id: string) => void;
+  cancelOrder: (id: string) => void;
+  executeOrder: (id: string, executedPrice: number) => void;
+  updateOrderPrice: (id: string, currentPrice: number) => void;
+  updateOrderSettings: (settings: Partial<OrderSettings>) => void;
+
+  // Portfolio Analysis
+  lastAnalysis: string | null;
+  lastAnalysisDate: string | null;
+  setLastAnalysis: (analysis: string | null) => void;
+
+  // Analysis History (AI Memory)
+  analysisHistory: AnalysisHistoryEntry[];
+  addAnalysisHistory: (entry: AnalysisHistoryEntry) => void;
+  clearAnalysisHistory: () => void;
+
   // UI State
   isLoading: boolean;
   setLoading: (loading: boolean) => void;
@@ -75,9 +98,14 @@ const defaultSettings: UserSettings = {
   apiKeys: {
     claude: '',
     openai: '',
+    gemini: '',
     marketData: '',
   },
-  aiProvider: 'claude',
+  aiProvider: 'gemini',
+  claudeModel: 'claude-opus-4-6',
+  openaiModel: 'gpt-5.2',
+  geminiModel: 'gemini-2.5-flash',
+  customPrompt: '',
 };
 
 export const useAppStore = create<AppState>()(
@@ -156,6 +184,111 @@ export const useAppStore = create<AppState>()(
           ),
         })),
 
+      // Orders
+      orders: [],
+      orderSettings: { autoExecute: false, checkIntervalSeconds: 30 },
+      addOrder: (order) =>
+        set((state) => ({
+          orders: [...state.orders, order],
+        })),
+      removeOrder: (id) =>
+        set((state) => ({
+          orders: state.orders.filter((o) => o.id !== id),
+        })),
+      cancelOrder: (id) =>
+        set((state) => ({
+          orders: state.orders.map((o) =>
+            o.id === id ? { ...o, status: 'cancelled' as const } : o
+          ),
+        })),
+      executeOrder: (id, executedPrice) =>
+        set((state) => {
+          const order = state.orders.find((o) => o.id === id);
+          if (!order || order.status !== 'active') return state;
+
+          const totalCost = executedPrice * order.quantity;
+          let newCashBalance = state.cashBalance;
+          let newPositions = [...state.userPositions];
+
+          if (order.orderType === 'limit-buy' || order.orderType === 'stop-buy') {
+            // Kauf: Cash reduzieren, Position hinzufügen/erweitern
+            newCashBalance -= totalCost;
+            const existingPos = newPositions.find((p) => p.symbol === order.symbol);
+            if (existingPos) {
+              const totalQty = existingPos.quantity + order.quantity;
+              const avgPrice = (existingPos.buyPrice * existingPos.quantity + executedPrice * order.quantity) / totalQty;
+              newPositions = newPositions.map((p) =>
+                p.symbol === order.symbol
+                  ? { ...p, quantity: totalQty, buyPrice: avgPrice, currentPrice: executedPrice }
+                  : p
+              );
+            } else {
+              newPositions.push({
+                id: crypto.randomUUID(),
+                symbol: order.symbol,
+                name: order.name,
+                quantity: order.quantity,
+                buyPrice: executedPrice,
+                currentPrice: executedPrice,
+                currency: 'USD',
+                useYahooPrice: true,
+              });
+            }
+          } else {
+            // Verkauf: Cash erhöhen, Position reduzieren/entfernen
+            newCashBalance += totalCost;
+            const existingPos = newPositions.find((p) => p.symbol === order.symbol);
+            if (existingPos) {
+              const newQty = existingPos.quantity - order.quantity;
+              if (newQty <= 0) {
+                newPositions = newPositions.filter((p) => p.symbol !== order.symbol);
+              } else {
+                newPositions = newPositions.map((p) =>
+                  p.symbol === order.symbol
+                    ? { ...p, quantity: newQty, currentPrice: executedPrice }
+                    : p
+                );
+              }
+            }
+          }
+
+          return {
+            orders: state.orders.map((o) =>
+              o.id === id
+                ? { ...o, status: 'executed' as const, executedAt: new Date(), executedPrice }
+                : o
+            ),
+            cashBalance: newCashBalance,
+            userPositions: newPositions,
+          };
+        }),
+      updateOrderPrice: (id, currentPrice) =>
+        set((state) => ({
+          orders: state.orders.map((o) =>
+            o.id === id ? { ...o, currentPrice } : o
+          ),
+        })),
+      updateOrderSettings: (settings) =>
+        set((state) => ({
+          orderSettings: { ...state.orderSettings, ...settings },
+        })),
+
+      // Portfolio Analysis
+      lastAnalysis: null,
+      lastAnalysisDate: null,
+      setLastAnalysis: (analysis) => set({ 
+        lastAnalysis: analysis, 
+        lastAnalysisDate: analysis ? new Date().toISOString() : null 
+      }),
+
+      // Analysis History (AI Memory)
+      analysisHistory: [],
+      addAnalysisHistory: (entry) =>
+        set((state) => ({
+          analysisHistory: [entry, ...state.analysisHistory].slice(0, 5), // Keep last 5
+        })),
+      clearAnalysisHistory: () => set({ analysisHistory: [] }),
+
       // UI
       isLoading: false,
       setLoading: (loading) => set({ isLoading: loading }),
@@ -172,6 +305,11 @@ export const useAppStore = create<AppState>()(
         watchlist: state.watchlist,
         signals: state.signals,
         priceAlerts: state.priceAlerts,
+        orders: state.orders,
+        orderSettings: state.orderSettings,
+        lastAnalysis: state.lastAnalysis,
+        lastAnalysisDate: state.lastAnalysisDate,
+        analysisHistory: state.analysisHistory,
       }),
     }
   )

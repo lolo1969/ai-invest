@@ -1,25 +1,36 @@
 import type {
   AIAnalysisRequest,
   AIAnalysisResponse,
+  AISuggestedOrder,
   InvestmentSignal,
   Stock,
   InvestmentStrategy,
   RiskLevel,
   AIProvider,
+  ClaudeModel,
+  OpenAIModel,
+  GeminiModel,
 } from '../types';
 
 export class AIService {
   private apiKey: string;
   private provider: AIProvider;
+  private claudeModel: ClaudeModel;
+  private openaiModel: OpenAIModel;
+  private geminiModel: GeminiModel;
 
-  constructor(apiKey: string, provider: AIProvider = 'claude') {
+  constructor(apiKey: string, provider: AIProvider = 'claude', claudeModel: ClaudeModel = 'claude-opus-4-6', openaiModel: OpenAIModel = 'gpt-5.2', geminiModel: GeminiModel = 'gemini-2.5-flash') {
     this.apiKey = apiKey;
     this.provider = provider;
+    this.claudeModel = claudeModel;
+    this.openaiModel = openaiModel;
+    this.geminiModel = geminiModel;
   }
 
   async analyzeMarket(request: AIAnalysisRequest): Promise<AIAnalysisResponse> {
     if (!this.apiKey) {
-      throw new Error(`${this.provider === 'claude' ? 'Claude' : 'OpenAI'} API key is required`);
+      const providerNames: Record<AIProvider, string> = { claude: 'Claude', openai: 'OpenAI', gemini: 'Google Gemini' };
+      throw new Error(`${providerNames[this.provider]} API key is required`);
     }
 
     const prompt = this.buildAnalysisPrompt(request);
@@ -27,13 +38,16 @@ export class AIService {
     try {
       if (this.provider === 'openai') {
         return await this.callOpenAI(prompt, request.stocks, request.strategy);
+      } else if (this.provider === 'gemini') {
+        return await this.callGemini(prompt, request.stocks, request.strategy);
       } else {
         return await this.callClaude(prompt, request.stocks, request.strategy);
       }
     } catch (error: any) {
       console.error('AI analysis error:', error);
       if (error.message?.includes('Failed to fetch')) {
-        throw new Error(`Netzwerkfehler: Konnte ${this.provider === 'claude' ? 'Claude' : 'OpenAI'} API nicht erreichen. Prüfe deine Internetverbindung.`);
+        const providerNames: Record<AIProvider, string> = { claude: 'Claude', openai: 'OpenAI', gemini: 'Google Gemini' };
+        throw new Error(`Netzwerkfehler: Konnte ${providerNames[this.provider]} API nicht erreichen. Prüfe deine Internetverbindung.`);
       }
       throw error;
     }
@@ -49,8 +63,8 @@ export class AIService {
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
+        model: this.claudeModel,
+        max_tokens: 8192,
         messages: [
           {
             role: 'user',
@@ -88,8 +102,8 @@ export class AIService {
         'Authorization': `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
-        max_tokens: 4096,
+        model: this.openaiModel,
+        max_completion_tokens: 8192,
         messages: [
           {
             role: 'system',
@@ -120,6 +134,59 @@ export class AIService {
     const data = await response.json();
     console.log('OpenAI API Response:', data);
     const content = data.choices[0]?.message?.content || '';
+
+    return this.parseAIResponse(content, stocks, strategy);
+  }
+
+  private async callGemini(prompt: string, stocks: Stock[], strategy?: InvestmentStrategy): Promise<AIAnalysisResponse> {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${this.geminiModel}:generateContent?key=${this.apiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+          systemInstruction: {
+            parts: [
+              {
+                text: 'Du bist ein erfahrener Investment-Analyst. Antworte immer im angeforderten JSON-Format.',
+              },
+            ],
+          },
+          generationConfig: {
+            maxOutputTokens: 8192,
+            temperature: 0.7,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Gemini API Error Response:', errorText);
+      let errorMessage = 'AI analysis failed';
+      try {
+        const error = JSON.parse(errorText);
+        errorMessage = error.error?.message || errorMessage;
+      } catch (e) {
+        errorMessage = errorText || errorMessage;
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    console.log('Gemini API Response:', data);
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     return this.parseAIResponse(content, stocks, strategy);
   }
@@ -223,6 +290,36 @@ ${request.strategy === 'long' ? `LANGFRISTIGE STRATEGIE - REGELN FÜR BESTEHENDE
 - Prüfe ob bestehende Positionen verkauft werden sollten (Überbewertung, Stop-Loss erreicht)`}
 ` : 'HINWEIS: Der Nutzer hat keine Positionen im Portfolio angegeben.\n'}
 
+${request.previousSignals?.length ? `
+🧠 VORHERIGE EMPFEHLUNGEN (KI-GEDÄCHTNIS):
+Dies sind deine letzten Empfehlungen. Beziehe dich darauf und erkenne Änderungen:
+${request.previousSignals.slice(0, 10).map(s => {
+  const age = Math.round((Date.now() - new Date(s.createdAt).getTime()) / (1000 * 60 * 60));
+  const ageStr = age < 24 ? `vor ${age}h` : `vor ${Math.round(age / 24)}d`;
+  return `- ${s.stock.symbol}: ${s.signal} (Konfidenz: ${s.confidence}%, ${ageStr}) - ${s.reasoning.substring(0, 100)}...`;
+}).join('\n')}
+
+WICHTIG:
+- Wenn sich deine Einschätzung geändert hat, erkläre warum
+- Erkenne an wenn der Nutzer deine Empfehlungen umgesetzt hat (neue Positionen, Verkäufe)
+- Wiederhole nicht wortwörtlich - entwickle deine Analyse weiter
+` : ''}
+
+${request.activeOrders?.length ? `
+📝 AKTIVE ORDERS (WICHTIG - BEWERTE DIESE!):
+Der Nutzer hat folgende offene Orders. Bewerte ob diese noch sinnvoll sind:
+${request.activeOrders.map(o => {
+  const typeLabel = o.orderType === 'limit-buy' ? 'Limit Buy' : o.orderType === 'limit-sell' ? 'Limit Sell' : o.orderType === 'stop-loss' ? 'Stop Loss' : 'Stop Buy';
+  return `- ${o.symbol} (${o.name}): ${typeLabel} | Trigger: ${o.triggerPrice.toFixed(2)} | Aktuell: ${o.currentPrice.toFixed(2)} | ${o.quantity} Stück${o.note ? ` | Notiz: ${o.note}` : ''}`;
+}).join('\n')}
+
+Falls du bessere Orders vorschlägst, überschreiben diese die existierenden!
+Bewerte:
+- Sind die Trigger-Preise noch realistisch und sinnvoll?
+- Stimmen die Stop-Loss Orders mit der aktuellen Marktlage überein?
+- Sollten Orders angepasst, beibehalten oder storniert werden?
+` : ''}
+
 STRATEGIE-KOMPATIBILITÄTSPRÜFUNG (${strategyDesc}):
 ${request.strategy === 'long' ? `Prüfe für JEDE Aktie (Portfolio UND Watchlist):
 - Ist diese Aktie für langfristige Buy & Hold Strategie geeignet?
@@ -271,9 +368,31 @@ Antworte im folgenden JSON-Format:
   ],
   "marketSummary": "Kurze Zusammenfassung der Marktlage...",
   "recommendations": ["Empfehlung 1", "Empfehlung 2"],
-  "warnings": ["Warnung 1"]
+  "warnings": ["Warnung 1"],
+  "suggestedOrders": [
+    {
+      "symbol": "AAPL",
+      "orderType": "limit-buy",
+      "quantity": 5,
+      "triggerPrice": 160.00,
+      "reasoning": "Guter Einstieg bei Rücksetzer auf 160 EUR..."
+    },
+    {
+      "symbol": "TSLA",
+      "orderType": "stop-loss",
+      "quantity": 10,
+      "triggerPrice": 200.00,
+      "reasoning": "Absicherung gegen weiteren Kursverfall..."
+    }
+  ]
 }
 
+${request.customPrompt ? `
+═══════════════════════════════════════
+PERSÖNLICHE ANWEISUNGEN DES NUTZERS (UNBEDINGT BEACHTEN!):
+═══════════════════════════════════════
+${request.customPrompt}
+` : ''}
 Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
   }
 
@@ -311,6 +430,13 @@ Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
         marketSummary: parsed.marketSummary || '',
         recommendations: parsed.recommendations || [],
         warnings: parsed.warnings || [],
+        suggestedOrders: (parsed.suggestedOrders || []).map((o: any) => ({
+          symbol: o.symbol,
+          orderType: o.orderType,
+          quantity: o.quantity,
+          triggerPrice: o.triggerPrice,
+          reasoning: o.reasoning || '',
+        })).filter((o: AISuggestedOrder) => o.symbol && o.orderType && o.quantity > 0 && o.triggerPrice > 0),
         analyzedAt: new Date(),
       };
     } catch (error) {
@@ -320,6 +446,7 @@ Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
         marketSummary: 'Analyse konnte nicht verarbeitet werden.',
         recommendations: [],
         warnings: ['Die AI-Antwort konnte nicht geparst werden.'],
+        suggestedOrders: [],
         analyzedAt: new Date(),
       };
     }
@@ -329,11 +456,17 @@ Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
 // Singleton instance - API key and provider will be set from settings
 let aiServiceInstance: AIService | null = null;
 let currentProvider: AIProvider | null = null;
+let currentClaudeModel: ClaudeModel | null = null;
+let currentOpenaiModel: OpenAIModel | null = null;
+let currentGeminiModel: GeminiModel | null = null;
 
-export const getAIService = (apiKey: string, provider: AIProvider = 'claude'): AIService => {
-  if (!aiServiceInstance || aiServiceInstance['apiKey'] !== apiKey || currentProvider !== provider) {
-    aiServiceInstance = new AIService(apiKey, provider);
+export const getAIService = (apiKey: string, provider: AIProvider = 'claude', claudeModel: ClaudeModel = 'claude-opus-4-6', openaiModel: OpenAIModel = 'gpt-5.2', geminiModel: GeminiModel = 'gemini-2.5-flash'): AIService => {
+  if (!aiServiceInstance || aiServiceInstance['apiKey'] !== apiKey || currentProvider !== provider || currentClaudeModel !== claudeModel || currentOpenaiModel !== openaiModel || currentGeminiModel !== geminiModel) {
+    aiServiceInstance = new AIService(apiKey, provider, claudeModel, openaiModel, geminiModel);
     currentProvider = provider;
+    currentClaudeModel = claudeModel;
+    currentOpenaiModel = openaiModel;
+    currentGeminiModel = geminiModel;
   }
   return aiServiceInstance;
 };
