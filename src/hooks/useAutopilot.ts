@@ -5,6 +5,7 @@ import { runAutopilotCycle } from '../services/autopilotService';
 /**
  * Hook für den Autopilot-Timer.
  * Startet/stoppt den Interval basierend auf den Autopilot-Settings.
+ * Wird in App.tsx verwendet, damit er persistent läuft (nicht bei Navigation neu startet).
  */
 export function useAutopilot() {
   const { 
@@ -16,6 +17,7 @@ export function useAutopilot() {
   
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRunningRef = useRef(false);
+  const hasRunInitial = useRef(false);
 
   const startCycle = useCallback(async () => {
     // Verhindere parallele Zyklen
@@ -57,25 +59,43 @@ export function useAutopilot() {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      hasRunInitial.current = false;
       updateAutopilotState({ isRunning: false, nextRunAt: null });
       return;
     }
 
-    // Initialer Lauf nach 5 Sekunden (nicht sofort, damit UI sich aufbaut)
-    const initialTimeout = setTimeout(() => {
-      startCycle();
-    }, 5000);
-
     // Regelmäßiger Interval
     const intervalMs = autopilotSettings.intervalMinutes * 60 * 1000;
+
+    // lastRunAt direkt aus dem Store lesen (vermeidet stale Closure)
+    const currentLastRunAt = useAppStore.getState().autopilotState.lastRunAt;
+    const lastRun = currentLastRunAt ? new Date(currentLastRunAt).getTime() : 0;
+    const timeSinceLastRun = Date.now() - lastRun;
+    const shouldRunNow = !hasRunInitial.current && timeSinceLastRun >= intervalMs;
+
+    let initialTimeout: ReturnType<typeof setTimeout> | null = null;
+    if (shouldRunNow) {
+      // Erster Lauf nach 5s wenn letzter Lauf lang genug her
+      initialTimeout = setTimeout(() => {
+        startCycle();
+      }, 5000);
+      hasRunInitial.current = true;
+      updateAutopilotState({ nextRunAt: new Date(Date.now() + 5000).toISOString() });
+    } else if (!hasRunInitial.current) {
+      // Letzter Lauf war kürzlich — nächsten Lauf auf Intervall-Ende setzen
+      hasRunInitial.current = true;
+      const nextRunTime = lastRun + intervalMs;
+      const delay = Math.max(nextRunTime - Date.now(), 5000);
+      initialTimeout = setTimeout(() => {
+        startCycle();
+      }, delay);
+      updateAutopilotState({ nextRunAt: new Date(Date.now() + delay).toISOString() });
+    }
+
     intervalRef.current = setInterval(startCycle, intervalMs);
-    
-    // Nächsten Lauf anzeigen
-    const nextRun = new Date(Date.now() + 5000); // Erster Lauf in 5s
-    updateAutopilotState({ nextRunAt: nextRun.toISOString() });
 
     return () => {
-      clearTimeout(initialTimeout);
+      if (initialTimeout) clearTimeout(initialTimeout);
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;

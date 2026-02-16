@@ -42,6 +42,7 @@ const ORDER_TYPE_ICONS: Record<OrderType, React.ReactNode> = {
 };
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
+  pending: 'text-yellow-400 bg-yellow-400/10',
   active: 'text-blue-400 bg-blue-400/10',
   executed: 'text-green-400 bg-green-400/10',
   cancelled: 'text-gray-400 bg-gray-400/10',
@@ -49,6 +50,7 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
 };
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
+  pending: 'Warte auf Bestätigung',
   active: 'Aktiv',
   executed: 'Ausgeführt',
   cancelled: 'Storniert',
@@ -93,10 +95,12 @@ export function Orders() {
     if (statusFilter !== 'all') {
       filtered = filtered.filter((o) => o.status === statusFilter);
     }
-    // Neueste zuerst, aktive ganz oben
+    // Neueste zuerst, pending und aktive ganz oben
     filtered.sort((a, b) => {
-      if (a.status === 'active' && b.status !== 'active') return -1;
-      if (a.status !== 'active' && b.status === 'active') return 1;
+      const priorityOrder = { pending: 0, active: 1, executed: 2, cancelled: 3, expired: 4 };
+      const aPriority = priorityOrder[a.status] ?? 5;
+      const bPriority = priorityOrder[b.status] ?? 5;
+      if (aPriority !== bPriority) return aPriority - bPriority;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return filtered;
@@ -104,12 +108,13 @@ export function Orders() {
 
   // Statistiken
   const stats = useMemo(() => {
+    const pending = orders.filter((o) => o.status === 'pending').length;
     const active = orders.filter((o) => o.status === 'active').length;
     const executed = orders.filter((o) => o.status === 'executed').length;
     const totalExecutedValue = orders
       .filter((o) => o.status === 'executed' && o.executedPrice)
       .reduce((sum, o) => sum + (o.executedPrice! * o.quantity), 0);
-    return { active, executed, totalExecutedValue };
+    return { pending, active, executed, totalExecutedValue };
   }, [orders]);
 
   // Symbol-Suche mit Debounce
@@ -222,7 +227,7 @@ export function Orders() {
 
   const handleManualExecute = async (orderId: string) => {
     const order = orders.find((o) => o.id === orderId);
-    if (!order || order.status !== 'active') return;
+    if (!order || (order.status !== 'active' && order.status !== 'pending')) return;
 
     try {
       const quote = await marketDataService.getQuote(order.symbol);
@@ -336,7 +341,12 @@ export function Orders() {
         {/* Active Orders */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
           <span className="text-sm text-gray-400">Aktive Orders</span>
-          <p className="text-xl font-bold text-blue-400 mt-1">{stats.active}</p>
+          <p className="text-xl font-bold text-blue-400 mt-1">
+            {stats.active}
+            {stats.pending > 0 && (
+              <span className="text-yellow-400 text-sm ml-2">(+{stats.pending} wartend)</span>
+            )}
+          </p>
         </div>
 
         {/* Executed Orders */}
@@ -651,7 +661,7 @@ export function Orders() {
 
             // Fortschrittsanzeige: Wie nah ist der Preis am Trigger?
             let progressPercent = 0;
-            if (order.status === 'active') {
+            if (order.status === 'active' || order.status === 'pending') {
               if (order.orderType === 'limit-buy' || order.orderType === 'stop-loss') {
                 // Preis muss fallen -> Progress steigt wenn Preis näher am Trigger
                 if (order.currentPrice > order.triggerPrice) {
@@ -679,6 +689,8 @@ export function Orders() {
                 className={`bg-[#1a1a2e] rounded-xl p-4 border transition-all ${
                   order.status === 'active' 
                     ? 'border-[#252542] hover:border-purple-500/30' 
+                    : order.status === 'pending'
+                    ? 'border-yellow-500/30 hover:border-yellow-500/50'
                     : 'border-[#252542] opacity-75'
                 }`}
               >
@@ -776,8 +788,8 @@ export function Orders() {
                         <p className="text-xs text-gray-500 mt-1 italic">📝 {order.note}</p>
                       )}
 
-                      {/* Progress bar für aktive Orders */}
-                      {order.status === 'active' && (
+                      {/* Progress bar für aktive/pending Orders */}
+                      {(order.status === 'active' || order.status === 'pending') && (
                         <div className="mt-2 w-48">
                           <div className="flex justify-between text-xs text-gray-500 mb-0.5">
                             <span>Trigger-Nähe</span>
@@ -799,7 +811,7 @@ export function Orders() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2">
-                    {order.status === 'active' && (
+                    {(order.status === 'active' || order.status === 'pending') && (
                       <>
                         {/* Manuell ausführen */}
                         {manualExecuteId === order.id ? (
@@ -839,7 +851,7 @@ export function Orders() {
                       </>
                     )}
                     {/* Löschen (nur abgeschlossene) */}
-                    {order.status !== 'active' && (
+                    {order.status !== 'active' && order.status !== 'pending' && (
                       <button
                         onClick={() => removeOrder(order.id)}
                         className="p-1.5 text-red-400 hover:bg-red-400/10 rounded"

@@ -241,7 +241,14 @@ export class AIService {
 KONTEXT:
 - Investmentstrategie: ${strategyDesc}
 - Risikotoleranz: ${riskDesc}
-- Verfügbares Budget: ${request.budget.toFixed(2)} EUR
+- Verfügbares Cash: ${request.budget.toFixed(2)} EUR
+${request.portfolioValue ? `- Portfolio-Wert (Positionen): ${request.portfolioValue.toFixed(2)} EUR` : ''}
+${request.totalAssets ? `- Gesamtvermögen (Cash + Portfolio): ${request.totalAssets.toFixed(2)} EUR` : ''}
+${request.initialCapital && request.initialCapital > 0 ? `- Startkapital: ${request.initialCapital.toFixed(2)} EUR
+- Gesamtgewinn: ${(request.totalProfit ?? 0) >= 0 ? '+' : ''}${(request.totalProfit ?? 0).toFixed(2)} EUR (${(request.totalProfitPercent ?? 0) >= 0 ? '+' : ''}${(request.totalProfitPercent ?? 0).toFixed(1)}%)${request.previousProfit ? `
+- Davon aus früheren Portfolios: ${request.previousProfit >= 0 ? '+' : ''}${request.previousProfit.toFixed(2)} EUR` : ''}` : ''}
+${(request.transactionFeeFlat || request.transactionFeePercent) ? `- Transaktionsgebühren: ${request.transactionFeeFlat ? `${request.transactionFeeFlat.toFixed(2)} € fix` : ''}${request.transactionFeeFlat && request.transactionFeePercent ? ' + ' : ''}${request.transactionFeePercent ? `${request.transactionFeePercent}% vom Volumen` : ''} pro Trade
+  WICHTIG: Berücksichtige die Gebühren bei der Positionsgrößenberechnung! Bei kleinen Orders können die Gebühren den Gewinn auffressen.` : ''}
 - Fokus: Deutsche/europäische und US-Aktien
 
 AKTUELLE KURSE (mit 52-Wochen-Bereich):

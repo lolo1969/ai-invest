@@ -14,7 +14,7 @@ import { notificationService } from '../services/notifications';
 import type { InvestmentSignal } from '../types';
 
 export function Dashboard() {
-  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance, userPositions, orders, addOrder, cancelOrder } = useAppStore();
+  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance, initialCapital, previousProfit, userPositions, orders, addOrder, cancelOrder } = useAppStore();
   
   // Use React Query for stock data
   const { 
@@ -85,15 +85,32 @@ export function Dashboard() {
         };
       });
 
+      const portfolioVal = userPositions.reduce((sum, p) => sum + p.quantity * p.currentPrice, 0);
+      const totalAssetsVal = cashBalance + portfolioVal;
+      const totalInvestedVal = userPositions.reduce((sum, p) => sum + p.quantity * p.buyPrice, 0);
+      const profitVal = (initialCapital || 0) > 0 ? totalAssetsVal - (initialCapital || 0) : portfolioVal - totalInvestedVal;
+      const prevProfitVal = previousProfit || 0;
+      const combinedProfit = profitVal + prevProfitVal;
+      const profitPctVal = (initialCapital || 0) > 0 ? (combinedProfit / (initialCapital || 1)) * 100 : 0;
+      const { orderSettings: os } = useAppStore.getState();
+
       const response = await aiAnalysis.mutateAsync({
         stocks,
         strategy: settings.strategy,
         riskTolerance: settings.riskTolerance,
         budget: cashBalance,
         currentPositions,
-        previousSignals: signals.slice(0, 10), // Pass last 10 signals for AI memory
-        activeOrders: orders.filter(o => o.status === 'active'), // Aktive Orders für KI-Bewertung
+        previousSignals: signals.slice(0, 10),
+        activeOrders: orders.filter(o => o.status === 'active'),
         customPrompt: settings.customPrompt || undefined,
+        initialCapital: initialCapital || undefined,
+        totalAssets: totalAssetsVal,
+        portfolioValue: portfolioVal,
+        totalProfit: (initialCapital || 0) > 0 ? combinedProfit : undefined,
+        totalProfitPercent: (initialCapital || 0) > 0 ? profitPctVal : undefined,
+        transactionFeeFlat: os.transactionFeeFlat || undefined,
+        transactionFeePercent: os.transactionFeePercent || undefined,
+        previousProfit: prevProfitVal !== 0 ? prevProfitVal : undefined,
       });
 
       // Process AI-suggested orders: override existing orders for same symbol
@@ -157,6 +174,19 @@ export function Dashboard() {
   const buySignals = signals.filter(s => s.signal === 'BUY').length;
   const sellSignals = signals.filter(s => s.signal === 'SELL').length;
 
+  // Gesamtvermögen & Gewinn berechnen
+  const portfolioValue = userPositions.reduce((sum, p) => sum + p.quantity * p.currentPrice, 0);
+  const totalInvested = userPositions.reduce((sum, p) => sum + p.quantity * p.buyPrice, 0);
+  const totalAssets = cashBalance + portfolioValue;
+  const unrealizedProfit = portfolioValue - totalInvested;
+  const prevProfit = previousProfit || 0;
+  // Gesamtgewinn = Gesamtvermögen − Startkapital + vorhergehende Gewinne
+  const currentProfit = (initialCapital || 0) > 0 ? totalAssets - (initialCapital || 0) : unrealizedProfit;
+  const totalProfit = currentProfit + prevProfit;
+  const totalProfitPercent = (initialCapital || 0) > 0 ? (totalProfit / (initialCapital || 1)) * 100 : 0;
+  const hasInitialCapital = (initialCapital || 0) > 0;
+  const hasPreviousProfit = prevProfit !== 0;
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -197,18 +227,31 @@ export function Dashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatCard
+          title="Gesamtvermögen"
+          value={`${totalAssets.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
+          icon={<Wallet size={24} />}
+          color="indigo"
+        />
         <StatCard
           title="Verfügbares Cash"
-          value={`${cashBalance.toLocaleString('de-DE')} €`}
+          value={`${cashBalance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
           icon={<Wallet size={24} />}
           color="yellow"
         />
         <StatCard
-          title="Strategie"
-          value={settings.strategy === 'short' ? 'Kurzfristig' : settings.strategy === 'middle' ? 'Mittelfristig' : 'Langfristig'}
+          title="Portfolio-Wert"
+          value={`${portfolioValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
           icon={<Target size={24} />}
           color="blue"
+        />
+        <StatCard
+          title={hasInitialCapital ? 'Gesamtgewinn' : 'Unrealisierter Gewinn'}
+          value={`${totalProfit >= 0 ? '+' : ''}${totalProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €${hasInitialCapital ? ` (${totalProfitPercent >= 0 ? '+' : ''}${totalProfitPercent.toFixed(1)}%)` : ''}`}
+          subtitle={hasPreviousProfit ? `Davon vorh. Portfolios: ${prevProfit >= 0 ? '+' : ''}${prevProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : undefined}
+          icon={totalProfit >= 0 ? <TrendingUp size={24} /> : <TrendingDown size={24} />}
+          color={totalProfit >= 0 ? 'green' : 'red'}
         />
         <StatCard
           title="Kaufsignale"
@@ -296,11 +339,13 @@ export function Dashboard() {
 function StatCard({ 
   title, 
   value, 
+  subtitle,
   icon, 
   color 
 }: { 
   title: string; 
   value: string; 
+  subtitle?: string;
   icon: React.ReactNode; 
   color: 'indigo' | 'blue' | 'green' | 'red' | 'yellow';
 }) {
@@ -318,6 +363,7 @@ function StatCard({
         <div>
           <p className="text-gray-400 text-sm">{title}</p>
           <p className="text-2xl font-bold text-white mt-1">{value}</p>
+          {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
         </div>
         <div className={`p-3 rounded-lg ${colorClasses[color]}`}>
           {icon}

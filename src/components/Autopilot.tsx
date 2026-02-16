@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useRef, useMemo, useCallback } from 'react';
 import {
   Bot,
   Play,
@@ -17,9 +17,13 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
+  Check,
+  X,
+  ShoppingCart,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { useAutopilot } from '../hooks/useAutopilot';
+import { runAutopilotCycle } from '../services/autopilotService';
 import type { AutopilotMode, AutopilotLogType } from '../types';
 
 const MODE_CONFIG: Record<AutopilotMode, { label: string; description: string; icon: React.ReactNode; color: string }> = {
@@ -73,12 +77,70 @@ export function Autopilot() {
     resetAutopilotState,
     cashBalance,
     userPositions,
+    orders,
+    executeOrder,
+    cancelOrder,
+    addAutopilotLog,
   } = useAppStore();
 
-  const { triggerManualCycle, isRunning } = useAutopilot();
+  // Manuellen Zyklus direkt auslösen (ohne Hook)
+  const isRunningRef = useRef(false);
+  const isRunning = autopilotState.isRunning;
+  
+  const triggerManualCycle = useCallback(async () => {
+    if (isRunningRef.current) return;
+    isRunningRef.current = true;
+    
+    addAutopilotLog({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      type: 'info',
+      message: '🔧 Manueller Zyklus gestartet',
+    });
+    
+    try {
+      await runAutopilotCycle();
+    } finally {
+      isRunningRef.current = false;
+      const store = useAppStore.getState();
+      if (store.autopilotSettings.enabled) {
+        const nextRun = new Date(Date.now() + store.autopilotSettings.intervalMinutes * 60 * 1000);
+        store.updateAutopilotState({ nextRunAt: nextRun.toISOString() });
+      }
+    }
+  }, [addAutopilotLog, isRunningRef]);
   const [showSettings, setShowSettings] = useState(true);
   const [logFilter, setLogFilter] = useState<AutopilotLogType | 'all'>('all');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+
+  // Pending Orders (zur Bestätigung)
+  const pendingOrders = useMemo(() => {
+    return orders.filter(o => o.status === 'pending');
+  }, [orders]);
+
+  // Order bestätigen und sofort zum aktuellen Kurs ausführen
+  const confirmAndExecuteOrder = useCallback((orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order || order.status !== 'pending') return;
+    
+    // Direkt ausführen (executeOrder akzeptiert jetzt auch 'pending' Status)
+    const executionPrice = order.currentPrice || order.triggerPrice;
+    executeOrder(orderId, executionPrice);
+    
+    addAutopilotLog({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      type: 'order-executed',
+      message: `✅ Order bestätigt & ausgeführt: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ ${executionPrice.toFixed(2)}€`,
+      symbol: order.symbol,
+      orderId: order.id,
+    });
+  }, [orders, executeOrder, addAutopilotLog]);
+
+  // Alle pending Orders bestätigen und ausführen
+  const confirmAndExecuteAll = useCallback(() => {
+    pendingOrders.forEach(o => confirmAndExecuteOrder(o.id));
+  }, [pendingOrders, confirmAndExecuteOrder]);
 
   // Gesamtportfolio-Wert
   const totalPortfolioValue = useMemo(() => {
@@ -301,7 +363,7 @@ export function Autopilot() {
                 </button>
                 <div>
                   <span className="text-sm text-white">Nur Börsenzeiten</span>
-                  <p className="text-xs text-gray-500">Mo-Fr 9:30-16:00 EST</p>
+                  <p className="text-xs text-gray-500">EU: Mo-Fr 9:00-17:30 MEZ · US: Mo-Fr 9:30-16:00 ET</p>
                 </div>
               </div>
             </div>
@@ -421,6 +483,83 @@ export function Autopilot() {
           </div>
         )}
       </div>
+
+      {/* Pending Orders - Bestätigung */}
+      {pendingOrders.length > 0 && (
+        <div className="bg-[#1a1a2e] rounded-xl border border-yellow-500/30 mb-6">
+          <div className="flex items-center justify-between p-4 border-b border-yellow-500/20">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={18} className="text-yellow-400" />
+              <span className="font-semibold text-white">Ausstehende Bestätigungen</span>
+              <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
+                {pendingOrders.length}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={confirmAndExecuteAll}
+                className="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors"
+              >
+                <Check size={14} />
+                Alle ausführen
+              </button>
+              <button
+                onClick={() => pendingOrders.forEach(o => cancelOrder(o.id))}
+                className="flex items-center gap-1 text-xs px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
+              >
+                <X size={14} />
+                Alle ablehnen
+              </button>
+            </div>
+          </div>
+          <div className="divide-y divide-[#252542]">
+            {pendingOrders.map(order => {
+              const isBuy = order.orderType === 'limit-buy' || order.orderType === 'stop-buy';
+              const totalValue = order.triggerPrice * order.quantity;
+              return (
+                <div key={order.id} className="p-4 flex items-center justify-between hover:bg-[#252542]/30 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${isBuy ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                      {isBuy ? <ShoppingCart size={18} className="text-green-400" /> : <ArrowRightLeft size={18} className="text-red-400" />}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                          {isBuy ? 'KAUF' : 'VERKAUF'}
+                        </span>
+                        <span className="font-semibold text-white">{order.symbol}</span>
+                        <span className="text-sm text-gray-400">{order.name}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {order.quantity} Stück × {order.triggerPrice.toFixed(2)} € = <span className="text-white font-medium">{totalValue.toFixed(2)} €</span>
+                      </div>
+                      {order.note && (
+                        <div className="text-xs text-gray-500 mt-1 max-w-lg truncate">{order.note}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => confirmAndExecuteOrder(order.id)}
+                      className="flex items-center gap-1 px-3 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors text-sm font-medium"
+                    >
+                      <Check size={16} />
+                      Ausführen
+                    </button>
+                    <button
+                      onClick={() => cancelOrder(order.id)}
+                      className="flex items-center gap-1 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors text-sm font-medium"
+                    >
+                      <X size={16} />
+                      Ablehnen
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Log */}
       <div className="bg-[#1a1a2e] rounded-xl border border-[#252542]">

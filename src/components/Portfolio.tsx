@@ -6,13 +6,14 @@ import {
   DollarSign,
   PieChart,
   Plus,
-  Trash2,
   Brain,
   RefreshCw,
   X,
   Wallet,
   Edit3,
-  Check
+  Check,
+  ShoppingCart,
+  ArrowRightLeft
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
@@ -32,27 +33,28 @@ export function Portfolio() {
     settings, 
     userPositions, 
     addUserPosition, 
-    removeUserPosition,
     updateUserPosition,
+    removeUserPosition,
     watchlist,
     cashBalance,
     setCashBalance,
-    setError 
+    setError,
+    orderSettings
   } = useAppStore();
   
   const [showAddForm, setShowAddForm] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const { lastAnalysis: analysisResult, lastAnalysisDate, setLastAnalysis: setAnalysisResult, addAnalysisHistory } = useAppStore();
+  const { lastAnalysis: analysisResult, lastAnalysisDate, setLastAnalysis: setAnalysisResult, addAnalysisHistory, isAnalyzing: analyzing, setAnalyzing } = useAppStore();
   const [editingCash, setEditingCash] = useState(false);
   const [cashInput, setCashInput] = useState('');
   const [editingPosition, setEditingPosition] = useState<string | null>(null);
   const [editSymbol, setEditSymbol] = useState('');
   const [editingPrice, setEditingPrice] = useState<string | null>(null);
   const [editPriceValue, setEditPriceValue] = useState('');
-  const [editingQuantity, setEditingQuantity] = useState<string | null>(null);
-  const [editQuantityValue, setEditQuantityValue] = useState('');
+
   const [editingBuyPrice, setEditingBuyPrice] = useState<string | null>(null);
   const [editBuyPriceValue, setEditBuyPriceValue] = useState('');
+  const [tradeAction, setTradeAction] = useState<{ positionId: string; type: 'buy' | 'sell' } | null>(null);
+  const [tradeQuantity, setTradeQuantity] = useState('');
   const [yahooPrices, setYahooPrices] = useState<Record<string, number>>({});
   const [loadingYahooPrices, setLoadingYahooPrices] = useState(false);
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolSuggestion[]>([]);
@@ -70,6 +72,45 @@ export function Portfolio() {
     currentPrice: '',
     currency: 'EUR'
   });
+
+  // Execute instant trade at current market price
+  const executeTrade = (positionId: string, type: 'buy' | 'sell', quantity: number) => {
+    const position = userPositions.find(p => p.id === positionId);
+    if (!position || quantity <= 0) return;
+
+    const price = yahooPrices[positionId] ?? position.currentPrice;
+    const totalCost = price * quantity;
+    
+    // Transaktionsgebühren berechnen
+    const fee = (orderSettings.transactionFeeFlat || 0) + totalCost * (orderSettings.transactionFeePercent || 0) / 100;
+
+    if (type === 'buy') {
+      if (totalCost + fee > cashBalance) {
+        setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${cashBalance.toFixed(2)} €`);
+        return;
+      }
+      // Nachkaufen: Durchschnittspreis berechnen
+      const newTotalQty = position.quantity + quantity;
+      const avgBuyPrice = (position.buyPrice * position.quantity + price * quantity) / newTotalQty;
+      updateUserPosition(positionId, { quantity: newTotalQty, buyPrice: avgBuyPrice, currentPrice: price });
+      setCashBalance(cashBalance - totalCost - fee);
+    } else {
+      if (quantity > position.quantity) {
+        setError(`Nicht genügend Aktien. Verfügbar: ${position.quantity}`);
+        return;
+      }
+      const newQty = position.quantity - quantity;
+      if (newQty <= 0) {
+        // Position komplett verkaufen
+        removeUserPosition(positionId);
+      } else {
+        updateUserPosition(positionId, { quantity: newQty, currentPrice: price });
+      }
+      setCashBalance(cashBalance + totalCost - fee);
+    }
+    setTradeAction(null);
+    setTradeQuantity('');
+  };
 
   // Calculate totals
   const totalInvested = userPositions.reduce((sum, p) => sum + (p.quantity * p.buyPrice), 0);
@@ -422,6 +463,19 @@ GESAMTWERT:
 - Gewinn/Verlust: ${totalProfitLoss >= 0 ? '+' : ''}${totalProfitLoss.toFixed(2)} EUR (${totalProfitLossPercent >= 0 ? '+' : ''}${totalProfitLossPercent.toFixed(2)}%)
 
 VERFÜGBARES CASH: ${cashBalance.toFixed(2)} EUR
+GESAMTVERMÖGEN (Cash + Portfolio): ${(cashBalance + totalCurrentValue).toFixed(2)} EUR
+${(useAppStore.getState().initialCapital || 0) > 0 ? (() => {
+  const store = useAppStore.getState();
+  const initCap = store.initialCapital;
+  const prevProfit = store.previousProfit || 0;
+  const currentProfit = (cashBalance + totalCurrentValue) - initCap;
+  const combinedProfit = currentProfit + prevProfit;
+  return `STARTKAPITAL: ${initCap.toFixed(2)} EUR
+GESAMTGEWINN (realisiert + unrealisiert): ${combinedProfit >= 0 ? '+' : ''}${combinedProfit.toFixed(2)} EUR (${(combinedProfit / initCap * 100).toFixed(1)}%)${prevProfit !== 0 ? `
+Davon aus früheren Portfolios: ${prevProfit >= 0 ? '+' : ''}${prevProfit.toFixed(2)} EUR` : ''}`;
+})() : ''}
+${(orderSettings.transactionFeeFlat || orderSettings.transactionFeePercent) ? `TRANSAKTIONSGEBÜHREN: ${orderSettings.transactionFeeFlat ? `${orderSettings.transactionFeeFlat.toFixed(2)} € fix` : ''}${orderSettings.transactionFeeFlat && orderSettings.transactionFeePercent ? ' + ' : ''}${orderSettings.transactionFeePercent ? `${orderSettings.transactionFeePercent}% vom Volumen` : ''} pro Trade
+HINWEIS: Berücksichtige die Gebühren bei Kauf-/Verkaufsempfehlungen! Bei kleinen Positionen können Gebühren den Gewinn schmälern.` : ''}
 
 MEINE STRATEGIE:
 - Anlagehorizont: ${settings.strategy === 'short' ? 'Kurzfristig (Tage-Wochen)' : settings.strategy === 'middle' ? 'Mittelfristig (Wochen-Monate)' : 'Langfristig (10+ Jahre, Buy & Hold)'}
@@ -1141,60 +1195,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                       </td>
                       <td className="px-6 py-4 text-gray-300">{position.name}</td>
                       <td className="px-6 py-4 text-right">
-                        {editingQuantity === position.id ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={editQuantityValue}
-                              onChange={(e) => setEditQuantityValue(e.target.value)}
-                              className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-right"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  const newQuantity = parseFloat(editQuantityValue);
-                                  if (newQuantity > 0) {
-                                    updateUserPosition(position.id, { quantity: newQuantity });
-                                  }
-                                  setEditingQuantity(null);
-                                }
-                              }}
-                            />
-                            <button
-                              onClick={() => {
-                                const newQuantity = parseFloat(editQuantityValue);
-                                if (newQuantity > 0) {
-                                  updateUserPosition(position.id, { quantity: newQuantity });
-                                }
-                                setEditingQuantity(null);
-                              }}
-                              className="p-1 bg-green-500/20 hover:bg-green-500/30 rounded text-green-500"
-                            >
-                              <Check size={14} />
-                            </button>
-                            <button
-                              onClick={() => setEditingQuantity(null)}
-                              className="p-1 bg-red-500/20 hover:bg-red-500/30 rounded text-red-500"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="text-white">{position.quantity}</span>
-                            <button
-                              onClick={() => {
-                                setEditQuantityValue(position.quantity.toString());
-                                setEditingQuantity(position.id);
-                              }}
-                              className="p-1 hover:bg-[#252542] rounded text-gray-400 hover:text-white"
-                              title="Anzahl bearbeiten"
-                            >
-                              <Edit3 size={12} />
-                            </button>
-                          </div>
-                        )}
+                        <span className="text-white">{position.quantity}</span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         {editingBuyPrice === position.id ? (
@@ -1362,13 +1363,86 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        <button
-                          onClick={() => removeUserPosition(position.id)}
-                          className="p-2 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                      <td className="px-6 py-4">
+                        {tradeAction?.positionId === position.id ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="text-xs font-medium text-gray-300">
+                              {tradeAction.type === 'buy' ? '📈 Nachkaufen' : '📉 Verkaufen'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Kurs: {(yahooPrices[position.id] ?? position.currentPrice).toFixed(2)} €
+                            </div>
+                            <input
+                              type="number"
+                              step="1"
+                              min="1"
+                              max={tradeAction.type === 'sell' ? position.quantity : undefined}
+                              value={tradeQuantity}
+                              onChange={(e) => setTradeQuantity(e.target.value)}
+                              placeholder="Anzahl"
+                              className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const qty = parseFloat(tradeQuantity);
+                                  if (qty > 0) executeTrade(position.id, tradeAction.type, qty);
+                                }
+                                if (e.key === 'Escape') { setTradeAction(null); setTradeQuantity(''); }
+                              }}
+                            />
+                            {tradeQuantity && parseFloat(tradeQuantity) > 0 && (() => {
+                              const qty = parseFloat(tradeQuantity);
+                              const tradeTotal = qty * (yahooPrices[position.id] ?? position.currentPrice);
+                              const tradeFee = (orderSettings.transactionFeeFlat || 0) + tradeTotal * (orderSettings.transactionFeePercent || 0) / 100;
+                              return (
+                                <div className="text-xs text-gray-400">
+                                  = {tradeTotal.toFixed(2)} €
+                                  {tradeFee > 0 && (
+                                    <span className="text-yellow-400 ml-1">(+{tradeFee.toFixed(2)} € Geb.)</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => {
+                                  const qty = parseFloat(tradeQuantity);
+                                  if (qty > 0) executeTrade(position.id, tradeAction.type, qty);
+                                }}
+                                className={`px-2 py-1 rounded text-xs font-medium ${
+                                  tradeAction.type === 'buy'
+                                    ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400'
+                                    : 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
+                                }`}
+                              >
+                                <Check size={14} />
+                              </button>
+                              <button
+                                onClick={() => { setTradeAction(null); setTradeQuantity(''); }}
+                                className="px-2 py-1 bg-gray-500/20 hover:bg-gray-500/30 rounded text-gray-400 text-xs"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => { setTradeAction({ positionId: position.id, type: 'buy' }); setTradeQuantity(''); }}
+                              className="p-1.5 hover:bg-green-500/20 text-green-500 rounded-lg transition-colors"
+                              title="Nachkaufen"
+                            >
+                              <ShoppingCart size={16} />
+                            </button>
+                            <button
+                              onClick={() => { setTradeAction({ positionId: position.id, type: 'sell' }); setTradeQuantity(position.quantity.toString()); }}
+                              className="p-1.5 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
+                              title="Verkaufen"
+                            >
+                              <ArrowRightLeft size={16} />
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

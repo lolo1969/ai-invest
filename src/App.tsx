@@ -1,6 +1,7 @@
 import { useState, Suspense, lazy } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { useAppStore } from './store/useAppStore';
+import { useAutopilot } from './hooks/useAutopilot';
 import { AlertCircle, X, Loader2 } from 'lucide-react';
 
 // Lazy-loaded components für Code-Splitting
@@ -24,6 +25,9 @@ const LoadingSpinner = () => (
 function App() {
   const [activeView, setActiveView] = useState('dashboard');
   const { error, setError } = useAppStore();
+
+  // Autopilot-Hook auf App-Ebene, damit er persistent läuft
+  useAutopilot();
 
   const renderView = () => {
     switch (activeView) {

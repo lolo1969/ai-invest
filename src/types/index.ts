@@ -155,6 +155,15 @@ export interface AIAnalysisRequest {
   previousSignals?: InvestmentSignal[]; // Last signals for AI memory
   activeOrders?: Order[]; // Aktive Orders für KI-Bewertung
   customPrompt?: string; // Persönliche Anweisungen
+  // Erweiterte Kontext-Daten
+  initialCapital?: number; // Startkapital
+  totalAssets?: number; // Gesamtvermögen (Cash + Portfolio)
+  portfolioValue?: number; // Aktueller Portfolio-Wert
+  totalProfit?: number; // Gesamtgewinn (realisiert + unrealisiert)
+  totalProfitPercent?: number; // Gesamtgewinn in %
+  transactionFeeFlat?: number; // Fixe Transaktionsgebühr
+  transactionFeePercent?: number; // Prozentuale Transaktionsgebühr
+  previousProfit?: number; // Gewinne/Verluste aus früheren Portfolios
 }
 
 export interface AISuggestedOrder {
@@ -176,7 +185,7 @@ export interface AIAnalysisResponse {
 
 // Order Types
 export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'stop-buy';
-export type OrderStatus = 'active' | 'executed' | 'cancelled' | 'expired';
+export type OrderStatus = 'active' | 'pending' | 'executed' | 'cancelled' | 'expired';
 
 export interface Order {
   id: string;
@@ -197,6 +206,8 @@ export interface Order {
 export interface OrderSettings {
   autoExecute: boolean;       // Automatische Ausführung aktiviert
   checkIntervalSeconds: number; // Prüfintervall in Sekunden
+  transactionFeeFlat: number;   // Fixe Gebühr pro Trade in EUR
+  transactionFeePercent: number; // Prozentuale Gebühr pro Trade (z.B. 0.25 = 0,25%)
 }
 
 // Analysis History for AI Memory

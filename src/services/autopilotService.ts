@@ -39,25 +39,49 @@ function createLogEntry(
   };
 }
 
-// Prüfe ob US-Markt gerade offen ist (Mo-Fr, 9:30-16:00 EST)
-function isMarketOpen(): boolean {
+// Hole Stunde und Minute in einer bestimmten Zeitzone (DST-sicher)
+function getTimeInZone(tz: string): { hours: number; minutes: number; day: number } {
   const now = new Date();
-  const estOffset = -5; // EST = UTC-5
-  const utcHours = now.getUTCHours();
-  const estHours = (utcHours + estOffset + 24) % 24;
-  const estMinutes = now.getUTCMinutes();
-  const day = now.getUTCDay(); // 0=So, 6=Sa
-  
-  // Wochenende
-  if (day === 0 || day === 6) return false;
-  
-  // Vor 9:30 EST
-  if (estHours < 9 || (estHours === 9 && estMinutes < 30)) return false;
-  
-  // Nach 16:00 EST
-  if (estHours >= 16) return false;
-  
-  return true;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: 'numeric',
+    weekday: 'short',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(now);
+  const rawHours = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10);
+  const hours = rawHours === 24 ? 0 : rawHours; // Manche Browser geben 24 statt 0 zurück
+  const minutes = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10);
+  const weekdayStr = parts.find(p => p.type === 'weekday')?.value ?? '';
+  const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const day = dayMap[weekdayStr] ?? new Date().getDay();
+  return { hours, minutes, day };
+}
+
+// Prüfe ob irgendein relevanter Markt gerade offen ist
+// EU (Xetra): Mo-Fr 9:00-17:30 Europe/Berlin
+// US (NYSE):  Mo-Fr 9:30-16:00 America/New_York
+function isMarketOpen(): { open: boolean; market?: string } {
+  // EU-Markt prüfen (Xetra Frankfurt)
+  const eu = getTimeInZone('Europe/Berlin');
+  if (eu.day >= 1 && eu.day <= 5) {
+    const euTime = eu.hours * 60 + eu.minutes;
+    if (euTime >= 9 * 60 && euTime < 17 * 60 + 30) {
+      return { open: true, market: 'EU (Xetra)' };
+    }
+  }
+
+  // US-Markt prüfen (NYSE)
+  const us = getTimeInZone('America/New_York');
+  if (us.day >= 1 && us.day <= 5) {
+    const usTime = us.hours * 60 + us.minutes;
+    if (usTime >= 9 * 60 + 30 && usTime < 16 * 60) {
+      return { open: true, market: 'US (NYSE)' };
+    }
+  }
+
+  return { open: false };
 }
 
 export async function runAutopilotCycle(): Promise<void> {
@@ -84,13 +108,17 @@ export async function runAutopilotCycle(): Promise<void> {
 
   try {
     // 1. Marktzeiten prüfen
-    if (settings.activeHoursOnly && !isMarketOpen()) {
-      log(createLogEntry('info', '⏰ Markt geschlossen – Zyklus übersprungen'));
+    const marketStatus = isMarketOpen();
+    if (settings.activeHoursOnly && !marketStatus.open) {
+      log(createLogEntry('info', '⏰ Alle Märkte geschlossen (EU: Xetra 9:00-17:30 MEZ, US: NYSE 9:30-16:00 ET) – Zyklus übersprungen'));
       updateAutopilotState({ 
         isRunning: false,
         lastRunAt: new Date().toISOString(),
       });
       return;
+    }
+    if (marketStatus.open && marketStatus.market) {
+      log(createLogEntry('info', `📈 Markt offen: ${marketStatus.market}`));
     }
 
     // 2. API-Key prüfen
@@ -157,6 +185,16 @@ export async function runAutopilotCycle(): Promise<void> {
       appSettings.geminiModel
     );
 
+    const portfolioVal = userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
+    const totalAssetsVal = cashBalance + portfolioVal;
+    const totalInvestedVal = userPositions.reduce((sum, p) => sum + p.quantity * p.buyPrice, 0);
+    const initCap = store.initialCapital || 0;
+    const profitVal = initCap > 0 ? totalAssetsVal - initCap : portfolioVal - totalInvestedVal;
+    const prevProfitVal = store.previousProfit || 0;
+    const combinedProfit = profitVal + prevProfitVal;
+    const profitPctVal = initCap > 0 ? (combinedProfit / (initCap || 1)) * 100 : 0;
+    const os = store.orderSettings;
+
     const analysisResponse = await aiService.analyzeMarket({
       stocks,
       strategy: appSettings.strategy,
@@ -166,6 +204,14 @@ export async function runAutopilotCycle(): Promise<void> {
       previousSignals: signals.slice(0, 10),
       activeOrders: orders.filter(o => o.status === 'active'),
       customPrompt: appSettings.customPrompt || undefined,
+      initialCapital: initCap > 0 ? initCap : undefined,
+      totalAssets: totalAssetsVal,
+      portfolioValue: portfolioVal,
+      totalProfit: initCap > 0 ? combinedProfit : undefined,
+      totalProfitPercent: initCap > 0 ? profitPctVal : undefined,
+      transactionFeeFlat: os.transactionFeeFlat || undefined,
+      transactionFeePercent: os.transactionFeePercent || undefined,
+      previousProfit: prevProfitVal !== 0 ? prevProfitVal : undefined,
     });
 
     log(createLogEntry(
@@ -236,6 +282,7 @@ export async function runAutopilotCycle(): Promise<void> {
             }
 
             const stockData = stocks.find(s => s.symbol === suggested.symbol);
+            const orderStatus = settings.mode === 'confirm-each' ? 'pending' : 'active';
             const newOrder: Order = {
               id: crypto.randomUUID(),
               symbol: suggested.symbol,
@@ -244,7 +291,7 @@ export async function runAutopilotCycle(): Promise<void> {
               quantity: suggested.quantity,
               triggerPrice: suggested.triggerPrice,
               currentPrice: stockData?.price || suggested.triggerPrice,
-              status: 'active',
+              status: orderStatus,
               createdAt: new Date(),
               note: `🤖 Autopilot: ${suggested.reasoning}`,
             };

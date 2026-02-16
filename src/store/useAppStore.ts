@@ -40,6 +40,10 @@ interface AppState {
   // Cash Balance
   cashBalance: number;
   setCashBalance: (amount: number) => void;
+  initialCapital: number;
+  setInitialCapital: (amount: number) => void;
+  previousProfit: number;
+  setPreviousProfit: (amount: number) => void;
   
   // Watchlist
   watchlist: Stock[];
@@ -58,6 +62,7 @@ interface AppState {
   addOrder: (order: Order) => void;
   removeOrder: (id: string) => void;
   cancelOrder: (id: string) => void;
+  confirmOrder: (id: string) => void;
   executeOrder: (id: string, executedPrice: number) => void;
   updateOrderPrice: (id: string, currentPrice: number) => void;
   updateOrderSettings: (settings: Partial<OrderSettings>) => void;
@@ -65,7 +70,9 @@ interface AppState {
   // Portfolio Analysis
   lastAnalysis: string | null;
   lastAnalysisDate: string | null;
+  isAnalyzing: boolean;
   setLastAnalysis: (analysis: string | null) => void;
+  setAnalyzing: (analyzing: boolean) => void;
 
   // Analysis History (AI Memory)
   analysisHistory: AnalysisHistoryEntry[];
@@ -168,6 +175,10 @@ export const useAppStore = create<AppState>()(
       // Cash Balance
       cashBalance: 0,
       setCashBalance: (amount) => set({ cashBalance: amount }),
+      initialCapital: 0,
+      setInitialCapital: (amount) => set({ initialCapital: amount }),
+      previousProfit: 0,
+      setPreviousProfit: (amount) => set({ previousProfit: amount }),
 
       // Watchlist
       watchlist: [],
@@ -199,7 +210,7 @@ export const useAppStore = create<AppState>()(
 
       // Orders
       orders: [],
-      orderSettings: { autoExecute: false, checkIntervalSeconds: 30 },
+      orderSettings: { autoExecute: false, checkIntervalSeconds: 30, transactionFeeFlat: 0, transactionFeePercent: 0 },
       addOrder: (order) =>
         set((state) => ({
           orders: [...state.orders, order],
@@ -214,18 +225,26 @@ export const useAppStore = create<AppState>()(
             o.id === id ? { ...o, status: 'cancelled' as const } : o
           ),
         })),
+      confirmOrder: (id) =>
+        set((state) => ({
+          orders: state.orders.map((o) =>
+            o.id === id && o.status === 'pending' ? { ...o, status: 'active' as const } : o
+          ),
+        })),
       executeOrder: (id, executedPrice) =>
         set((state) => {
           const order = state.orders.find((o) => o.id === id);
-          if (!order || order.status !== 'active') return state;
+          if (!order || (order.status !== 'active' && order.status !== 'pending')) return state;
 
           const totalCost = executedPrice * order.quantity;
+          // Transaktionsgebühren berechnen
+          const fee = (state.orderSettings.transactionFeeFlat || 0) + totalCost * (state.orderSettings.transactionFeePercent || 0) / 100;
           let newCashBalance = state.cashBalance;
           let newPositions = [...state.userPositions];
 
           if (order.orderType === 'limit-buy' || order.orderType === 'stop-buy') {
-            // Kauf: Cash reduzieren, Position hinzufügen/erweitern
-            newCashBalance -= totalCost;
+            // Kauf: Cash reduzieren (inkl. Gebühren), Position hinzufügen/erweitern
+            newCashBalance -= totalCost + fee;
             const existingPos = newPositions.find((p) => p.symbol === order.symbol);
             if (existingPos) {
               const totalQty = existingPos.quantity + order.quantity;
@@ -243,13 +262,13 @@ export const useAppStore = create<AppState>()(
                 quantity: order.quantity,
                 buyPrice: executedPrice,
                 currentPrice: executedPrice,
-                currency: 'USD',
+                currency: 'EUR',
                 useYahooPrice: true,
               });
             }
           } else {
-            // Verkauf: Cash erhöhen, Position reduzieren/entfernen
-            newCashBalance += totalCost;
+            // Verkauf: Cash erhöhen (abzgl. Gebühren), Position reduzieren/entfernen
+            newCashBalance += totalCost - fee;
             const existingPos = newPositions.find((p) => p.symbol === order.symbol);
             if (existingPos) {
               const newQty = existingPos.quantity - order.quantity;
@@ -289,10 +308,12 @@ export const useAppStore = create<AppState>()(
       // Portfolio Analysis
       lastAnalysis: null,
       lastAnalysisDate: null,
+      isAnalyzing: false,
       setLastAnalysis: (analysis) => set({ 
         lastAnalysis: analysis, 
         lastAnalysisDate: analysis ? new Date().toISOString() : null 
       }),
+      setAnalyzing: (analyzing) => set({ isAnalyzing: analyzing }),
 
       // Analysis History (AI Memory)
       analysisHistory: [],
@@ -364,6 +385,8 @@ export const useAppStore = create<AppState>()(
         portfolios: state.portfolios,
         userPositions: state.userPositions,
         cashBalance: state.cashBalance,
+        initialCapital: state.initialCapital,
+        previousProfit: state.previousProfit,
         watchlist: state.watchlist,
         signals: state.signals,
         priceAlerts: state.priceAlerts,

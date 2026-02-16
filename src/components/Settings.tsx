@@ -10,7 +10,10 @@ import {
   AlertCircle,
   Download,
   Upload,
-  MessageSquareText
+  MessageSquareText,
+  Receipt,
+  Wallet,
+  TrendingUp
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { notificationService } from '../services/notifications';
@@ -21,9 +24,11 @@ export function Settings() {
     settings, updateSettings, 
     userPositions, 
     watchlist, 
-    cashBalance, setCashBalance, 
+    cashBalance, setCashBalance,
+    initialCapital, setInitialCapital,
+    previousProfit, setPreviousProfit,
     signals, addSignal, clearSignals,
-    orders, orderSettings,
+    orders, orderSettings, updateOrderSettings,
     priceAlerts,
     portfolios,
     lastAnalysis, lastAnalysisDate,
@@ -41,13 +46,15 @@ export function Settings() {
   // Export all data as JSON
   const handleExport = () => {
     const exportData = {
-      version: '1.1',
+      version: '1.3',
       exportDate: new Date().toISOString(),
       settings,
       userPositions,
       watchlist,
       signals,
       cashBalance,
+      initialCapital,
+      previousProfit,
       orders,
       orderSettings,
       priceAlerts,
@@ -122,6 +129,16 @@ export function Settings() {
         // Restore cash balance
         if (importData.cashBalance !== undefined) {
           setCashBalance(importData.cashBalance);
+        }
+
+        // Restore initial capital
+        if (importData.initialCapital !== undefined) {
+          setInitialCapital(importData.initialCapital);
+        }
+
+        // Restore previous profit
+        if (importData.previousProfit !== undefined) {
+          setPreviousProfit(importData.previousProfit);
         }
 
         // Restore orders
@@ -268,6 +285,43 @@ export function Settings() {
             </select>
           </div>
 
+          {/* Startkapital */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              <Wallet size={16} className="inline mr-1" />
+              Startkapital (€)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="100"
+              value={initialCapital || ''}
+              onChange={(e) => setInitialCapital(Math.max(0, parseFloat(e.target.value) || 0))}
+              className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                       text-white focus:outline-none focus:border-indigo-500"
+              placeholder="z.B. 10000"
+            />
+            <p className="text-xs text-gray-500 mt-1">Ursprünglich investierter Betrag für Gesamtgewinn-Berechnung</p>
+          </div>
+
+          {/* Vorhergehende Gewinne */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              <TrendingUp size={16} className="inline mr-1" />
+              Vorhergehende Gewinne/Verluste (€)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={previousProfit || ''}
+              onChange={(e) => setPreviousProfit(parseFloat(e.target.value) || 0)}
+              className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                       text-white focus:outline-none focus:border-indigo-500"
+              placeholder="z.B. 1500 oder -300"
+            />
+            <p className="text-xs text-gray-500 mt-1">Gewinne (+) oder Verluste (-) aus früheren Portfolios, werden mit dem aktuellen Gewinn verrechnet</p>
+          </div>
+
           {/* Risk Tolerance */}
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -314,6 +368,67 @@ export function Settings() {
           />
           <p className="text-xs text-gray-600 mt-1">
             {(settings.customPrompt || '').length} Zeichen
+          </p>
+        </div>
+      </section>
+
+      {/* Transaction Fees */}
+      <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-6">
+        <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+          <Receipt size={20} className="text-indigo-500" />
+          Transaktionsgebühren
+        </h2>
+        <p className="text-sm text-gray-400">
+          Gebühren werden bei jedem Kauf und Verkauf automatisch vom Cash-Bestand abgezogen.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Flat Fee */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Fixe Gebühr pro Trade (€)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={orderSettings.transactionFeeFlat}
+              onChange={(e) => updateOrderSettings({ transactionFeeFlat: Math.max(0, parseFloat(e.target.value) || 0) })}
+              className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                       text-white focus:outline-none focus:border-indigo-500"
+              placeholder="z.B. 1.00"
+            />
+            <p className="text-xs text-gray-500 mt-1">Fester Betrag pro Transaktion (z.B. 1,00 €)</p>
+          </div>
+
+          {/* Percent Fee */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Prozentuale Gebühr pro Trade (%)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={orderSettings.transactionFeePercent}
+              onChange={(e) => updateOrderSettings({ transactionFeePercent: Math.max(0, parseFloat(e.target.value) || 0) })}
+              className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                       text-white focus:outline-none focus:border-indigo-500"
+              placeholder="z.B. 0.25"
+            />
+            <p className="text-xs text-gray-500 mt-1">Prozent des Ordervolumens (z.B. 0,25%)</p>
+          </div>
+        </div>
+
+        {/* Preview */}
+        <div className="bg-[#252542] rounded-lg p-4">
+          <p className="text-sm text-gray-400">Beispielrechnung für eine Order über 1.000 €:</p>
+          <p className="text-sm text-white mt-1">
+            Fixe Gebühr: {(orderSettings.transactionFeeFlat || 0).toFixed(2)} € + 
+            Prozentuale Gebühr: {(1000 * (orderSettings.transactionFeePercent || 0) / 100).toFixed(2)} € = {' '}
+            <span className="font-bold text-indigo-400">
+              {((orderSettings.transactionFeeFlat || 0) + 1000 * (orderSettings.transactionFeePercent || 0) / 100).toFixed(2)} € Gesamtgebühren
+            </span>
           </p>
         </div>
       </section>
