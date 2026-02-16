@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
-import { useOrderExecution } from '../hooks/useOrderExecution';
 import type { OrderType, OrderStatus } from '../types';
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
@@ -66,13 +65,12 @@ export function Orders() {
     cancelOrder,
     executeOrder,
     updateOrderSettings,
+    updateOrderPrice,
     userPositions,
     cashBalance,
     watchlist
   } = useAppStore();
   
-  const { checkAndExecuteOrders } = useOrderExecution();
-
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
   const [searchingSymbol, setSearchingSymbol] = useState(false);
@@ -385,7 +383,20 @@ export function Orders() {
                 </select>
               </div>
               <button
-                onClick={checkAndExecuteOrders}
+                onClick={async () => {
+                  // Manueller Check: Aktive Orders gegen aktuelle Kurse prüfen
+                  const activeOrders = orders.filter(o => o.status === 'active');
+                  if (activeOrders.length === 0) return;
+                  const symbols = [...new Set(activeOrders.map(o => o.symbol))];
+                  try {
+                    const quotes = await marketDataService.getQuotes(symbols);
+                    for (const order of activeOrders) {
+                      const quote = quotes.find(q => q.symbol === order.symbol);
+                      if (!quote) continue;
+                      updateOrderPrice(order.id, quote.price);
+                    }
+                  } catch { /* ignore */ }
+                }}
                 className="flex items-center gap-1 text-xs text-gray-400 hover:text-white 
                          bg-[#252542] px-2 py-1 rounded"
               >

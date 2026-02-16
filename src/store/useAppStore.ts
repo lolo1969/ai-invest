@@ -243,6 +243,15 @@ export const useAppStore = create<AppState>()(
           let newPositions = [...state.userPositions];
 
           if (order.orderType === 'limit-buy' || order.orderType === 'stop-buy') {
+            // Cash-Guard: Genug Cash für Kauf (inkl. Gebühren)?
+            if (totalCost + fee > state.cashBalance) {
+              console.warn(`[executeOrder] Nicht genug Cash für ${order.symbol}: Benötigt ${(totalCost + fee).toFixed(2)}, Verfügbar ${state.cashBalance.toFixed(2)}`);
+              return {
+                orders: state.orders.map((o) =>
+                  o.id === id ? { ...o, status: 'cancelled' as const, note: (o.note || '') + ' ❌ Storniert: Nicht genug Cash' } : o
+                ),
+              };
+            }
             // Kauf: Cash reduzieren (inkl. Gebühren), Position hinzufügen/erweitern
             newCashBalance -= totalCost + fee;
             const existingPos = newPositions.find((p) => p.symbol === order.symbol);
@@ -268,19 +277,26 @@ export const useAppStore = create<AppState>()(
             }
           } else {
             // Verkauf: Cash erhöhen (abzgl. Gebühren), Position reduzieren/entfernen
-            newCashBalance += totalCost - fee;
             const existingPos = newPositions.find((p) => p.symbol === order.symbol);
-            if (existingPos) {
-              const newQty = existingPos.quantity - order.quantity;
-              if (newQty <= 0) {
-                newPositions = newPositions.filter((p) => p.symbol !== order.symbol);
-              } else {
-                newPositions = newPositions.map((p) =>
-                  p.symbol === order.symbol
-                    ? { ...p, quantity: newQty, currentPrice: executedPrice }
-                    : p
-                );
-              }
+            // Guard: Genug Aktien für Verkauf?
+            if (!existingPos || existingPos.quantity < order.quantity) {
+              console.warn(`[executeOrder] Nicht genug Aktien für ${order.symbol}: Benötigt ${order.quantity}, Verfügbar ${existingPos?.quantity ?? 0}`);
+              return {
+                orders: state.orders.map((o) =>
+                  o.id === id ? { ...o, status: 'cancelled' as const, note: (o.note || '') + ' ❌ Storniert: Nicht genug Aktien' } : o
+                ),
+              };
+            }
+            newCashBalance += totalCost - fee;
+            const newQty = existingPos.quantity - order.quantity;
+            if (newQty <= 0) {
+              newPositions = newPositions.filter((p) => p.symbol !== order.symbol);
+            } else {
+              newPositions = newPositions.map((p) =>
+                p.symbol === order.symbol
+                  ? { ...p, quantity: newQty, currentPrice: executedPrice }
+                  : p
+              );
             }
           }
 

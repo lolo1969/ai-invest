@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import {
   Bot,
   Play,
@@ -113,6 +113,14 @@ export function Autopilot() {
   const [logFilter, setLogFilter] = useState<AutopilotLogType | 'all'>('all');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
+  // Live-Ticker: Aktualisiert Countdown jede Sekunde
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!autopilotSettings.enabled) return;
+    const tickInterval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(tickInterval);
+  }, [autopilotSettings.enabled]);
+
   // Pending Orders (zur Bestätigung)
   const pendingOrders = useMemo(() => {
     return orders.filter(o => o.status === 'pending');
@@ -176,10 +184,12 @@ export function Autopilot() {
     if (!isoString) return '–';
     const diff = new Date(isoString).getTime() - Date.now();
     if (diff <= 0) return 'Jetzt...';
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `in ${mins} Min.`;
-    const hours = Math.floor(mins / 60);
-    return `in ${hours} Std. ${mins % 60} Min.`;
+    const totalSecs = Math.floor(diff / 1000);
+    const hours = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    if (hours > 0) return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return `${mins}:${String(secs).padStart(2, '0')}`;
   };
 
   return (

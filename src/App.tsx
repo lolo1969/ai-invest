@@ -2,6 +2,7 @@ import { useState, Suspense, lazy } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { useAppStore } from './store/useAppStore';
 import { useAutopilot } from './hooks/useAutopilot';
+import { useOrderExecution } from './hooks/useOrderExecution';
 import { AlertCircle, X, Loader2 } from 'lucide-react';
 
 // Lazy-loaded components für Code-Splitting
@@ -28,6 +29,9 @@ function App() {
 
   // Autopilot-Hook auf App-Ebene, damit er persistent läuft
   useAutopilot();
+
+  // Order-Execution-Hook auf App-Ebene, damit Orders im Hintergrund geprüft werden
+  useOrderExecution();
 
   const renderView = () => {
     switch (activeView) {

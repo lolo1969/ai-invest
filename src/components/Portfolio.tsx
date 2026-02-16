@@ -250,18 +250,32 @@ export function Portfolio() {
       return;
     }
 
+    const quantity = parseFloat(formData.quantity);
+    const buyPrice = parseFloat(formData.buyPrice);
+    const totalCost = buyPrice * quantity;
+    
+    // Transaktionsgebühren berechnen
+    const fee = (orderSettings.transactionFeeFlat || 0) + totalCost * (orderSettings.transactionFeePercent || 0) / 100;
+
+    // Cash-Prüfung
+    if (totalCost + fee > cashBalance) {
+      setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${cashBalance.toFixed(2)} €`);
+      return;
+    }
+
     const newPosition: UserPosition = {
       id: `pos-${Date.now()}`,
       symbol: formData.symbol.toUpperCase() || formData.isin.toUpperCase(),
       isin: formData.isin.toUpperCase() || undefined,
       name: formData.name || formData.symbol.toUpperCase() || formData.isin.toUpperCase(),
-      quantity: parseFloat(formData.quantity),
-      buyPrice: parseFloat(formData.buyPrice),
+      quantity,
+      buyPrice,
       currentPrice: parseFloat(formData.currentPrice),
       currency: formData.currency
     };
 
     addUserPosition(newPosition);
+    setCashBalance(cashBalance - totalCost - fee);
     setFormData({ symbol: '', isin: '', name: '', quantity: '', buyPrice: '', currentPrice: '', currency: 'EUR' });
     setShowAddForm(false);
   };
@@ -295,7 +309,8 @@ export function Portfolio() {
     }
 
     setAnalyzing(true);
-    setAnalysisResult(null);
+    // Alte Analyse NICHT löschen, damit sie während des Ladens sichtbar bleibt
+    // setAnalysisResult(null); — wird erst bei Erfolg überschrieben
 
     try {
       // Build portfolio context
@@ -579,16 +594,28 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(errorText);
+        let errorMsg = `API-Fehler ${response.status}`;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMsg = errorJson.error?.message || errorJson.error?.type || errorMsg;
+        } catch {
+          if (errorText.length < 500) errorMsg = errorText;
+        }
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
       const content = isOpenAI 
-        ? (data.choices?.[0]?.message?.content || 'Keine Antwort erhalten')
+        ? (data.choices?.[0]?.message?.content)
         : isGemini
-        ? (data.candidates?.[0]?.content?.parts?.[0]?.text || 'Keine Antwort erhalten')
-        : (data.content?.[0]?.text || 'Keine Antwort erhalten');
+        ? (data.candidates?.[0]?.content?.parts?.[0]?.text)
+        : (data.content?.[0]?.text);
       
+      if (!content) {
+        console.error('API response without content:', JSON.stringify(data).slice(0, 500));
+        throw new Error('KI hat keine Antwort geliefert. Bitte erneut versuchen.');
+      }
+
       setAnalysisResult(content);
 
       // Save analysis to history for AI memory
@@ -729,7 +756,9 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
     } catch (error: any) {
       console.error('Portfolio analysis error:', error);
-      setError(error.message || 'Analyse fehlgeschlagen');
+      const msg = error.message || 'Analyse fehlgeschlagen';
+      // Fehlermeldung kürzen falls es ein riesiger API-Response ist
+      setError(msg.length > 300 ? msg.slice(0, 300) + '...' : msg);
     } finally {
       setAnalyzing(false);
     }
@@ -1452,6 +1481,16 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           </div>
         )}
       </div>
+
+      {/* AI Analysis Loading */}
+      {analyzing && (
+        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-indigo-500/30 animate-pulse">
+          <div className="flex items-center gap-3">
+            <RefreshCw className="animate-spin text-indigo-400" size={20} />
+            <span className="text-indigo-300 font-medium">KI-Analyse läuft... Dies kann bis zu 60 Sekunden dauern.</span>
+          </div>
+        </div>
+      )}
 
       {/* AI Analysis Result */}
       {analysisResult && (

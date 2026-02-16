@@ -107,6 +107,19 @@ export async function runAutopilotCycle(): Promise<void> {
   updateAutopilotState({ isRunning: true });
 
   try {
+    // 0. Abgelaufene Orders bereinigen
+    const now = new Date();
+    const expiredOrders = orders.filter(
+      o => (o.status === 'active' || o.status === 'pending') && o.expiresAt && new Date(o.expiresAt) < now
+    );
+    if (expiredOrders.length > 0) {
+      for (const expired of expiredOrders) {
+        cancelOrder(expired.id);
+        log(createLogEntry('info', `⏰ Order abgelaufen: ${expired.orderType.toUpperCase()} ${expired.quantity}x ${expired.symbol}`, undefined, expired.symbol, expired.id));
+      }
+      log(createLogEntry('info', `🧹 ${expiredOrders.length} abgelaufene Order(s) storniert`));
+    }
+
     // 1. Marktzeiten prüfen
     const marketStatus = isMarketOpen();
     if (settings.activeHoursOnly && !marketStatus.open) {
@@ -272,9 +285,9 @@ export async function runAutopilotCycle(): Promise<void> {
           // full-auto oder confirm-each: Orders erstellen
           let ordersCreated = 0;
           for (const suggested of approvedOrders) {
-            // Bestehende gleiche Orders stornieren
+            // Bestehende gleiche Orders stornieren (active und pending)
             const existingOrders = orders.filter(
-              o => o.status === 'active' && o.symbol === suggested.symbol && o.orderType === suggested.orderType
+              o => (o.status === 'active' || o.status === 'pending') && o.symbol === suggested.symbol && o.orderType === suggested.orderType
             );
             for (const existing of existingOrders) {
               cancelOrder(existing.id);
@@ -283,6 +296,8 @@ export async function runAutopilotCycle(): Promise<void> {
 
             const stockData = stocks.find(s => s.symbol === suggested.symbol);
             const orderStatus = settings.mode === 'confirm-each' ? 'pending' : 'active';
+            // Autopilot-Orders laufen standardmäßig nach 7 Tagen ab
+            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
             const newOrder: Order = {
               id: crypto.randomUUID(),
               symbol: suggested.symbol,
@@ -293,6 +308,7 @@ export async function runAutopilotCycle(): Promise<void> {
               currentPrice: stockData?.price || suggested.triggerPrice,
               status: orderStatus,
               createdAt: new Date(),
+              expiresAt,
               note: `🤖 Autopilot: ${suggested.reasoning}`,
             };
 

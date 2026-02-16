@@ -17,7 +17,6 @@ export function useAutopilot() {
   
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRunningRef = useRef(false);
-  const hasRunInitial = useRef(false);
 
   const startCycle = useCallback(async () => {
     // Verhindere parallele Zyklen
@@ -59,7 +58,6 @@ export function useAutopilot() {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      hasRunInitial.current = false;
       updateAutopilotState({ isRunning: false, nextRunAt: null });
       return;
     }
@@ -71,7 +69,7 @@ export function useAutopilot() {
     const currentLastRunAt = useAppStore.getState().autopilotState.lastRunAt;
     const lastRun = currentLastRunAt ? new Date(currentLastRunAt).getTime() : 0;
     const timeSinceLastRun = Date.now() - lastRun;
-    const shouldRunNow = !hasRunInitial.current && timeSinceLastRun >= intervalMs;
+    const shouldRunNow = timeSinceLastRun >= intervalMs;
 
     let initialTimeout: ReturnType<typeof setTimeout> | null = null;
     if (shouldRunNow) {
@@ -79,11 +77,9 @@ export function useAutopilot() {
       initialTimeout = setTimeout(() => {
         startCycle();
       }, 5000);
-      hasRunInitial.current = true;
       updateAutopilotState({ nextRunAt: new Date(Date.now() + 5000).toISOString() });
-    } else if (!hasRunInitial.current) {
+    } else {
       // Letzter Lauf war kürzlich — nächsten Lauf auf Intervall-Ende setzen
-      hasRunInitial.current = true;
       const nextRunTime = lastRun + intervalMs;
       const delay = Math.max(nextRunTime - Date.now(), 5000);
       initialTimeout = setTimeout(() => {
