@@ -248,13 +248,38 @@ export function Portfolio() {
     setSymbolSuggestions([]);
   };
 
-  const handleAddPosition = () => {
-    if ((!formData.symbol && !formData.isin) || !formData.quantity || !formData.buyPrice || !formData.currentPrice) {
+  const [addingPosition, setAddingPosition] = useState(false);
+
+  const handleAddPosition = async () => {
+    if ((!formData.symbol && !formData.isin) || !formData.quantity || !formData.currentPrice) {
       return;
     }
 
     const quantity = parseFloat(formData.quantity);
-    const buyPrice = parseFloat(formData.buyPrice);
+    let buyPrice: number;
+
+    // Kaufpreis automatisch ermitteln, wenn nicht angegeben
+    if (formData.buyPrice && parseFloat(formData.buyPrice) > 0) {
+      buyPrice = parseFloat(formData.buyPrice);
+    } else {
+      setAddingPosition(true);
+      try {
+        const symbol = formData.symbol || formData.isin;
+        const quote = await marketDataService.getQuote(symbol);
+        if (quote && quote.price > 0) {
+          buyPrice = quote.price;
+        } else {
+          // Fallback: aktuellen Preis aus dem Formular verwenden
+          buyPrice = parseFloat(formData.currentPrice);
+        }
+      } catch {
+        // Fallback: aktuellen Preis aus dem Formular verwenden
+        buyPrice = parseFloat(formData.currentPrice);
+      } finally {
+        setAddingPosition(false);
+      }
+    }
+
     const totalCost = buyPrice * quantity;
     
     // Transaktionsgebühren berechnen
@@ -1113,7 +1138,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Kaufpreis *
+                    Kaufpreis <span className="text-gray-500 text-xs">(optional)</span>
                   </label>
                   <input
                     type="number"
@@ -1158,11 +1183,15 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
               <button
                 onClick={handleAddPosition}
-                disabled={(!formData.symbol && !formData.isin) || !formData.quantity || !formData.buyPrice || !formData.currentPrice}
+                disabled={addingPosition || ((!formData.symbol && !formData.isin) || !formData.quantity || !formData.currentPrice)}
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 
-                         text-white rounded-lg font-medium transition-colors"
+                         text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
               >
-                Position hinzufügen
+                {addingPosition ? (
+                  <><RefreshCw className="w-4 h-4 animate-spin" /> Preis wird ermittelt...</>
+                ) : (
+                  'Position hinzufügen'
+                )}
               </button>
             </div>
           </div>
