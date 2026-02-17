@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { version } from '../../package.json';
 import { 
   LayoutDashboard, 
   Settings, 
@@ -118,7 +119,7 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
           <div className="p-4 border-t border-[#252542]">
             <div className="px-4 py-3 bg-[#252542] rounded-lg">
               <p className="text-xs text-gray-400">AI Investment Advisor</p>
-              <p className="text-xs text-gray-500 mt-1">v1.3.0</p>
+              <p className="text-xs text-gray-500 mt-1">v{version}</p>
             </div>
           </div>
         </div>
