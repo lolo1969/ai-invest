@@ -30,7 +30,7 @@ export function Settings() {
     signals, addSignal, clearSignals,
     orders, orderSettings, updateOrderSettings,
     priceAlerts,
-    portfolios,
+    portfolios, activePortfolioId,
     lastAnalysis, lastAnalysisDate,
     analysisHistory,
     autopilotSettings, autopilotLog, autopilotState
@@ -41,27 +41,35 @@ export function Settings() {
   const [testingEmail, setTestingEmail] = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<'success' | 'error' | null>(null);
   const [importStatus, setImportStatus] = useState<'success' | 'error' | null>(null);
+  const [importSummary, setImportSummary] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Export all data as JSON
   const handleExport = () => {
     const exportData = {
-      version: '1.3',
+      version: '1.4',
       exportDate: new Date().toISOString(),
+      // Alle Einstellungen (Strategie, Risiko, KI-Anbieter, Modelle, API-Keys, Benachrichtigungen, Custom Prompt)
       settings,
+      // Portfolio & Positionen
       userPositions,
       watchlist,
-      signals,
+      activePortfolioId,
+      portfolios,
+      // Finanzdaten (Dashboard)
       cashBalance,
       initialCapital,
       previousProfit,
+      // Signale & Orders
+      signals,
       orders,
       orderSettings,
       priceAlerts,
-      portfolios,
+      // KI-Analyse
       lastAnalysis,
       lastAnalysisDate,
       analysisHistory,
+      // Autopilot
       autopilotSettings,
       autopilotLog,
       autopilotState
@@ -88,10 +96,12 @@ export function Settings() {
       try {
         const importData = JSON.parse(e.target?.result as string);
         const store = useAppStore.getState();
+        const summary: string[] = [];
         
-        // Restore settings (includes watchlist symbols)
+        // Restore settings (includes watchlist symbols, strategy, risk, API keys, notifications, custom prompt)
         if (importData.settings) {
           updateSettings(importData.settings);
+          summary.push('✅ Einstellungen (Strategie, Risiko, KI-Anbieter, API-Keys, Benachrichtigungen, Custom Prompt)');
         }
         
         // Restore positions - clear existing first, then add imported
@@ -104,6 +114,7 @@ export function Settings() {
           importData.userPositions.forEach((pos: any) => {
             store.addUserPosition(pos);
           });
+          summary.push(`✅ ${importData.userPositions.length} Portfolio-Positionen`);
         }
         
         // Restore watchlist stocks
@@ -116,6 +127,7 @@ export function Settings() {
           importData.watchlist.forEach((stock: any) => {
             store.addToWatchlist(stock);
           });
+          summary.push(`✅ ${importData.watchlist.length} Watchlist-Einträge`);
         }
         
         // Restore signals
@@ -124,21 +136,25 @@ export function Settings() {
           importData.signals.forEach((signal: any) => {
             addSignal(signal);
           });
+          summary.push(`✅ ${importData.signals.length} Signale`);
         }
         
         // Restore cash balance
-        if (importData.cashBalance !== undefined) {
-          setCashBalance(importData.cashBalance);
+        if (importData.cashBalance !== undefined && importData.cashBalance !== null) {
+          setCashBalance(Number(importData.cashBalance));
+          summary.push(`✅ Cash-Bestand: ${Number(importData.cashBalance).toLocaleString('de-DE', { minimumFractionDigits: 2 })} €`);
         }
 
         // Restore initial capital
-        if (importData.initialCapital !== undefined) {
-          setInitialCapital(importData.initialCapital);
+        if (importData.initialCapital !== undefined && importData.initialCapital !== null) {
+          setInitialCapital(Number(importData.initialCapital));
+          summary.push(`✅ Startkapital: ${Number(importData.initialCapital).toLocaleString('de-DE', { minimumFractionDigits: 2 })} €`);
         }
 
         // Restore previous profit
-        if (importData.previousProfit !== undefined) {
-          setPreviousProfit(importData.previousProfit);
+        if (importData.previousProfit !== undefined && importData.previousProfit !== null) {
+          setPreviousProfit(Number(importData.previousProfit));
+          summary.push(`✅ Vorherige Gewinne: ${Number(importData.previousProfit).toLocaleString('de-DE', { minimumFractionDigits: 2 })} €`);
         }
 
         // Restore orders
@@ -147,32 +163,43 @@ export function Settings() {
           store.orders.forEach((o: any) => store.removeOrder(o.id));
           // Add imported orders
           importData.orders.forEach((o: any) => store.addOrder(o));
+          summary.push(`✅ ${importData.orders.length} Orders`);
         }
 
-        // Restore order settings
+        // Restore order settings (inkl. Transaktionsgebühren)
         if (importData.orderSettings) {
           store.updateOrderSettings(importData.orderSettings);
+          summary.push('✅ Order-Einstellungen (Transaktionsgebühren)');
         }
 
         // Restore price alerts
         if (importData.priceAlerts && Array.isArray(importData.priceAlerts)) {
           store.priceAlerts.forEach((a: any) => store.removePriceAlert(a.id));
           importData.priceAlerts.forEach((a: any) => store.addPriceAlert(a));
+          summary.push(`✅ ${importData.priceAlerts.length} Preisalarme`);
         }
 
         // Restore portfolios
         if (importData.portfolios && Array.isArray(importData.portfolios)) {
-          // Portfolios werden ergänzt (nicht gelöscht, da kein removePortfolio existiert)
           importData.portfolios.forEach((p: any) => {
             if (!store.portfolios.find((ep: any) => ep.id === p.id)) {
               store.addPortfolio(p);
             }
           });
+          summary.push(`✅ ${importData.portfolios.length} Portfolios`);
+        }
+
+        // Restore active portfolio
+        if (importData.activePortfolioId !== undefined) {
+          store.setActivePortfolio(importData.activePortfolioId);
         }
 
         // Restore last analysis
         if (importData.lastAnalysis !== undefined) {
           store.setLastAnalysis(importData.lastAnalysis);
+          if (importData.lastAnalysis) {
+            summary.push('✅ Letzte KI-Analyse');
+          }
         }
 
         // Restore analysis history
@@ -182,11 +209,13 @@ export function Settings() {
           [...importData.analysisHistory].reverse().forEach((entry: any) => {
             store.addAnalysisHistory(entry);
           });
+          summary.push(`✅ ${importData.analysisHistory.length} Analyse-Einträge (KI-Gedächtnis)`);
         }
 
         // Restore autopilot settings
         if (importData.autopilotSettings) {
           store.updateAutopilotSettings(importData.autopilotSettings);
+          summary.push('✅ Autopilot-Einstellungen');
         }
 
         // Restore autopilot log
@@ -196,19 +225,26 @@ export function Settings() {
           [...importData.autopilotLog].reverse().forEach((entry: any) => {
             store.addAutopilotLog(entry);
           });
+          if (importData.autopilotLog.length > 0) {
+            summary.push(`✅ ${importData.autopilotLog.length} Autopilot-Log-Einträge`);
+          }
         }
 
         // Restore autopilot state
         if (importData.autopilotState) {
           store.updateAutopilotState(importData.autopilotState);
+          summary.push('✅ Autopilot-Status');
         }
         
+        console.log('[Backup Import] Version:', importData.version, '| Restored:', summary.length, 'data categories');
+        setImportSummary(summary);
         setImportStatus('success');
-        setTimeout(() => setImportStatus(null), 3000);
+        setTimeout(() => { setImportStatus(null); setImportSummary([]); }, 15000);
       } catch (error) {
         console.error('Import failed:', error);
+        setImportSummary([]);
         setImportStatus('error');
-        setTimeout(() => setImportStatus(null), 3000);
+        setTimeout(() => setImportStatus(null), 5000);
       }
     };
     reader.readAsText(file);
@@ -867,8 +903,20 @@ export function Settings() {
         </h2>
         
         <p className="text-gray-400 text-sm">
-          Exportiere alle deine Daten (Einstellungen, Portfolio, Watchlist) als JSON-Datei zum Backup oder zum Übertragen auf ein anderes Gerät.
+          Exportiere <strong className="text-gray-300">alle</strong> deine Daten als JSON-Datei zum Backup oder zum Übertragen auf ein anderes Gerät:
         </p>
+        <div className="text-xs text-gray-500 grid grid-cols-2 gap-1">
+          <span>• Einstellungen & API-Keys</span>
+          <span>• Cash-Bestand & Startkapital</span>
+          <span>• Portfolio-Positionen</span>
+          <span>• Vorherige Gewinne/Verluste</span>
+          <span>• Watchlist & Preisalarme</span>
+          <span>• Signale & Orders</span>
+          <span>• KI-Analyse & Gedächtnis</span>
+          <span>• Autopilot-Konfiguration</span>
+          <span>• Transaktionsgebühren</span>
+          <span>• Custom Prompt</span>
+        </div>
 
         <div className="flex flex-wrap gap-4">
           <button
@@ -895,9 +943,18 @@ export function Settings() {
         </div>
 
         {importStatus === 'success' && (
-          <div className="flex items-center gap-2 text-green-500 text-sm">
-            <Check size={16} />
-            Import erfolgreich! Daten wurden wiederhergestellt.
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-green-500 text-sm font-medium">
+              <Check size={16} />
+              Import erfolgreich! Folgende Daten wurden wiederhergestellt:
+            </div>
+            {importSummary.length > 0 && (
+              <div className="bg-[#252542] rounded-lg p-3 space-y-1">
+                {importSummary.map((item, i) => (
+                  <div key={i} className="text-xs text-gray-300">{item}</div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {importStatus === 'error' && (

@@ -27,6 +27,25 @@ export class AIService {
     this.geminiModel = geminiModel;
   }
 
+  // Retry-Wrapper für überladene/rate-limited API-Aufrufe
+  private async fetchWithRetry(url: string, options: RequestInit, maxRetries = 2): Promise<Response> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const response = await fetch(url, options);
+      
+      // Retry bei 429 (Rate Limit) oder 529 (Overloaded) oder 503 (Service Unavailable)
+      if ((response.status === 429 || response.status === 529 || response.status === 503) && attempt < maxRetries) {
+        const retryAfter = response.headers.get('retry-after');
+        const waitMs = retryAfter ? parseInt(retryAfter) * 1000 : (5000 * Math.pow(2, attempt));
+        console.warn(`[AI API] Status ${response.status} - Retry ${attempt + 1}/${maxRetries} in ${waitMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue;
+      }
+      
+      return response;
+    }
+    throw new Error('Max retries exceeded');
+  }
+
   async analyzeMarket(request: AIAnalysisRequest): Promise<AIAnalysisResponse> {
     if (!this.apiKey) {
       const providerNames: Record<AIProvider, string> = { claude: 'Claude', openai: 'OpenAI', gemini: 'Google Gemini' };
@@ -49,12 +68,16 @@ export class AIService {
         const providerNames: Record<AIProvider, string> = { claude: 'Claude', openai: 'OpenAI', gemini: 'Google Gemini' };
         throw new Error(`Netzwerkfehler: Konnte ${providerNames[this.provider]} API nicht erreichen. Prüfe deine Internetverbindung.`);
       }
+      // Benutzerfreundliche Meldung bei Overloaded
+      if (error.message?.toLowerCase().includes('overloaded') || error.message?.includes('529')) {
+        throw new Error('Der KI-Server ist momentan überlastet. Bitte versuche es in 1-2 Minuten erneut.');
+      }
       throw error;
     }
   }
 
   private async callClaude(prompt: string, stocks: Stock[], strategy?: InvestmentStrategy): Promise<AIAnalysisResponse> {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await this.fetchWithRetry('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -95,7 +118,7 @@ export class AIService {
   }
 
   private async callOpenAI(prompt: string, stocks: Stock[], strategy?: InvestmentStrategy): Promise<AIAnalysisResponse> {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await this.fetchWithRetry('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -139,7 +162,7 @@ export class AIService {
   }
 
   private async callGemini(prompt: string, stocks: Stock[], strategy?: InvestmentStrategy): Promise<AIAnalysisResponse> {
-    const response = await fetch(
+    const response = await this.fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/${this.geminiModel}:generateContent?key=${this.apiKey}`,
       {
         method: 'POST',
@@ -236,7 +259,12 @@ export class AIService {
       })
       .join('\n');
 
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
     return `Du bist ein erfahrener Investment-Analyst. Analysiere die folgenden Aktien und gib konkrete Kauf-/Verkaufsempfehlungen.
+
+AKTUELLES DATUM: ${dateStr}
 
 KONTEXT:
 - Investmentstrategie: ${strategyDesc}

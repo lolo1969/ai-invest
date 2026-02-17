@@ -174,7 +174,7 @@ export const useAppStore = create<AppState>()(
 
       // Cash Balance
       cashBalance: 0,
-      setCashBalance: (amount) => set({ cashBalance: amount }),
+      setCashBalance: (amount) => set({ cashBalance: Math.round(amount * 100) / 100 }),
       initialCapital: 0,
       setInitialCapital: (amount) => set({ initialCapital: amount }),
       previousProfit: 0,
@@ -306,7 +306,7 @@ export const useAppStore = create<AppState>()(
                 ? { ...o, status: 'executed' as const, executedAt: new Date(), executedPrice }
                 : o
             ),
-            cashBalance: newCashBalance,
+            cashBalance: Math.round(newCashBalance * 100) / 100,
             userPositions: newPositions,
           };
         }),
@@ -399,6 +399,7 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         settings: state.settings,
         portfolios: state.portfolios,
+        activePortfolioId: state.activePortfolioId,
         userPositions: state.userPositions,
         cashBalance: state.cashBalance,
         initialCapital: state.initialCapital,

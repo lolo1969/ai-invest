@@ -164,6 +164,10 @@ export function Autopilot() {
   const handleToggleEnabled = () => {
     const newEnabled = !autopilotSettings.enabled;
     updateAutopilotSettings({ enabled: newEnabled });
+    // Bei Aktivierung im Vollautomatisch-Modus: Auto-Ausführung einschalten
+    if (newEnabled && autopilotSettings.mode === 'full-auto') {
+      useAppStore.getState().updateOrderSettings({ autoExecute: true });
+    }
     if (!newEnabled) {
       resetAutopilotState();
     }
@@ -316,7 +320,13 @@ export function Autopilot() {
                   return (
                     <button
                       key={mode}
-                      onClick={() => updateAutopilotSettings({ mode })}
+                      onClick={() => {
+                        updateAutopilotSettings({ mode });
+                        // Bei Vollautomatisch: Order-Auto-Ausführung aktivieren
+                        if (mode === 'full-auto') {
+                          useAppStore.getState().updateOrderSettings({ autoExecute: true });
+                        }
+                      }}
                       className={`flex items-start gap-3 p-4 rounded-lg border transition-all text-left ${
                         autopilotSettings.mode === mode
                           ? config.color

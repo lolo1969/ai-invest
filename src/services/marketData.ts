@@ -41,6 +41,35 @@ export class MarketDataService {
     this.apiKey = apiKey;
   }
 
+  // Retry-Wrapper für Netzwerkfehler (ENETDOWN, ECONNRESET, ETIMEDOUT etc.)
+  private async fetchWithRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 1500): Promise<T> {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        const isNetworkError = 
+          error?.code === 'ENETDOWN' || 
+          error?.code === 'ECONNRESET' || 
+          error?.code === 'ETIMEDOUT' || 
+          error?.code === 'ENOTFOUND' ||
+          error?.code === 'ECONNREFUSED' ||
+          error?.code === 'ERR_NETWORK' ||
+          error?.message?.includes('ENETDOWN') ||
+          error?.message?.includes('Network Error') ||
+          error?.message?.includes('timeout');
+        
+        if (isNetworkError && attempt < retries) {
+          const wait = delayMs * Math.pow(2, attempt);
+          console.warn(`[Retry ${attempt + 1}/${retries}] Netzwerkfehler, warte ${wait}ms...`, error?.code || error?.message);
+          await new Promise(resolve => setTimeout(resolve, wait));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error('Max retries exceeded');
+  }
+
   // Get USD to EUR exchange rate
   async getUsdToEurRate(): Promise<number> {
     // Return cached rate if still valid
@@ -51,7 +80,7 @@ export class MarketDataService {
     try {
       // Use Yahoo Finance to get EUR/USD rate
       const url = buildYahooUrl('/v8/finance/chart/EURUSD=X?interval=1d&range=1d');
-      const response = await axios.get(url, { timeout: 10000 });
+      const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 10000 }));
       const result = response.data.chart.result?.[0];
       
       if (result?.meta?.regularMarketPrice) {
@@ -75,7 +104,7 @@ export class MarketDataService {
       const url = buildYahooUrl(`/v8/finance/chart/${symbol}?interval=1d&range=1d`);
       console.log('Fetching stock:', symbol);
       
-      const response = await axios.get(url, { timeout: 10000 });
+      const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 10000 }));
 
       const result = response.data.chart.result?.[0];
       if (!result) {
@@ -131,7 +160,7 @@ export class MarketDataService {
   ): Promise<HistoricalData[]> {
     try {
       const url = buildYahooUrl(`/v8/finance/chart/${symbol}?interval=${range === '1d' ? '5m' : '1d'}&range=${range}`);
-      const response = await axios.get(url, { timeout: 10000 });
+      const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 10000 }));
 
       const result = response.data.chart.result?.[0];
       if (!result) return [];
@@ -157,7 +186,7 @@ export class MarketDataService {
   async searchStocks(query: string): Promise<{ symbol: string; name: string }[]> {
     try {
       const url = buildYahooUrl(`/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`);
-      const response = await axios.get(url, { timeout: 10000 });
+      const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 10000 }));
 
       return (response.data.quotes || []).map((q: any) => ({
         symbol: q.symbol,

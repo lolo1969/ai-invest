@@ -84,16 +84,19 @@ export function Portfolio() {
     // Transaktionsgebühren berechnen
     const fee = (orderSettings.transactionFeeFlat || 0) + totalCost * (orderSettings.transactionFeePercent || 0) / 100;
 
+    // WICHTIG: Immer den aktuellen Cash-Wert aus dem Store lesen (nicht aus der Closure!)
+    const currentCash = useAppStore.getState().cashBalance;
+
     if (type === 'buy') {
-      if (totalCost + fee > cashBalance) {
-        setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${cashBalance.toFixed(2)} €`);
+      if (totalCost + fee > currentCash) {
+        setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${currentCash.toFixed(2)} €`);
         return;
       }
       // Nachkaufen: Durchschnittspreis berechnen
       const newTotalQty = position.quantity + quantity;
       const avgBuyPrice = (position.buyPrice * position.quantity + price * quantity) / newTotalQty;
       updateUserPosition(positionId, { quantity: newTotalQty, buyPrice: avgBuyPrice, currentPrice: price });
-      setCashBalance(cashBalance - totalCost - fee);
+      setCashBalance(currentCash - totalCost - fee);
     } else {
       if (quantity > position.quantity) {
         setError(`Nicht genügend Aktien. Verfügbar: ${position.quantity}`);
@@ -106,7 +109,7 @@ export function Portfolio() {
       } else {
         updateUserPosition(positionId, { quantity: newQty, currentPrice: price });
       }
-      setCashBalance(cashBalance + totalCost - fee);
+      setCashBalance(currentCash + totalCost - fee);
     }
     setTradeAction(null);
     setTradeQuantity('');
@@ -257,9 +260,12 @@ export function Portfolio() {
     // Transaktionsgebühren berechnen
     const fee = (orderSettings.transactionFeeFlat || 0) + totalCost * (orderSettings.transactionFeePercent || 0) / 100;
 
+    // WICHTIG: Immer den aktuellen Cash-Wert aus dem Store lesen (nicht aus der Closure!)
+    const currentCash = useAppStore.getState().cashBalance;
+
     // Cash-Prüfung
-    if (totalCost + fee > cashBalance) {
-      setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${cashBalance.toFixed(2)} €`);
+    if (totalCost + fee > currentCash) {
+      setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${currentCash.toFixed(2)} €`);
       return;
     }
 
@@ -275,7 +281,7 @@ export function Portfolio() {
     };
 
     addUserPosition(newPosition);
-    setCashBalance(cashBalance - totalCost - fee);
+    setCashBalance(currentCash - totalCost - fee);
     setFormData({ symbol: '', isin: '', name: '', quantity: '', buyPrice: '', currentPrice: '', currency: 'EUR' });
     setShowAddForm(false);
   };
@@ -501,7 +507,23 @@ MEINE WATCHLIST (beobachtete Aktien, die ich NICHT besitze):
 ═══════════════════════════════════════
 ${watchlistSummary}
 
-HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })}
+HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+
+${(() => {
+  const activeOrders = useAppStore.getState().orders.filter(o => o.status === 'active');
+  if (activeOrders.length === 0) return '';
+  const orderTypeLabels: Record<string, string> = { 'limit-buy': 'Limit Buy', 'limit-sell': 'Limit Sell', 'stop-loss': 'Stop Loss', 'stop-buy': 'Stop Buy' };
+  return `═══════════════════════════════════════
+📝 MEINE AKTIVEN ORDERS (diese Orders existieren bereits!):
+═══════════════════════════════════════
+${activeOrders.map(o => `- ${o.symbol} (${o.name}): ${orderTypeLabels[o.orderType] || o.orderType} | Trigger: ${o.triggerPrice.toFixed(2)} EUR | Menge: ${o.quantity} Stück${o.note ? ` | ${o.note}` : ''}`).join('\n')}
+
+WICHTIG: Empfehle KEINE Orders die bereits oben aufgelistet sind!
+- Wenn eine Order für ein Symbol+Typ bereits existiert, erwähne sie NICHT erneut als neue Empfehlung
+- Du kannst bestehende Orders bewerten (ob sie noch sinnvoll sind)
+- Nur wenn eine bestehende Order angepasst werden sollte, empfehle eine neue mit anderem Trigger-Preis
+`;
+})()}
 ${memoryContext}
 ═══════════════════════════════════════
 AUFGABE:
@@ -534,9 +556,15 @@ Basierend auf meinem verfügbaren Cash von ${cashBalance.toFixed(2)} EUR und mei
 - Berücksichtige aktuelle Markttrends 2025/2026
 - WICHTIG: Empfehle hier KEINE Aktien die ich bereits im Portfolio habe!
 
-🎯 **4. AKTIONSPLAN**
+📝 **4. BESTEHENDE ORDERS BEWERTEN** (falls vorhanden)
+- Sind die aktiven Orders noch sinnvoll?
+- Müssen Trigger-Preise angepasst werden?
+- Sollten Orders storniert werden?
+
+🎯 **5. AKTIONSPLAN**
 - Priorisierte Liste der nächsten Schritte
 - Was sofort tun, was beobachten
+- WIEDERHOLE KEINE Orders die bereits aktiv sind!
 
 ${settings.customPrompt ? `
 ═══════════════════════════════════════
@@ -586,20 +614,39 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             ],
           });
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: apiHeaders,
-        body: apiBody,
-      });
+      // Retry bei Overloaded (529), Rate Limit (429), Service Unavailable (503)
+      let response: Response | null = null;
+      const maxRetries = 2;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: apiHeaders,
+          body: apiBody,
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMsg = `API-Fehler ${response.status}`;
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorMsg = errorJson.error?.message || errorJson.error?.type || errorMsg;
-        } catch {
-          if (errorText.length < 500) errorMsg = errorText;
+        if ((response.status === 429 || response.status === 529 || response.status === 503) && attempt < maxRetries) {
+          const retryAfter = response.headers.get('retry-after');
+          const waitMs = retryAfter ? parseInt(retryAfter) * 1000 : (5000 * Math.pow(2, attempt));
+          console.warn(`[Portfolio-Analyse] Status ${response.status} - Retry ${attempt + 1}/${maxRetries} in ${waitMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitMs));
+          continue;
+        }
+        break;
+      }
+
+      if (!response || !response.ok) {
+        const errorText = response ? await response.text() : 'Keine Antwort';
+        let errorMsg = `API-Fehler ${response?.status || 'unbekannt'}`;
+        // Benutzerfreundliche Meldung bei Overloaded
+        if (response?.status === 529 || errorText.toLowerCase().includes('overloaded')) {
+          errorMsg = 'Der KI-Server ist momentan überlastet. Bitte versuche es in 1-2 Minuten erneut.';
+        } else {
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMsg = errorJson.error?.message || errorJson.error?.type || errorMsg;
+          } catch {
+            if (errorText.length < 500) errorMsg = errorText;
+          }
         }
         throw new Error(errorMsg);
       }

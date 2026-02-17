@@ -102,6 +102,11 @@ export async function runAutopilotCycle(): Promise<void> {
   // Sicherheitscheck
   if (!settings.enabled) return;
 
+  // Bei Vollautomatisch: Order-Auto-Ausführung sicherstellen
+  if (settings.mode === 'full-auto' && !store.orderSettings.autoExecute) {
+    store.updateOrderSettings({ autoExecute: true });
+  }
+
   const cycleId = crypto.randomUUID().slice(0, 8);
   log(createLogEntry('info', `🔄 Autopilot-Zyklus #${cycleId} gestartet`));
   updateAutopilotState({ isRunning: true });
