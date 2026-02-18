@@ -30,7 +30,7 @@ ${signal.reasoning}
 ${signal.targetPrice ? `🎯 Zielpreis: ${signal.targetPrice.toFixed(2)} ${signal.stock.currency}` : ''}
 ${signal.stopLoss ? `🛑 Stop-Loss: ${signal.stopLoss.toFixed(2)} ${signal.stock.currency}` : ''}
 
-_AI Invest - ${new Date().toLocaleString('de-DE')}_
+_Vestia - ${new Date().toLocaleString('de-DE')}_
     `.trim();
 
     try {
@@ -170,7 +170,7 @@ _AI Invest - ${new Date().toLocaleString('de-DE')}_
     try {
       const templateParams = {
         to_email: to,
-        subject: '✅ AI Invest E-Mail Verbindung erfolgreich!',
+        subject: '✅ Vestia E-Mail Verbindung erfolgreich!',
         stock_name: 'Test',
         stock_symbol: 'TEST',
         signal_type: 'INFO',
@@ -202,7 +202,7 @@ _AI Invest - ${new Date().toLocaleString('de-DE')}_
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: '✅ AI Invest Verbindung erfolgreich!\n\nDu wirst ab jetzt Investment-Signale erhalten.',
+            text: '✅ Vestia Verbindung erfolgreich!\n\nDu wirst ab jetzt Investment-Signale erhalten.',
             parse_mode: 'Markdown',
           }),
         }

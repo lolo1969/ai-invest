@@ -894,7 +894,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             settings.notifications.email.templateId,
             {
               to_email: settings.notifications.email.address,
-              subject: `📊 AI Invest Portfolio-Analyse (${modelDisplayName})`,
+              subject: `📊 Vestia Portfolio-Analyse (${modelDisplayName})`,
               stock_name: 'Portfolio-Analyse',
               stock_symbol: 'PORTFOLIO',
               signal_type: `ANALYSE (${modelDisplayName})`,

@@ -1,4 +1,4 @@
-# 🤖 AI Invest - Investment Advisor
+# 🤖 Vestia - Investment Advisor
 
 An AI-powered Investment Advisor as a Progressive Web App (PWA).
 

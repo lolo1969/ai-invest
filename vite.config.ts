@@ -25,8 +25,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'AI Invest - Investment Advisor',
-        short_name: 'AI Invest',
+        name: 'Vestia - Investment Advisor',
+        short_name: 'Vestia',
         description: 'KI-gestützter Investment-Berater',
         theme_color: '#1a1a2e',
         background_color: '#1a1a2e',

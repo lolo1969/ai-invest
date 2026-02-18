@@ -75,7 +75,7 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
           <div className="p-6 border-b border-[#252542]">
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
               <TrendingUp className="text-indigo-500" size={28} />
-              AI Invest
+              Vestia
             </h1>
             <div className="flex items-center gap-2 mt-1">
               <p className="text-sm text-gray-400">Investment Advisor</p>
@@ -121,7 +121,7 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
           {/* Footer */}
           <div className="p-4 border-t border-[#252542]">
             <div className="px-4 py-3 bg-[#252542] rounded-lg">
-              <p className="text-xs text-gray-400">AI Investment Advisor</p>
+              <p className="text-xs text-gray-400">Intelligent Investment Advisor</p>
               <p className="text-xs text-gray-500 mt-1">v{version}</p>
             </div>
           </div>

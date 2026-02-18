@@ -395,7 +395,7 @@ export const useAppStore = create<AppState>()(
         }),
     }),
     {
-      name: 'ai-invest-storage',
+      name: 'vestia-storage',
       partialize: (state) => ({
         settings: state.settings,
         portfolios: state.portfolios,
@@ -419,3 +419,20 @@ export const useAppStore = create<AppState>()(
     }
   )
 );
+
+// Migration: Alte Daten von "ai-invest-storage" zu "vestia-storage" übernehmen
+(() => {
+  const oldKey = 'ai-invest-storage';
+  const newKey = 'vestia-storage';
+  const oldData = localStorage.getItem(oldKey);
+  const newData = localStorage.getItem(newKey);
+  if (oldData && !newData) {
+    localStorage.setItem(newKey, oldData);
+    localStorage.removeItem(oldKey);
+    // Store neu laden mit migrierten Daten
+    window.location.reload();
+  } else if (oldData && newData) {
+    // Beide existieren – alten Key aufräumen
+    localStorage.removeItem(oldKey);
+  }
+})();
