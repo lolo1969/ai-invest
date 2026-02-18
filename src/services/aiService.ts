@@ -87,7 +87,7 @@ export class AIService {
       },
       body: JSON.stringify({
         model: this.claudeModel,
-        max_tokens: 8192,
+        max_tokens: 16384,
         messages: [
           {
             role: 'user',
@@ -126,11 +126,11 @@ export class AIService {
       },
       body: JSON.stringify({
         model: this.openaiModel,
-        max_completion_tokens: 8192,
+        max_completion_tokens: 16384,
         messages: [
           {
             role: 'system',
-            content: 'Du bist ein erfahrener Investment-Analyst. Antworte immer im angeforderten JSON-Format.',
+            content: 'Du bist ein erfahrener Investment-Analyst. Antworte immer im angeforderten JSON-Format. WICHTIG: Du MUSST für JEDE Aktie in der Liste ein Signal geben (BUY, SELL oder HOLD). Überspringe keine Aktien! Wenn du BUY oder SELL Signale gibst, MUSST du auch passende Einträge im "suggestedOrders" Array liefern.',
           },
           {
             role: 'user',
@@ -162,6 +162,50 @@ export class AIService {
   }
 
   private async callGemini(prompt: string, stocks: Stock[], strategy?: InvestmentStrategy): Promise<AIAnalysisResponse> {
+    // Build JSON schema for structured output
+    const responseSchema = {
+      type: 'object',
+      properties: {
+        signals: {
+          type: 'array',
+          description: 'Ein Signal pro analysierter Aktie (BUY, SELL oder HOLD)',
+          items: {
+            type: 'object',
+            properties: {
+              symbol: { type: 'string' },
+              signal: { type: 'string', enum: ['BUY', 'SELL', 'HOLD'] },
+              confidence: { type: 'number' },
+              reasoning: { type: 'string' },
+              idealEntryPrice: { type: 'number' },
+              targetPrice: { type: 'number' },
+              stopLoss: { type: 'number' },
+              riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] },
+            },
+            required: ['symbol', 'signal', 'confidence', 'reasoning', 'targetPrice', 'stopLoss', 'riskLevel'],
+          },
+        },
+        marketSummary: { type: 'string' },
+        recommendations: { type: 'array', items: { type: 'string' } },
+        warnings: { type: 'array', items: { type: 'string' } },
+        suggestedOrders: {
+          type: 'array',
+          description: 'Für JEDES BUY/SELL Signal MUSS hier eine Order stehen!',
+          items: {
+            type: 'object',
+            properties: {
+              symbol: { type: 'string' },
+              orderType: { type: 'string', enum: ['limit-buy', 'limit-sell', 'stop-loss', 'stop-buy'] },
+              quantity: { type: 'integer' },
+              triggerPrice: { type: 'number' },
+              reasoning: { type: 'string' },
+            },
+            required: ['symbol', 'orderType', 'quantity', 'triggerPrice', 'reasoning'],
+          },
+        },
+      },
+      required: ['signals', 'marketSummary', 'recommendations', 'warnings', 'suggestedOrders'],
+    };
+
     const response = await this.fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/${this.geminiModel}:generateContent?key=${this.apiKey}`,
       {
@@ -182,13 +226,15 @@ export class AIService {
           systemInstruction: {
             parts: [
               {
-                text: 'Du bist ein erfahrener Investment-Analyst. Antworte immer im angeforderten JSON-Format.',
+                text: `Du bist ein erfahrener Investment-Analyst. Du MUSST für JEDE Aktie in der Liste ein Signal geben (BUY, SELL oder HOLD). Wenn du BUY oder SELL Signale gibst, MUSST du auch passende Einträge im "suggestedOrders" Array liefern. Das suggestedOrders Array darf NICHT leer sein wenn BUY/SELL Signale vorhanden sind!`,
               },
             ],
           },
           generationConfig: {
-            maxOutputTokens: 8192,
+            maxOutputTokens: 65536,
             temperature: 0.7,
+            responseMimeType: 'application/json',
+            responseSchema,
           },
         }),
       }
@@ -422,6 +468,14 @@ Antworte im folgenden JSON-Format:
   ]
 }
 
+KRITISCH - SUGGESTED ORDERS SIND PFLICHT:
+- Für JEDES BUY-Signal MUSS ein entsprechender "limit-buy" Eintrag in "suggestedOrders" stehen!
+- Für JEDES SELL-Signal bei bestehenden Positionen MUSS ein "limit-sell" oder "stop-loss" in "suggestedOrders" stehen!
+- suggestedOrders darf NICHT leer sein wenn du BUY oder SELL Signale gibst!
+- orderType muss exakt eines von: "limit-buy", "limit-sell", "stop-loss", "stop-buy" sein
+- quantity muss eine positive ganze Zahl sein (berechne basierend auf Budget und Preis)
+- triggerPrice muss eine positive Zahl sein (bei limit-buy: idealEntryPrice oder leicht unter aktuellem Kurs)
+
 ${request.customPrompt ? `
 ═══════════════════════════════════════
 PERSÖNLICHE ANWEISUNGEN DES NUTZERS (UNBEDINGT BEACHTEN!):
@@ -433,13 +487,63 @@ Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
 
   private parseAIResponse(content: string, stocks: Stock[], strategy?: InvestmentStrategy): AIAnalysisResponse {
     try {
+      // Strip markdown code blocks (```json ... ``` or ``` ... ```)
+      let cleaned = content.trim();
+      cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+      
       // Extract JSON from response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
+        console.error('No JSON found in AI response. Raw content:', content.substring(0, 500));
         throw new Error('No valid JSON in response');
       }
 
-      const parsed = JSON.parse(jsonMatch[0]);
+      let jsonStr = jsonMatch[0];
+      
+      // Attempt to fix truncated JSON (missing closing brackets)
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        console.warn('[AI Service] JSON parse failed, attempting to repair truncated JSON...');
+        // Count unmatched brackets and add closing ones
+        let openBraces = 0, openBrackets = 0;
+        let inString = false, escaped = false;
+        for (const ch of jsonStr) {
+          if (escaped) { escaped = false; continue; }
+          if (ch === '\\') { escaped = true; continue; }
+          if (ch === '"') { inString = !inString; continue; }
+          if (inString) continue;
+          if (ch === '{') openBraces++;
+          else if (ch === '}') openBraces--;
+          else if (ch === '[') openBrackets++;
+          else if (ch === ']') openBrackets--;
+        }
+        // Remove trailing incomplete value (after last comma or colon)
+        jsonStr = jsonStr.replace(/,\s*"[^"]*"?\s*:?\s*"?[^"{}\[\]]*$/, '');
+        jsonStr = jsonStr.replace(/,\s*\{[^}]*$/, '');
+        jsonStr = jsonStr.replace(/,\s*$/, '');
+        // Re-count after cleanup
+        openBraces = 0; openBrackets = 0; inString = false; escaped = false;
+        for (const ch of jsonStr) {
+          if (escaped) { escaped = false; continue; }
+          if (ch === '\\') { escaped = true; continue; }
+          if (ch === '"') { inString = !inString; continue; }
+          if (inString) continue;
+          if (ch === '{') openBraces++;
+          else if (ch === '}') openBraces--;
+          else if (ch === '[') openBrackets++;
+          else if (ch === ']') openBrackets--;
+        }
+        jsonStr += ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
+        try {
+          parsed = JSON.parse(jsonStr);
+          console.log('[AI Service] Truncated JSON successfully repaired');
+        } catch (e2) {
+          console.error('[AI Service] JSON repair failed. Cleaned content:', jsonStr.substring(0, 500));
+          throw parseErr;
+        }
+      }
       
       const signals: InvestmentSignal[] = (parsed.signals || []).map((s: any) => {
         const stock = stocks.find(st => st.symbol === s.symbol);
@@ -460,18 +564,71 @@ Antworte NUR mit dem JSON, ohne zusätzlichen Text.`;
         };
       }).filter(Boolean);
 
+      // Handle alternative field names that some AI providers use
+      const rawOrders = parsed.suggestedOrders || parsed.suggested_orders || parsed.orders || [];
+      
+      // Debug: Log what the AI returned
+      console.log('[AI Service] Parsed JSON keys:', Object.keys(parsed));
+      console.log('[AI Service] Signals:', signals.map(s => `${s.stock.symbol}: ${s.signal} (${s.confidence}%)`));
+      console.log('[AI Service] Raw suggestedOrders from AI:', JSON.stringify(rawOrders).substring(0, 500));
+
+      let suggestedOrders: AISuggestedOrder[] = rawOrders.map((o: any) => {
+        // Handle alternative field names
+        const orderType = o.orderType || o.order_type || o.type || '';
+        const triggerPrice = o.triggerPrice || o.trigger_price || o.price || o.limitPrice || o.limit_price || 0;
+        const qty = o.quantity || o.qty || o.amount || 0;
+        return {
+          symbol: o.symbol || o.ticker || '',
+          orderType: orderType,
+          quantity: typeof qty === 'string' ? parseInt(qty, 10) : qty,
+          triggerPrice: typeof triggerPrice === 'string' ? parseFloat(triggerPrice) : triggerPrice,
+          reasoning: o.reasoning || o.reason || o.rationale || '',
+        };
+      }).filter((o: AISuggestedOrder) => o.symbol && o.orderType && o.quantity > 0 && o.triggerPrice > 0);
+
+      console.log('[AI Service] Parsed suggestedOrders after filter:', suggestedOrders.length);
+
+      // Fallback: Wenn die KI BUY/SELL-Signale liefert aber keine suggestedOrders,
+      // generiere Orders automatisch aus den Signalen (wichtig für OpenAI/Gemini Kompatibilität)
+      if (suggestedOrders.length === 0 && signals.length > 0) {
+        const actionableSignals = signals.filter(s => s.signal === 'BUY' || s.signal === 'SELL');
+        console.log('[AI Service] Actionable signals (BUY/SELL) for fallback:', actionableSignals.map(s => `${s.stock.symbol}: ${s.signal}`));
+        if (actionableSignals.length > 0) {
+          console.warn('[AI Service] Keine suggestedOrders von KI erhalten – generiere Fallback-Orders aus Signalen');
+          suggestedOrders = actionableSignals.map(signal => {
+            if (signal.signal === 'BUY') {
+              const buyPrice = signal.idealEntryPrice || signal.stock.price;
+              // Budget-basierte Stückzahl: max 10% des Aktienpreises als Positionsgröße, min 1
+              const maxInvestment = signal.stock.price * 10; // Fallback: ~10 Stück als Obergrenze
+              const quantity = Math.max(1, Math.floor(maxInvestment / buyPrice));
+              return {
+                symbol: signal.stock.symbol,
+                orderType: 'limit-buy' as const,
+                quantity,
+                triggerPrice: Math.round(buyPrice * 100) / 100,
+                reasoning: `[Auto-generiert aus BUY-Signal] ${signal.reasoning}`,
+              };
+            } else {
+              // SELL – Stop-Loss oder Limit-Sell
+              const sellPrice = signal.stopLoss || signal.stock.price * 0.95;
+              return {
+                symbol: signal.stock.symbol,
+                orderType: 'stop-loss' as const,
+                quantity: 0, // Wird vom Safety-Layer anhand der Position bestimmt
+                triggerPrice: Math.round(sellPrice * 100) / 100,
+                reasoning: `[Auto-generiert aus SELL-Signal] ${signal.reasoning}`,
+              };
+            }
+          }).filter(o => o.quantity > 0 || o.orderType === 'stop-loss');
+        }
+      }
+
       return {
         signals,
         marketSummary: parsed.marketSummary || '',
         recommendations: parsed.recommendations || [],
         warnings: parsed.warnings || [],
-        suggestedOrders: (parsed.suggestedOrders || []).map((o: any) => ({
-          symbol: o.symbol,
-          orderType: o.orderType,
-          quantity: o.quantity,
-          triggerPrice: o.triggerPrice,
-          reasoning: o.reasoning || '',
-        })).filter((o: AISuggestedOrder) => o.symbol && o.orderType && o.quantity > 0 && o.triggerPrice > 0),
+        suggestedOrders,
         analyzedAt: new Date(),
       };
     } catch (error) {

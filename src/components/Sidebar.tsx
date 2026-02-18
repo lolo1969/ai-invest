@@ -77,7 +77,10 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
               <TrendingUp className="text-indigo-500" size={28} />
               AI Invest
             </h1>
-            <p className="text-sm text-gray-400 mt-1">Investment Advisor</p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-sm text-gray-400">Investment Advisor</p>
+              <span className="text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">v{version} ALPHA</span>
+            </div>
           </div>
 
           {/* Navigation */}

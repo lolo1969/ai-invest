@@ -344,11 +344,34 @@ export function Portfolio() {
     // setAnalysisResult(null); — wird erst bei Erfolg überschrieben
 
     try {
-      // Build portfolio context
+      // 52-Wochen-Daten laden (wie Autopilot) für konsistente Analyse
+      const portfolioSymbols = userPositions.map(p => p.symbol);
+      const watchlistSymbolsList = watchlist.map(s => s.symbol);
+      const allSymbolsForQuotes = [...new Set([...portfolioSymbols, ...watchlistSymbolsList])];
+      let stocksWithRange: import('../types').Stock[] = [];
+      try {
+        stocksWithRange = await marketDataService.getQuotesWithRange(allSymbolsForQuotes);
+      } catch (e) {
+        console.warn('[Portfolio] Konnte 52W-Daten nicht laden, fahre ohne fort:', e);
+      }
+
+      // Build portfolio context with 52-week data (harmonized with Autopilot)
       const portfolioSummary = userPositions.map(p => {
         const pl = getProfitLoss(p);
         const identifier = p.isin ? `${p.name} (ISIN: ${p.isin})` : `${p.symbol} (${p.name})`;
-        return `${identifier}: ${p.quantity} Stück, Kaufpreis: ${p.buyPrice.toFixed(2)} ${p.currency}, Aktuell: ${p.currentPrice.toFixed(2)} ${p.currency}, P/L: ${pl.percent >= 0 ? '+' : ''}${pl.percent.toFixed(2)}% (${pl.absolute >= 0 ? '+' : ''}${pl.absolute.toFixed(2)} ${p.currency})`;
+        let info = `${identifier}: ${p.quantity} Stück, Kaufpreis: ${p.buyPrice.toFixed(2)} ${p.currency}, Aktuell: ${p.currentPrice.toFixed(2)} ${p.currency}, P/L: ${pl.percent >= 0 ? '+' : ''}${pl.percent.toFixed(2)}% (${pl.absolute >= 0 ? '+' : ''}${pl.absolute.toFixed(2)} ${p.currency})`;
+        
+        // 52-Wochen-Daten hinzufügen (gleich wie in aiService.buildAnalysisPrompt)
+        const stockData = stocksWithRange.find(s => s.symbol === p.symbol);
+        if (stockData?.week52High && stockData?.week52Low) {
+          const positionInRange = stockData.week52ChangePercent ?? 0;
+          info += ` | 52W: ${stockData.week52Low.toFixed(2)}-${stockData.week52High.toFixed(2)} (${positionInRange.toFixed(0)}% im Bereich)`;
+          if (positionInRange > 100) info += ' ⚠️ ÜBER 52W-HOCH - EXTREM ÜBERHITZT!';
+          else if (positionInRange > 90) info += ' ⚠️ ÜBERHITZT';
+          else if (positionInRange > 80) info += ' ⚡ Nahe 52W-Hoch - Vorsicht';
+          else if (positionInRange < 20) info += ' ✅ Nahe 52W-Tief';
+        }
+        return info;
       }).join('\n');
 
       // Direct API call for portfolio analysis - use selected provider
@@ -376,12 +399,23 @@ export function Portfolio() {
           };
 
       // Build watchlist context (stocks NOT in portfolio, for new recommendations)
-      const portfolioSymbols = userPositions.map(p => p.symbol.toUpperCase());
-      const watchlistOnly = watchlist.filter(s => !portfolioSymbols.includes(s.symbol.toUpperCase()));
+      // Mit 52W-Daten angereichert (harmonisiert mit Autopilot/aiService)
+      const portfolioSymbolsUpper = userPositions.map(p => p.symbol.toUpperCase());
+      const watchlistOnly = watchlist.filter(s => !portfolioSymbolsUpper.includes(s.symbol.toUpperCase()));
       const watchlistSummary = watchlistOnly.length > 0
-        ? watchlistOnly.map(s => 
-            `${s.symbol} (${s.name}): ${s.price?.toFixed(2) ?? '?'} ${s.currency} (${s.changePercent != null ? (s.changePercent >= 0 ? '+' : '') + s.changePercent.toFixed(2) + '%' : '?'})`
-          ).join('\n')
+        ? watchlistOnly.map(s => {
+            const stockData = stocksWithRange.find(sq => sq.symbol === s.symbol);
+            let info = `${s.symbol} (${s.name}): ${(stockData?.price ?? s.price)?.toFixed(2) ?? '?'} ${s.currency} (${(stockData?.changePercent ?? s.changePercent) != null ? ((stockData?.changePercent ?? s.changePercent!) >= 0 ? '+' : '') + (stockData?.changePercent ?? s.changePercent!).toFixed(2) + '%' : '?'})`;
+            if (stockData?.week52High && stockData?.week52Low) {
+              const posInRange = stockData.week52ChangePercent ?? 0;
+              info += ` | 52W: ${stockData.week52Low.toFixed(2)}-${stockData.week52High.toFixed(2)} (${posInRange.toFixed(0)}% im Bereich)`;
+              if (posInRange > 100) info += ' ⚠️ ÜBER 52W-HOCH!';
+              else if (posInRange > 90) info += ' ⚠️ ÜBERHITZT';
+              else if (posInRange > 80) info += ' ⚡ Nahe 52W-Hoch';
+              else if (posInRange < 20) info += ' ✅ Nahe 52W-Tief';
+            }
+            return info;
+          }).join('\n')
         : 'Keine Watchlist-Aktien vorhanden.';
 
       // Build AI memory context from previous analyses
@@ -496,6 +530,19 @@ WICHTIG FÜR DIESE ANALYSE:
 `;
       })();
 
+      // Letzte Autopilot-Signale einbinden für Konsistenz zwischen Portfolio und Autopilot
+      const autopilotSignalsContext = (() => {
+        const allSignals = useAppStore.getState().signals || [];
+        const recentSignals = allSignals.slice(0, 10);
+        if (recentSignals.length === 0) return '';
+        const signalLines = recentSignals.map(s => {
+          const age = Math.round((Date.now() - new Date(s.createdAt).getTime()) / (1000 * 60 * 60));
+          const ageStr = age < 24 ? 'vor ' + age + 'h' : 'vor ' + Math.round(age / 24) + 'd';
+          return '- ' + s.stock.symbol + ': ' + s.signal + ' (Konfidenz: ' + s.confidence + '%, ' + ageStr + ') - ' + s.reasoning.substring(0, 120) + '...';
+        }).join('\n');
+        return '═══════════════════════════════════════\n🤖 LETZTE AUTOPILOT-SIGNALE (für konsistente Bewertung):\n═══════════════════════════════════════\nDiese Signale wurden vom Autopilot-Modul generiert. Deine Portfolio-Analyse sollte mit diesen Einschätzungen konsistent sein, es sei denn neue Informationen rechtfertigen eine Abweichung.\n' + signalLines + '\n\nWICHTIG: Wenn deine Einschätzung von den Autopilot-Signalen abweicht, erkläre warum!\n';
+      })();
+
       const promptContent = `Du bist ein erfahrener Investment-Analyst. Analysiere mein aktuelles Portfolio und gib konkrete Empfehlungen.
 
 ═══════════════════════════════════════
@@ -527,6 +574,47 @@ MEINE STRATEGIE:
 - Anlagehorizont: ${settings.strategy === 'short' ? 'Kurzfristig (Tage-Wochen)' : settings.strategy === 'middle' ? 'Mittelfristig (Wochen-Monate)' : 'Langfristig (10+ Jahre, Buy & Hold)'}
 - Risikotoleranz: ${settings.riskTolerance === 'low' ? 'Konservativ' : settings.riskTolerance === 'medium' ? 'Ausgewogen' : 'Aggressiv'}
 
+${settings.strategy === 'long' ? `═══════════════════════════════════════
+📏 BEWERTUNGSREGELN (LANGFRISTIGE STRATEGIE 10+ Jahre):
+═══════════════════════════════════════
+- Fokus auf Qualitätsunternehmen mit starken Fundamentaldaten und Wettbewerbsvorteilen (Moat)
+- Bevorzuge Unternehmen mit: stabilem Gewinnwachstum, niedriger Verschuldung, starker Marktposition
+- Dividendenwachstum und Dividendenhistorie sind wichtige Faktoren
+- Kurzfristige Kursschwankungen sind weniger relevant - Fokus auf langfristiges Wachstumspotenzial
+- Der 52W-Bereich ist bei langfristigen Investments weniger kritisch, aber günstige Einstiegspreise sind trotzdem wünschenswert
+- Bei langfristigen Investments können auch Aktien nahe dem 52W-Hoch gekauft werden, wenn die Fundamentaldaten stimmen
+- Stop-Loss ist bei langfristigen Investments weniger relevant - setze ihn großzügiger (20-30% unter Kaufpreis)
+- Berücksichtige Megatrends: Digitalisierung, Gesundheit, erneuerbare Energien, demographischer Wandel
+- HALTE Qualitätsaktien langfristig, auch bei Kursrückgängen von 20-30%
+- Verkaufe NUR bei fundamentaler Verschlechterung des Unternehmens (nicht wegen Kursschwankungen!)
+- Gewinne von 50%, 100% oder mehr sind bei langfristigen Investments NORMAL - KEIN Verkaufsgrund!
+- Bei Gewinnern: HALTEN und weiterlaufen lassen, solange Fundamentaldaten stimmen
+- Verkaufsempfehlung nur bei: massiver Überbewertung (KGV >50), Verschlechterung der Geschäftsaussichten, bessere Alternativen
+- WARNUNG bei: Meme-Stocks, hochspekulative Tech-Aktien ohne Gewinne, Penny Stocks, Krypto-bezogene Aktien` 
+: settings.strategy === 'short' ? `═══════════════════════════════════════
+📏 BEWERTUNGSREGELN (KURZFRISTIGE STRATEGIE Tage-Wochen):
+═══════════════════════════════════════
+- TIMING-ANALYSE & BEWERTUNG anhand 52-Wochen-Bereich:
+- KAUF nur empfehlen wenn der Preis unter 50% im 52W-Bereich liegt (guter Einstieg)
+- Bei 50-70% im Bereich: HALTEN oder vorsichtiger Kauf nur bei sehr starken Fundamentaldaten
+- Bei 70-90% im Bereich: HALTEN oder VERKAUFEN empfehlen (teuer bewertet)
+- NIEMALS KAUF empfehlen bei >90% im Bereich - diese Aktien sind ÜBERHITZT!
+- Bei >100% (über 52W-Hoch): STARKE VERKAUFSWARNUNG, extrem überhitzt
+- Achte besonders auf technische Signale und kurzfristige Katalysatoren
+- Bei Gewinn >20% und hoher 52W-Position: Empfehle Teilverkauf oder Gewinnmitnahme`
+: `═══════════════════════════════════════
+📏 BEWERTUNGSREGELN (MITTELFRISTIGE STRATEGIE Wochen-Monate):
+═══════════════════════════════════════
+- TIMING-ANALYSE & BEWERTUNG anhand 52-Wochen-Bereich:
+- KAUF nur empfehlen wenn der Preis unter 50% im 52W-Bereich liegt (guter Einstieg)
+- Bei 50-70% im Bereich: HALTEN oder vorsichtiger Kauf nur bei sehr starken Fundamentaldaten
+- Bei 70-90% im Bereich: HALTEN oder VERKAUFEN empfehlen (teuer bewertet)
+- NIEMALS KAUF empfehlen bei >90% im Bereich - diese Aktien sind ÜBERHITZT!
+- Bei >100% (über 52W-Hoch): STARKE VERKAUFSWARNUNG, extrem überhitzt
+- Balance zwischen Wachstum und Risiko
+- Achte auf kommende Earnings, Produktlaunches, Branchentrends
+- Bei Gewinn >20% und hoher 52W-Position: Empfehle Teilverkauf oder Gewinnmitnahme`}
+
 ═══════════════════════════════════════
 MEINE WATCHLIST (beobachtete Aktien, die ich NICHT besitze):
 ═══════════════════════════════════════
@@ -550,6 +638,7 @@ WICHTIG: Empfehle KEINE Orders die bereits oben aufgelistet sind!
 `;
 })()}
 ${memoryContext}
+${autopilotSignalsContext}
 ═══════════════════════════════════════
 AUFGABE:
 ═══════════════════════════════════════

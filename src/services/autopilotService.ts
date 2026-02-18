@@ -238,17 +238,27 @@ export async function runAutopilotCycle(): Promise<void> {
       analysisResponse.marketSummary
     ));
 
+    // Signal-Details loggen
+    for (const signal of analysisResponse.signals) {
+      log(createLogEntry(
+        'info',
+        `📊 Signal: ${signal.stock.symbol} → ${signal.signal} (${signal.confidence}%)`,
+        signal.reasoning?.substring(0, 200),
+        signal.stock.symbol
+      ));
+    }
+
     // Signale speichern
     for (const signal of analysisResponse.signals) {
       store.addSignal(signal);
     }
 
-    // Analyse-History speichern
+    // Analyse-History speichern (voller Text, nicht gekürzt, damit Portfolio-Gedächtnis funktioniert)
     const totalValue = userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0) + cashBalance;
     store.addAnalysisHistory({
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
-      analysisText: analysisResponse.marketSummary.slice(0, 500),
+      analysisText: analysisResponse.marketSummary,
       portfolioSnapshot: {
         positions: userPositions.map(p => ({
           symbol: p.symbol, name: p.name, quantity: p.quantity,
@@ -265,6 +275,19 @@ export async function runAutopilotCycle(): Promise<void> {
 
     // 5. Order-Vorschläge verarbeiten
     const suggestedOrders = analysisResponse.suggestedOrders || [];
+    
+    // Fix-up: SELL-Orders mit quantity 0 (Fallback-generiert) bekommen die echte Positionsgröße
+    for (const order of suggestedOrders) {
+      if (order.quantity === 0) {
+        const isSell = order.orderType === 'limit-sell' || order.orderType === 'stop-loss';
+        if (isSell) {
+          const position = userPositions.find(p => p.symbol === order.symbol);
+          if (position) {
+            order.quantity = position.quantity;
+          }
+        }
+      }
+    }
     
     if (suggestedOrders.length === 0) {
       log(createLogEntry('info', '📝 Keine Order-Vorschläge von der KI'));
