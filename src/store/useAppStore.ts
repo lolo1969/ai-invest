@@ -15,6 +15,24 @@ import type {
   AutopilotState
 } from '../types';
 
+// Migration: Alte Daten von "ai-invest-storage" zu "vestia-storage" übernehmen
+// MUSS vor der Store-Erstellung laufen, sonst überschreibt Zustand mit Defaults!
+(() => {
+  try {
+    const oldKey = 'ai-invest-storage';
+    const newKey = 'vestia-storage';
+    const oldData = localStorage.getItem(oldKey);
+    if (oldData) {
+      // Alte Daten immer übernehmen (sie haben Vorrang vor leeren Defaults)
+      localStorage.setItem(newKey, oldData);
+      localStorage.removeItem(oldKey);
+      console.log('[Vestia] Daten von ai-invest-storage migriert');
+    }
+  } catch (e) {
+    console.error('[Vestia] Migration fehlgeschlagen:', e);
+  }
+})();
+
 interface AppState {
   // User Settings
   settings: UserSettings;
@@ -419,20 +437,3 @@ export const useAppStore = create<AppState>()(
     }
   )
 );
-
-// Migration: Alte Daten von "ai-invest-storage" zu "vestia-storage" übernehmen
-(() => {
-  const oldKey = 'ai-invest-storage';
-  const newKey = 'vestia-storage';
-  const oldData = localStorage.getItem(oldKey);
-  const newData = localStorage.getItem(newKey);
-  if (oldData && !newData) {
-    localStorage.setItem(newKey, oldData);
-    localStorage.removeItem(oldKey);
-    // Store neu laden mit migrierten Daten
-    window.location.reload();
-  } else if (oldData && newData) {
-    // Beide existieren – alten Key aufräumen
-    localStorage.removeItem(oldKey);
-  }
-})();
