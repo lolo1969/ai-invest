@@ -437,3 +437,81 @@ export const useAppStore = create<AppState>()(
     }
   )
 );
+
+// Automatisches Backup: Alle 60s eine Sicherheitskopie unter separatem Key speichern
+// Schützt vor Datenverlust bei Storage-Key-Änderungen, Updates oder Bugs
+const BACKUP_KEY = 'vestia-auto-backup';
+const BACKUP_INTERVAL = 60_000; // 60 Sekunden
+
+function saveAutoBackup() {
+  try {
+    const state = useAppStore.getState();
+    const backup = {
+      timestamp: new Date().toISOString(),
+      version: '1.3.7',
+      data: {
+        settings: state.settings,
+        portfolios: state.portfolios,
+        activePortfolioId: state.activePortfolioId,
+        userPositions: state.userPositions,
+        cashBalance: state.cashBalance,
+        initialCapital: state.initialCapital,
+        previousProfit: state.previousProfit,
+        watchlist: state.watchlist,
+        signals: state.signals,
+        priceAlerts: state.priceAlerts,
+        orders: state.orders,
+        orderSettings: state.orderSettings,
+        lastAnalysis: state.lastAnalysis,
+        lastAnalysisDate: state.lastAnalysisDate,
+        analysisHistory: state.analysisHistory,
+        autopilotSettings: state.autopilotSettings,
+        autopilotLog: state.autopilotLog,
+        autopilotState: state.autopilotState,
+      },
+    };
+    // Nur speichern wenn echte Daten vorhanden (nicht leerer Default-State)
+    if (state.userPositions.length > 0 || state.cashBalance > 0 || state.watchlist.length > 0) {
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
+    }
+  } catch (e) {
+    console.warn('[Vestia] Auto-Backup fehlgeschlagen:', e);
+  }
+}
+
+// Backup beim Start und dann alle 60s
+setTimeout(saveAutoBackup, 5000); // 5s nach Start (damit Daten geladen sind)
+setInterval(saveAutoBackup, BACKUP_INTERVAL);
+
+// Notfall-Wiederherstellung: Wenn der Hauptspeicher leer ist aber ein Backup existiert
+(() => {
+  try {
+    const mainData = localStorage.getItem('vestia-storage');
+    const backupRaw = localStorage.getItem(BACKUP_KEY);
+    if (backupRaw) {
+      const backup = JSON.parse(backupRaw);
+      const hasMainData = (() => {
+        if (!mainData) return false;
+        try {
+          const parsed = JSON.parse(mainData);
+          const state = parsed?.state;
+          return state && (
+            (state.userPositions && state.userPositions.length > 0) ||
+            (state.cashBalance && state.cashBalance > 0) ||
+            (state.watchlist && state.watchlist.length > 0)
+          );
+        } catch { return false; }
+      })();
+
+      if (!hasMainData && backup.data) {
+        console.warn('[Vestia] Hauptspeicher leer, stelle aus Auto-Backup wieder her (vom', backup.timestamp, ')');
+        // Backup in Zustand-persist Format umwandeln
+        const restored = { state: backup.data, version: 0 };
+        localStorage.setItem('vestia-storage', JSON.stringify(restored));
+        window.location.reload();
+      }
+    }
+  } catch (e) {
+    console.error('[Vestia] Backup-Wiederherstellung fehlgeschlagen:', e);
+  }
+})();
