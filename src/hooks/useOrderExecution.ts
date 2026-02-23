@@ -34,8 +34,27 @@ export function useOrderExecution() {
 
         const currentPrice = quote.price;
 
-        // Preis aktualisieren
+        // SCHUTZ 1: Keine Order-Ausführung mit Fallback/Demo-Daten
+        // Demo-Preise sind statisch und spiegeln nicht den echten Markt wider.
+        // Eine Ausführung auf Basis von Demo-Daten kann zu falschen Trades führen.
+        if (quote.isFallback) {
+          console.warn(`[OrderExecution] ⚠️ Überspringe ${order.symbol}: Preis stammt aus Fallback/Demo-Daten (${currentPrice.toFixed(2)} €), keine automatische Ausführung.`);
+          continue;
+        }
+
+        // Preis aktualisieren (auch bei Fallback ok, da nur informativ)
         updateOrderPrice(order.id, currentPrice);
+
+        // SCHUTZ 2: Circuit-Breaker bei extremen Preissprüngen (>25%)
+        // Wenn der aktuelle Preis sich drastisch vom letzten bekannten Preis unterscheidet,
+        // könnte das auf einen API-Fehler oder fehlerhafte Daten hindeuten.
+        if (order.currentPrice > 0) {
+          const priceChangePercent = Math.abs((currentPrice - order.currentPrice) / order.currentPrice) * 100;
+          if (priceChangePercent > 25) {
+            console.warn(`[OrderExecution] ⚠️ Circuit-Breaker für ${order.symbol}: Preissprung von ${order.currentPrice.toFixed(2)} € auf ${currentPrice.toFixed(2)} € (${priceChangePercent.toFixed(1)}% Änderung). Order wird nicht automatisch ausgeführt.`);
+            continue;
+          }
+        }
 
         // Prüfe ob Order abgelaufen
         if (order.expiresAt && new Date(order.expiresAt) < new Date()) {

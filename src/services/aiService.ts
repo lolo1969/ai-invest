@@ -11,6 +11,7 @@ import type {
   OpenAIModel,
   GeminiModel,
 } from '../types';
+import { formatIndicatorsForAI } from '../utils/technicalIndicators';
 
 export class AIService {
   private apiKey: string;
@@ -277,38 +278,41 @@ export class AIService {
       .map(s => {
         let info = `${s.symbol} (${s.name}): ${s.price.toFixed(2)} ${s.currency} (${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%)`;
         
-        // Add 52-week range data if available
-        if (s.week52High && s.week52Low) {
-          const positionInRange = s.week52ChangePercent ?? 0;
-          const positionStr = positionInRange.toFixed(0);
-          info += ` | 52W: ${s.week52Low.toFixed(2)}-${s.week52High.toFixed(2)} (${positionStr}% im Bereich)`;
-          
-          // Add warnings for overheated stocks
-          if (positionInRange > 100) {
-            info += ' ⚠️ ÜBER 52W-HOCH - EXTREM ÜBERHITZT!';
-          } else if (positionInRange > 90) {
-            info += ' ⚠️ ÜBERHITZT - KEIN KAUF!';
-          } else if (positionInRange > 80) {
-            info += ' ⚡ Nahe 52W-Hoch - Vorsicht';
-          } else if (positionInRange < 20) {
-            info += ' ✅ Nahe 52W-Tief - Guter Einstieg möglich';
-          }
-        }
-        
         // Mark if user already owns this stock
         const existingPosition = request.currentPositions?.find(p => p.stock.symbol === s.symbol);
         if (existingPosition) {
           info += ` [BEREITS IM PORTFOLIO: ${existingPosition.quantity} Stück]`;
         }
         
+        // Add full technical indicators if available
+        if (s.technicalIndicators) {
+          info += '\n' + formatIndicatorsForAI(s.symbol, s.price, s.technicalIndicators);
+        } else if (s.week52High && s.week52Low) {
+          // Fallback: nur 52W-Daten wenn keine technischen Indikatoren verfügbar
+          const positionInRange = s.week52ChangePercent ?? 0;
+          info += ` | 52W: ${s.week52Low.toFixed(2)}-${s.week52High.toFixed(2)} (${positionInRange.toFixed(0)}% im Bereich)`;
+          info += ' [⚠️ Keine weiteren technischen Indikatoren verfügbar]';
+        }
+        
         return info;
       })
-      .join('\n');
+      .join('\n\n');
+
+    // Debug-Log: zeige ob technische Indikatoren vorhanden sind
+    const withIndicators = request.stocks.filter(s => s.technicalIndicators).length;
+    const withoutIndicators = request.stocks.filter(s => !s.technicalIndicators).length;
+    console.log(`[AI Prompt] Aktien mit technischen Indikatoren: ${withIndicators}/${request.stocks.length}${withoutIndicators > 0 ? ` (${withoutIndicators} OHNE Indikatoren!)` : ''}`);
+    if (withIndicators > 0) {
+      const sample = request.stocks.find(s => s.technicalIndicators);
+      if (sample?.technicalIndicators) {
+        console.log(`[AI Prompt] Beispiel ${sample.symbol}: RSI=${sample.technicalIndicators.rsi14?.toFixed(1)}, MACD=${sample.technicalIndicators.macd?.toFixed(2)}, SMA50=${sample.technicalIndicators.sma50?.toFixed(2)}`);
+      }
+    }
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-    return `Du bist ein erfahrener Investment-Analyst. Analysiere die folgenden Aktien und gib konkrete Kauf-/Verkaufsempfehlungen.
+    return `Du bist ein erfahrener Investment-Analyst und technischer Analyst. Analysiere die folgenden Aktien anhand der bereitgestellten TECHNISCHEN INDIKATOREN und gib fundierte Kauf-/Verkaufsempfehlungen.
 
 AKTUELLES DATUM: ${dateStr}
 
@@ -325,32 +329,78 @@ ${(request.transactionFeeFlat || request.transactionFeePercent) ? `- Transaktion
   WICHTIG: Berücksichtige die Gebühren bei der Positionsgrößenberechnung! Bei kleinen Orders können die Gebühren den Gewinn auffressen.` : ''}
 - Fokus: Deutsche/europäische und US-Aktien
 
-AKTUELLE KURSE (mit 52-Wochen-Bereich):
+═══════════════════════════════════════
+AKTUELLE KURSE MIT TECHNISCHEN INDIKATOREN:
+═══════════════════════════════════════
 ${stocksInfo}
+
+═══════════════════════════════════════
+ANALYSE-METHODIK – NUTZE ALLE INDIKATOREN!
+═══════════════════════════════════════
+Du hast für jede Aktie umfassende technische Indikatoren. Nutze sie ALLE in Kombination, um eine fundierte Einschätzung abzugeben. KEIN einzelner Indikator allein entscheidet!
+
+WICHTIGE INDIKATOREN UND IHRE BEDEUTUNG (nach Priorität geordnet):
+
+1. RSI (Relative Strength Index, 14 Tage) – PRIMÄRER INDIKATOR für Überhitzung:
+   - >70 = überkauft (potenzielle Korrektur möglich, aber nicht zwingend Verkauf!)
+   - <30 = überverkauft (potenzielle Erholung, aber Abwärtstrend kann andauern)
+   - RSI allein ist KEIN Kauf-/Verkaufssignal – immer mit anderen Indikatoren bestätigen!
+   - RSI ist der BESTE Indikator um zu erkennen ob eine Aktie überhitzt ist, NICHT der 52-Wochen-Bereich!
+
+2. MACD (Moving Average Convergence Divergence) – PRIMÄRER Momentum-Indikator:
+   - MACD > Signal-Linie = bullishes Momentum
+   - MACD < Signal-Linie = bearishes Momentum
+   - Histogramm zeigt Stärke des Momentums
+   - Achte auf Divergenzen: Kurs steigt aber MACD fällt = Warnsignal
+
+3. Moving Averages (SMA20, SMA50, SMA200) – Trend-Bestätigung:
+   - Kurs über SMA200 = langfristiger Aufwärtstrend
+   - SMA50 über SMA200 = Golden Cross (bullish)
+   - SMA50 unter SMA200 = Death Cross (bearish)
+   - Kurs unter SMA20 = kurzfristiger Abwärtsdruck
+
+4. Bollinger Bands – Volatilität & Extremzonen:
+   - %B > 100% = Kurs über oberem Band (Überdehnung, aber kann in Trendphasen anhalten!)
+   - %B < 0% = Kurs unter unterem Band (Überverkauft, aber kann in Crashs weiter fallen)
+   - Enge Bänder (niedrige Volatilität) deuten auf bevorstehende starke Bewegung hin
+
+5. Volumen-Analyse:
+   - Hohes Volumen bestätigt Kursbewegungen
+   - Niedriges Volumen bei Ausbrüchen = verdächtig, Fehlsignal möglich
+
+6. Volatilität & ATR:
+   - Hohe Volatilität → größere Stop-Loss-Abstände nötig
+   - ATR hilft bei der Berechnung sinnvoller Stop-Loss und Target-Preise
+
+7. 52-Wochen-Bereich – NUR EIN NEBENFAKTOR:
+   - Der 52-Wochen-Bereich ist NICHT der richtige Indikator um zu beurteilen ob eine Aktie überhitzt ist!
+   - Aktien in starkem Aufwärtstrend stehen DAUERHAFT nahe dem 52W-Hoch → das ist NORMAL und kein Verkaufsgrund
+   - Nutze stattdessen RSI, MACD und Bollinger Bands um Überhitzung zu bewerten
+   - Erwähne den 52W-Bereich in deiner Begründung nur nebensächlich, NICHT als Hauptargument
+
+KRITISCH: Der 52-Wochen-Bereich sagt NICHTS über Überhitzung aus. RSI ist dafür der richtige Indikator. Eine Aktie nahe dem 52W-Hoch mit RSI 45 ist NICHT überhitzt. Eine Aktie bei 60% im 52W-Bereich mit RSI 78 IST überhitzt.
+
+ENTSCHEIDE SELBST: Bewerte die Gesamtlage jeder Aktie anhand ALLER Indikatoren mit Fokus auf RSI, MACD und Moving Averages. Es gibt keine starren Regeln.
 
 ${request.strategy === 'long' ? `LANGFRISTIGE INVESTMENT-STRATEGIE (10+ Jahre):
 - Fokus auf Qualitätsunternehmen mit starken Fundamentaldaten und Wettbewerbsvorteilen (Moat)
 - Bevorzuge Unternehmen mit: stabilem Gewinnwachstum, niedriger Verschuldung, starker Marktposition
 - Dividendenwachstum und Dividendenhistorie sind wichtige Faktoren
-- Kurzfristige Kursschwankungen sind weniger relevant - Fokus auf langfristiges Wachstumspotenzial
-- Der 52W-Bereich ist bei langfristigen Investments weniger kritisch, aber günstige Einstiegspreise sind trotzdem wünschenswert
+- Technische Indikatoren nutzen für besseres Timing, aber nicht als alleiniges Kaufkriterium
 - Empfehle breit diversifizierte Blue-Chip Aktien und etablierte Wachstumsunternehmen
-- Bei langfristigen Investments können auch Aktien nahe dem 52W-Hoch gekauft werden, wenn die Fundamentaldaten stimmen
-- Stop-Loss ist bei langfristigen Investments weniger relevant - setze ihn großzügiger (20-30% unter Kaufpreis)
+- Stop-Loss großzügiger setzen (20-30% unter Kaufpreis)
 - Berücksichtige Megatrends: Digitalisierung, Gesundheit, erneuerbare Energien, demographischer Wandel` : 
-`WICHTIG - TIMING-ANALYSE & BEWERTUNG:
-- Berücksichtige den 52-Wochen-Bereich für optimale Einstiegs-/Ausstiegspunkte
-- KAUF nur empfehlen wenn der Preis unter 50% im 52W-Bereich liegt (guter Einstieg)
-- Bei 50-70% im Bereich: HOLD oder vorsichtiger Kauf nur bei sehr starken Fundamentaldaten
-- Bei 70-90% im Bereich: HOLD oder VERKAUF empfehlen (teuer bewertet)
-- NIEMALS KAUF empfehlen bei >90% im Bereich - diese Aktien sind ÜBERHITZT!
-- Bei >100% (über 52W-Hoch): STARKE VERKAUFSWARNUNG, extrem überhitzt
-- Bei HOLD: Gib konkret an, bei welchem Preis ein guter Einstieg wäre
-
-STRIKTE REGELN FÜR ÜBERHITZTE AKTIEN:
-- Aktien über 90% im 52W-Bereich dürfen NICHT zum Kauf empfohlen werden
-- Stattdessen: HOLD mit Hinweis auf idealen Einstiegspreis oder SELL wenn stark überhitzt
-- Begründe warum die Aktie aktuell zu teuer ist`}
+request.strategy === 'short' ? `KURZFRISTIGE TRADING-STRATEGIE (Tage bis Wochen):
+- Technische Indikatoren sind hier BESONDERS wichtig für Timing
+- RSI-Extreme und MACD-Crossovers als Entry/Exit-Signale
+- Enge Stop-Loss setzen (ATR-basiert)
+- Volumen-Bestätigung bei Ausbrüchen wichtig
+- Bollinger Band Breakouts und Mean-Reversion-Strategien beachten` :
+`MITTELFRISTIGE STRATEGIE (Wochen bis Monate):
+- Kombination aus technischer und fundamentaler Analyse
+- Trend-Bestätigung über Moving Averages
+- RSI + MACD für Timing
+- Moderate Stop-Loss-Abstände`}
 
 ${request.currentPositions?.length ? `
 AKTUELLE PORTFOLIO-POSITIONEN (SEHR WICHTIG!):
@@ -362,13 +412,11 @@ ${request.strategy === 'long' ? `LANGFRISTIGE STRATEGIE - REGELN FÜR BESTEHENDE
 - Verkaufe NUR bei fundamentaler Verschlechterung des Unternehmens (nicht wegen Kursschwankungen!)
 - Gewinne von 50%, 100% oder mehr sind bei langfristigen Investments NORMAL - KEIN Verkaufsgrund!
 - Nachkaufen bei Kursrückgängen kann sinnvoll sein (Cost-Average-Effekt)
-- Fokus auf: Dividendenwachstum, Gewinnentwicklung, Marktposition - NICHT auf kurzfristige Kursbewegungen
-- Bei Gewinnern: HALTEN und weiterlaufen lassen, solange Fundamentaldaten stimmen
-- Verkaufsempfehlung nur bei: massiver Überbewertung (KGV >50), Verschlechterung der Geschäftsaussichten, bessere Alternativen` 
-: `WICHTIG für Positionen (kurz-/mittelfristig):
-- Empfehle KEINEN KAUF für Aktien die der Nutzer bereits besitzt (es sei denn zum Nachkaufen bei gutem Einstieg)
-- Bei Gewinn >20% und hoher 52W-Position: Empfehle Teilverkauf oder Gewinnmitnahme
-- Prüfe ob bestehende Positionen verkauft werden sollten (Überbewertung, Stop-Loss erreicht)`}
+- Verkaufsempfehlung nur bei: massiver Überbewertung, Verschlechterung der Geschäftsaussichten, bessere Alternativen` 
+: `REGELN FÜR BESTEHENDE POSITIONEN:
+- Prüfe anhand der technischen Indikatoren ob bestehende Positionen gehalten, nachgekauft oder verkauft werden sollten
+- Bei Gewinnmitnahmen: Nutze RSI und Bollinger Bands als Orientierung
+- Prüfe ob Stop-Loss-Anpassungen nötig sind (ATR-basiert)`}
 ` : 'HINWEIS: Der Nutzer hat keine Positionen im Portfolio angegeben.\n'}
 
 ${request.previousSignals?.length ? `
@@ -381,8 +429,8 @@ ${request.previousSignals.slice(0, 10).map(s => {
 }).join('\n')}
 
 WICHTIG:
-- Wenn sich deine Einschätzung geändert hat, erkläre warum
-- Erkenne an wenn der Nutzer deine Empfehlungen umgesetzt hat (neue Positionen, Verkäufe)
+- Wenn sich deine Einschätzung geändert hat, erkläre warum (z.B. RSI hat sich verändert, MACD-Crossover)
+- Erkenne an wenn der Nutzer deine Empfehlungen umgesetzt hat
 - Wiederhole nicht wortwörtlich - entwickle deine Analyse weiter
 ` : ''}
 
@@ -394,10 +442,9 @@ ${request.activeOrders.map(o => {
   return `- ${o.symbol} (${o.name}): ${typeLabel} | Trigger: ${o.triggerPrice.toFixed(2)} | Aktuell: ${o.currentPrice.toFixed(2)} | ${o.quantity} Stück${o.note ? ` | Notiz: ${o.note}` : ''}`;
 }).join('\n')}
 
-Falls du bessere Orders vorschlägst, überschreiben diese die existierenden!
-Bewerte:
-- Sind die Trigger-Preise noch realistisch und sinnvoll?
-- Stimmen die Stop-Loss Orders mit der aktuellen Marktlage überein?
+Bewerte anhand der technischen Indikatoren:
+- Sind die Trigger-Preise angesichts der aktuellen Indikatoren noch sinnvoll?
+- Stimmen die Stop-Loss Orders mit der ATR und Volatilität überein?
 - Sollten Orders angepasst, beibehalten oder storniert werden?
 ` : ''}
 
@@ -406,8 +453,7 @@ ${request.strategy === 'long' ? `Prüfe für JEDE Aktie (Portfolio UND Watchlist
 - Ist diese Aktie für langfristige Buy & Hold Strategie geeignet?
 - WARNUNG bei: Meme-Stocks, hochspekulative Tech-Aktien ohne Gewinne, Penny Stocks, Krypto-bezogene Aktien
 - EMPFOHLEN für langfristig: Blue-Chips, Dividenden-Aristokraten, etablierte Marktführer, Qualitätsunternehmen mit Moat
-- Bei UNGEEIGNETEN Aktien im Portfolio: Empfehle Verkauf und erkläre warum sie nicht zur Strategie passen
-- Bei UNGEEIGNETEN Aktien in Watchlist: KEIN KAUF empfehlen, stattdessen Warnung ausgeben` 
+- Bei UNGEEIGNETEN Aktien im Portfolio: Empfehle Verkauf und erkläre warum sie nicht zur Strategie passen` 
 : request.strategy === 'short' ? `Prüfe für JEDE Aktie:
 - Ist diese Aktie für kurzfristiges Trading geeignet?
 - WARNUNG bei: Illiquiden Aktien, zu niedrigem Handelsvolumen
@@ -424,13 +470,13 @@ WICHTIG - WARNUNGEN AUSGEBEN:
 - Bei Portfolio-Aktien die nicht passen: "🔄 [SYMBOL] im Portfolio: Verkauf empfohlen - [Grund warum ungeeignet]"
 
 AUFGABE:
-Analysiere jede Aktie und gib für jede eine Empfehlung (BUY/SELL/HOLD) mit:
+Analysiere jede Aktie GANZHEITLICH anhand aller technischen Indikatoren und gib für jede eine Empfehlung (BUY/SELL/HOLD) mit:
 1. Signal (BUY, SELL, oder HOLD)
 2. Konfidenz (0-100%)
-3. Begründung (2-3 Sätze, berücksichtige die Position im 52W-Bereich)
-4. Idealer Einstiegspreis (bei BUY: Warte-Preis falls aktuell zu hoch)
-5. Zielpreis
-6. Stop-Loss
+3. Begründung (2-3 Sätze – FOKUS auf RSI, MACD, Moving Averages und Bollinger Bands. Erwähne den 52W-Bereich höchstens nebensächlich!)
+4. Idealer Einstiegspreis (bei BUY: basierend auf Support-Levels/SMA)
+5. Zielpreis (basierend auf Widerstandszonen/Bollinger oberes Band)
+6. Stop-Loss (basierend auf ATR oder Support-Levels)
 7. Risikoeinschätzung (low/medium/high)
 
 Antworte im folgenden JSON-Format:
@@ -440,7 +486,7 @@ Antworte im folgenden JSON-Format:
       "symbol": "AAPL",
       "signal": "BUY",
       "confidence": 75,
-      "reasoning": "Begründung hier, inkl. Timing-Empfehlung basierend auf 52W-Bereich...",
+      "reasoning": "RSI bei 42 signalisiert neutrale Zone ohne Überhitzung. MACD-Histogramm dreht positiv (bullisches Momentum). Kurs über SMA200 bestätigt langfristigen Aufwärtstrend, Bollinger %B bei 35% bietet Raum nach oben.",
       "idealEntryPrice": 165.00,
       "targetPrice": 180.00,
       "stopLoss": 155.00,
@@ -456,14 +502,14 @@ Antworte im folgenden JSON-Format:
       "orderType": "limit-buy",
       "quantity": 5,
       "triggerPrice": 160.00,
-      "reasoning": "Guter Einstieg bei Rücksetzer auf 160 EUR..."
+      "reasoning": "Einstieg nahe SMA50 Support bei 160 EUR..."
     },
     {
       "symbol": "TSLA",
       "orderType": "stop-loss",
       "quantity": 10,
       "triggerPrice": 200.00,
-      "reasoning": "Absicherung gegen weiteren Kursverfall..."
+      "reasoning": "Stop-Loss basierend auf 2x ATR unter aktuellem Kurs..."
     }
   ]
 }

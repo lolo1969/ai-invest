@@ -254,6 +254,29 @@ export const useAppStore = create<AppState>()(
           const order = state.orders.find((o) => o.id === id);
           if (!order || (order.status !== 'active' && order.status !== 'pending')) return state;
 
+          // SICHERHEITS-CHECK: Trigger-Bedingung validieren
+          // Verhindert, dass Orders zu einem ungünstigen Preis ausgeführt werden
+          // (z.B. Stop-Loss bei 210€ soll NICHT bei 227€ auslösen)
+          let triggerConditionMet = true;
+          switch (order.orderType) {
+            case 'limit-buy':
+              triggerConditionMet = executedPrice <= order.triggerPrice;
+              break;
+            case 'limit-sell':
+              triggerConditionMet = executedPrice >= order.triggerPrice;
+              break;
+            case 'stop-loss':
+              triggerConditionMet = executedPrice <= order.triggerPrice;
+              break;
+            case 'stop-buy':
+              triggerConditionMet = executedPrice >= order.triggerPrice;
+              break;
+          }
+          if (!triggerConditionMet) {
+            console.warn(`[executeOrder] ⛔ Trigger-Bedingung NICHT erfüllt für ${order.symbol} (${order.orderType}): Preis ${executedPrice.toFixed(2)}€, Trigger ${order.triggerPrice.toFixed(2)}€ – Ausführung verhindert.`);
+            return state;
+          }
+
           const totalCost = executedPrice * order.quantity;
           // Transaktionsgebühren berechnen
           const fee = (state.orderSettings.transactionFeeFlat || 0) + totalCost * (state.orderSettings.transactionFeePercent || 0) / 100;

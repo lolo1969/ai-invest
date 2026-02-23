@@ -13,7 +13,9 @@ import {
   MessageSquareText,
   Receipt,
   Wallet,
-  TrendingUp
+  TrendingUp,
+  Trash2,
+  Brain
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { notificationService } from '../services/notifications';
@@ -31,8 +33,8 @@ export function Settings() {
     orders, orderSettings, updateOrderSettings,
     priceAlerts,
     portfolios, activePortfolioId,
-    lastAnalysis, lastAnalysisDate,
-    analysisHistory,
+    lastAnalysis, lastAnalysisDate, setLastAnalysis,
+    analysisHistory, clearAnalysisHistory,
     autopilotSettings, autopilotLog, autopilotState
   } = useAppStore();
   const [saved, setSaved] = useState(false);
@@ -666,7 +668,43 @@ export function Settings() {
         </div>
       </section>
 
-      {/* Telegram Notifications */}
+      {/* KI-Gedächtnis */}
+      <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-4">
+        <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+          <Brain size={20} className="text-purple-500" />
+          KI-Gedächtnis
+        </h2>
+        <p className="text-gray-400 text-sm">
+          Die KI merkt sich die letzten {analysisHistory.length > 0 ? analysisHistory.length : 0} Analysen, um Veränderungen zu erkennen und bessere Empfehlungen zu geben.
+          Wenn du von vorne anfangen möchtest, kannst du das Gedächtnis hier löschen.
+        </p>
+        {analysisHistory.length > 0 && (
+          <div className="bg-[#252542] rounded-lg p-3 space-y-1">
+            {analysisHistory.map((entry, i) => (
+              <div key={entry.id || i} className="text-xs text-gray-400 flex justify-between">
+                <span>{new Date(entry.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                <span className="text-gray-500">{entry.watchlistSymbols?.length || 0} Aktien · {entry.aiProvider}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          onClick={() => {
+            if (window.confirm('KI-Gedächtnis wirklich löschen? Die KI startet dann ohne Kontext aus vorherigen Analysen.')) {
+              clearAnalysisHistory();
+              setLastAnalysis(null);
+            }
+          }}
+          disabled={analysisHistory.length === 0 && !lastAnalysis}
+          className="flex items-center gap-2 px-4 py-3 bg-red-600/20 hover:bg-red-600/40 border border-red-600/30
+                   text-red-400 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <Trash2 size={18} />
+          KI-Gedächtnis löschen ({analysisHistory.length} Einträge)
+        </button>
+      </section>
+
+      {/* Telegram Benachrichtigungen */}
       <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-white flex items-center gap-2">

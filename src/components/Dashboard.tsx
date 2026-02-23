@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -14,15 +14,34 @@ import { notificationService } from '../services/notifications';
 import type { InvestmentSignal } from '../types';
 
 export function Dashboard() {
-  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance, initialCapital, previousProfit, userPositions, orders, addOrder, cancelOrder } = useAppStore();
+  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance, initialCapital, previousProfit, userPositions, orders, addOrder, cancelOrder, watchlist: cachedWatchlist } = useAppStore();
   
-  // Use React Query for stock data
+  // Use React Query for stock data (with technical indicators)
   const { 
-    data: stocks = [], 
+    data: fetchedStocks = [], 
     isLoading, 
     refetch,
     isRefetching 
   } = useStocksWithRange(settings.watchlist);
+  
+  // Merge: fetched → cached → placeholder, so ALL watchlist entries are always visible
+  const stocks = useMemo(() => {
+    const result: import('../types').Stock[] = [];
+    for (const symbol of settings.watchlist) {
+      const fetched = fetchedStocks.find(s => s.symbol === symbol);
+      const cached = cachedWatchlist.find(s => s.symbol === symbol);
+      result.push(fetched || cached || {
+        symbol,
+        name: symbol,
+        price: 0,
+        change: 0,
+        changePercent: 0,
+        currency: 'EUR',
+        exchange: '',
+      });
+    }
+    return result;
+  }, [fetchedStocks, settings.watchlist, cachedWatchlist]);
   
   // AI Analysis mutation - use selected provider and corresponding API key
   const activeApiKey = settings.aiProvider === 'openai' 
@@ -38,10 +57,10 @@ export function Dashboard() {
     settings.geminiModel || 'gemini-2.5-flash'
   );
 
-  // Add stocks to watchlist when data updates
+  // Add stocks to watchlist cache when data updates
   useEffect(() => {
-    stocks.forEach(stock => addToWatchlist(stock));
-  }, [stocks, addToWatchlist]);
+    fetchedStocks.forEach(stock => addToWatchlist(stock));
+  }, [fetchedStocks, addToWatchlist]);
 
   // Run AI analysis
   const runAnalysis = async () => {
@@ -294,14 +313,14 @@ export function Dashboard() {
                   {stocks.map((stock) => (
                     <tr key={stock.symbol} className="border-b border-[#252542] hover:bg-[#252542]/50">
                       <td className="py-3 font-medium text-white">{stock.symbol}</td>
-                      <td className="py-3 text-gray-300">{stock.name}</td>
+                      <td className="py-3 text-gray-300">{stock.name !== stock.symbol ? stock.name : ''}</td>
                       <td className="py-3 text-right text-white">
-                        {stock.price?.toFixed(2) ?? '-'} {stock.currency}
+                        {stock.price > 0 ? `${stock.price.toFixed(2)} ${stock.currency}` : <span className="text-gray-500">Laden…</span>}
                       </td>
                       <td className={`py-3 text-right font-medium ${
                         (stock.changePercent ?? 0) >= 0 ? 'text-green-500' : 'text-red-500'
                       }`}>
-                        {stock.changePercent != null && !isNaN(stock.changePercent) 
+                        {stock.price > 0 && stock.changePercent != null && !isNaN(stock.changePercent) 
                           ? `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%`
                           : '-'}
                       </td>

@@ -12,7 +12,7 @@ $ALLOWED_DOMAINS = [
     'localhost',
     '127.0.0.1',
 ];
-$RATE_LIMIT_REQUESTS = 100;  // Max Requests pro Zeitfenster
+$RATE_LIMIT_REQUESTS = 200;  // Max Requests pro Zeitfenster
 $RATE_LIMIT_WINDOW = 60;     // Zeitfenster in Sekunden
 $LOG_FILE = __DIR__ . '/proxy_access.log';
 $RATE_LIMIT_FILE = __DIR__ . '/rate_limits.json';

@@ -1,3 +1,5 @@
+import type { TechnicalIndicators } from '../utils/technicalIndicators';
+
 // Investment Types
 export type InvestmentStrategy = 'short' | 'middle' | 'long';
 export type SignalType = 'BUY' | 'SELL' | 'HOLD';
@@ -15,10 +17,14 @@ export interface Stock {
   changePercent: number;
   currency: string;
   exchange: string;
+  // Flag: Preis stammt aus Demo/Fallback-Daten (nicht aus echtem API-Call)
+  isFallback?: boolean;
   // 52-Wochen-Daten (optional, für erweiterte Analyse)
   week52High?: number;
   week52Low?: number;
   week52ChangePercent?: number;  // Wo steht der Preis im 52-Wochen-Bereich (0-100%)
+  // Technische Indikatoren (RSI, MACD, SMA, Bollinger etc.)
+  technicalIndicators?: TechnicalIndicators;
 }
 
 export interface InvestmentSignal {

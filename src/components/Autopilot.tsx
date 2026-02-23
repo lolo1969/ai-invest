@@ -78,7 +78,6 @@ export function Autopilot() {
     cashBalance,
     userPositions,
     orders,
-    executeOrder,
     cancelOrder,
     addAutopilotLog,
   } = useAppStore();
@@ -126,29 +125,30 @@ export function Autopilot() {
     return orders.filter(o => o.status === 'pending');
   }, [orders]);
 
-  // Order bestätigen und sofort zum aktuellen Kurs ausführen
-  const confirmAndExecuteOrder = useCallback((orderId: string) => {
+  // Order bestätigen = aktivieren (NICHT sofort ausführen!)
+  // Limit- und Stop-Orders sollen erst auslösen, wenn die Trigger-Bedingung erfüllt ist.
+  // Die eigentliche Ausführung übernimmt der useOrderExecution-Hook.
+  const confirmAndActivateOrder = useCallback((orderId: string) => {
     const order = orders.find(o => o.id === orderId);
     if (!order || order.status !== 'pending') return;
     
-    // Direkt ausführen (executeOrder akzeptiert jetzt auch 'pending' Status)
-    const executionPrice = order.currentPrice || order.triggerPrice;
-    executeOrder(orderId, executionPrice);
+    // Nur aktivieren – useOrderExecution prüft den Trigger und führt aus
+    useAppStore.getState().confirmOrder(orderId);
     
     addAutopilotLog({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
-      type: 'order-executed',
-      message: `✅ Order bestätigt & ausgeführt: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ ${executionPrice.toFixed(2)}€`,
+      type: 'order-created',
+      message: `✅ Order bestätigt & aktiviert: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ Trigger ${order.triggerPrice.toFixed(2)}€`,
       symbol: order.symbol,
       orderId: order.id,
     });
-  }, [orders, executeOrder, addAutopilotLog]);
+  }, [orders, addAutopilotLog]);
 
-  // Alle pending Orders bestätigen und ausführen
-  const confirmAndExecuteAll = useCallback(() => {
-    pendingOrders.forEach(o => confirmAndExecuteOrder(o.id));
-  }, [pendingOrders, confirmAndExecuteOrder]);
+  // Alle pending Orders bestätigen und aktivieren
+  const confirmAndActivateAll = useCallback(() => {
+    pendingOrders.forEach(o => confirmAndActivateOrder(o.id));
+  }, [pendingOrders, confirmAndActivateOrder]);
 
   // Gesamtportfolio-Wert
   const totalPortfolioValue = useMemo(() => {
@@ -517,11 +517,11 @@ export function Autopilot() {
             </div>
             <div className="flex gap-2">
               <button
-                onClick={confirmAndExecuteAll}
+                onClick={confirmAndActivateAll}
                 className="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors"
               >
                 <Check size={14} />
-                Alle ausführen
+                Alle aktivieren
               </button>
               <button
                 onClick={() => pendingOrders.forEach(o => cancelOrder(o.id))}
@@ -560,11 +560,11 @@ export function Autopilot() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => confirmAndExecuteOrder(order.id)}
+                      onClick={() => confirmAndActivateOrder(order.id)}
                       className="flex items-center gap-1 px-3 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors text-sm font-medium"
                     >
                       <Check size={16} />
-                      Ausführen
+                      Aktivieren
                     </button>
                     <button
                       onClick={() => cancelOrder(order.id)}

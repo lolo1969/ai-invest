@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Stock, HistoricalData } from '../types';
+import { calculateTechnicalIndicators } from '../utils/technicalIndicators';
 
 // Use own PHP proxy on production, Vite proxy for local dev
 const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
@@ -25,13 +26,13 @@ const RATE_CACHE_DURATION = 3600000; // 1 hour
 
 // Fallback demo data when API fails
 const DEMO_STOCKS: Record<string, Stock> = {
-  'AAPL': { symbol: 'AAPL', name: 'Apple Inc.', price: 165.00, change: 2.30, changePercent: 1.31, currency: 'EUR', exchange: 'NASDAQ' },
-  'MSFT': { symbol: 'MSFT', name: 'Microsoft Corporation', price: 350.00, change: -1.20, changePercent: -0.32, currency: 'EUR', exchange: 'NASDAQ' },
-  'GOOGL': { symbol: 'GOOGL', name: 'Alphabet Inc.', price: 132.00, change: 0.85, changePercent: 0.60, currency: 'EUR', exchange: 'NASDAQ' },
-  'AMZN': { symbol: 'AMZN', name: 'Amazon.com Inc.', price: 165.00, change: 3.40, changePercent: 1.94, currency: 'EUR', exchange: 'NASDAQ' },
-  'TSLA': { symbol: 'TSLA', name: 'Tesla Inc.', price: 230.00, change: -5.20, changePercent: -2.05, currency: 'EUR', exchange: 'NASDAQ' },
-  'NVDA': { symbol: 'NVDA', name: 'NVIDIA Corporation', price: 450.00, change: 12.30, changePercent: 2.60, currency: 'EUR', exchange: 'NASDAQ' },
-  'META': { symbol: 'META', name: 'Meta Platforms Inc.', price: 355.00, change: 4.50, changePercent: 1.18, currency: 'EUR', exchange: 'NASDAQ' },
+  'AAPL': { symbol: 'AAPL', name: 'Apple Inc.', price: 165.00, change: 2.30, changePercent: 1.31, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
+  'MSFT': { symbol: 'MSFT', name: 'Microsoft Corporation', price: 350.00, change: -1.20, changePercent: -0.32, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
+  'GOOGL': { symbol: 'GOOGL', name: 'Alphabet Inc.', price: 132.00, change: 0.85, changePercent: 0.60, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
+  'AMZN': { symbol: 'AMZN', name: 'Amazon.com Inc.', price: 165.00, change: 3.40, changePercent: 1.94, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
+  'TSLA': { symbol: 'TSLA', name: 'Tesla Inc.', price: 230.00, change: -5.20, changePercent: -2.05, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
+  'NVDA': { symbol: 'NVDA', name: 'NVIDIA Corporation', price: 450.00, change: 12.30, changePercent: 2.60, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
+  'META': { symbol: 'META', name: 'Meta Platforms Inc.', price: 355.00, change: 4.50, changePercent: 1.18, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
 };
 
 export class MarketDataService {
@@ -98,7 +99,7 @@ export class MarketDataService {
     return 0.92; // Approximate EUR/USD rate
   }
 
-  // Fetch quote using Yahoo Finance with CORS proxy - always returns EUR
+  // Fetch a single quote using Yahoo Finance chart endpoint - always returns EUR
   async getQuote(symbol: string): Promise<Stock | null> {
     try {
       const url = buildYahooUrl(`/v8/finance/chart/${symbol}?interval=1d&range=1d`);
@@ -147,10 +148,86 @@ export class MarketDataService {
     }
   }
 
-  // Fetch multiple quotes
+  // Fetch ALL quotes in a single batch request using Yahoo Finance quote endpoint
+  // This uses 1 HTTP request for ALL symbols instead of 1 per symbol!
+  async getQuotesBatch(symbols: string[]): Promise<Stock[]> {
+    if (symbols.length === 0) return [];
+    
+    const symbolsStr = symbols.join(',');
+    console.log(`[MarketData] Batch-Quote für ${symbols.length} Symbole: ${symbolsStr}`);
+    
+    try {
+      const url = buildYahooUrl(`/v7/finance/quote?symbols=${encodeURIComponent(symbolsStr)}&fields=symbol,shortName,longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency,fullExchangeName`);
+      const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 15000 }));
+      
+      const quotes = response.data?.quoteResponse?.result || [];
+      console.log(`[MarketData] Batch-Quote: ${quotes.length}/${symbols.length} erhalten`);
+      
+      if (quotes.length === 0) {
+        console.warn('[MarketData] Batch-Quote leer, fallback auf Einzel-Requests');
+        return this.getQuotesFallback(symbols);
+      }
+      
+      // Get EUR rate once for all conversions
+      const eurRate = await this.getUsdToEurRate();
+      
+      const stocks: Stock[] = [];
+      for (const q of quotes) {
+        try {
+          let price = q.regularMarketPrice || 0;
+          let previousClose = q.regularMarketPreviousClose || price;
+          const originalCurrency = q.currency || 'USD';
+          
+          if (originalCurrency === 'USD') {
+            price = price * eurRate;
+            previousClose = previousClose * eurRate;
+          }
+          
+          const change = previousClose > 0 ? price - previousClose : 0;
+          const changePercent = previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : 0;
+          
+          stocks.push({
+            symbol: q.symbol,
+            name: q.shortName || q.longName || q.symbol,
+            price,
+            change,
+            changePercent,
+            currency: 'EUR',
+            exchange: q.fullExchangeName || 'Unknown',
+          });
+        } catch (err) {
+          console.warn(`[MarketData] Fehler bei ${q.symbol}:`, err);
+        }
+      }
+      
+      return stocks;
+    } catch (error) {
+      console.warn('[MarketData] Batch-Quote fehlgeschlagen, fallback auf Einzel-Requests:', error);
+      return this.getQuotesFallback(symbols);
+    }
+  }
+
+  // Fallback: fetch quotes one by one (used when batch endpoint fails)
+  private async getQuotesFallback(symbols: string[]): Promise<Stock[]> {
+    const batchSize = 5;
+    const results: (Stock | null)[] = [];
+    
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize);
+      const batchResults = await Promise.all(batch.map((s) => this.getQuote(s)));
+      results.push(...batchResults);
+      
+      if (i + batchSize < symbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
+    return results.filter((q): q is Stock => q !== null);
+  }
+
+  // Legacy method - kept for compatibility (Watchlist refresh etc.)
   async getQuotes(symbols: string[]): Promise<Stock[]> {
-    const quotes = await Promise.all(symbols.map((s) => this.getQuote(s)));
-    return quotes.filter((q): q is Stock => q !== null);
+    return this.getQuotesBatch(symbols);
   }
 
   // Fetch historical data
@@ -211,19 +288,22 @@ export class MarketDataService {
     }
   }
 
-  // Fetch quote with 52-week high/low data for better analysis
+  // Fetch quote with 52-week high/low data AND full technical indicators for AI analysis
   async getQuoteWithRange(symbol: string): Promise<Stock | null> {
     try {
       // First get current quote
       const quote = await this.getQuote(symbol);
       if (!quote) return null;
 
-      // Then fetch 1-year historical data to calculate 52-week high/low
+      // Then fetch 1-year historical data to calculate 52-week range + technical indicators
       const historicalData = await this.getHistoricalData(symbol, '1y');
       
       if (historicalData.length > 0) {
         const highs = historicalData.map(d => d.high).filter(h => h > 0);
         const lows = historicalData.map(d => d.low).filter(l => l > 0);
+        
+        // Calculate technical indicators (RSI, MACD, SMA, Bollinger etc.)
+        const technicalIndicators = calculateTechnicalIndicators(historicalData);
         
         if (highs.length > 0 && lows.length > 0) {
           const week52High = Math.max(...highs);
@@ -236,14 +316,24 @@ export class MarketDataService {
             : 50;
           
           console.log(`[${symbol}] 52W: Low=${week52Low.toFixed(2)}, High=${week52High.toFixed(2)}, Current=${quote.price.toFixed(2)} (${week52ChangePercent.toFixed(1)}% im Bereich)`);
+          if (technicalIndicators.rsi14 !== null) {
+            console.log(`[${symbol}] RSI(14): ${technicalIndicators.rsi14.toFixed(1)}, MACD: ${technicalIndicators.macd?.toFixed(2) ?? '–'}, SMA50: ${technicalIndicators.sma50?.toFixed(2) ?? '–'}, SMA200: ${technicalIndicators.sma200?.toFixed(2) ?? '–'}`);
+          }
           
           return {
             ...quote,
             week52High,
             week52Low,
-            week52ChangePercent
+            week52ChangePercent,
+            technicalIndicators,
           };
         }
+
+        // Even without 52W data, still add technical indicators
+        return {
+          ...quote,
+          technicalIndicators,
+        };
       }
       
       return quote;
@@ -254,9 +344,61 @@ export class MarketDataService {
   }
 
   // Fetch multiple quotes with 52-week range data
+  // Strategy: First load ALL basic quotes in 1 batch request, then enrich with historical data
   async getQuotesWithRange(symbols: string[]): Promise<Stock[]> {
-    const quotes = await Promise.all(symbols.map((s) => this.getQuoteWithRange(s)));
-    return quotes.filter((q): q is Stock => q !== null);
+    // Step 1: Load ALL basic quotes in a single batch request (1 HTTP call!)
+    console.log(`[MarketData] Lade ${symbols.length} Aktien (Batch-Modus)...`);
+    const basicQuotes = await this.getQuotesBatch(symbols);
+    console.log(`[MarketData] ${basicQuotes.length}/${symbols.length} Basis-Quotes geladen`);
+    
+    if (basicQuotes.length === 0) return [];
+
+    // Step 2: Enrich with historical data + technical indicators in small batches
+    // History must be fetched per-symbol (no batch endpoint), so we use small batches with delays
+    const batchSize = 3;
+    const enrichedResults: Stock[] = [];
+    
+    for (let i = 0; i < basicQuotes.length; i += batchSize) {
+      const batch = basicQuotes.slice(i, i + batchSize);
+      const enrichedBatch = await Promise.all(
+        batch.map(async (quote) => {
+          try {
+            const historicalData = await this.getHistoricalData(quote.symbol, '1y');
+            
+            if (historicalData.length > 0) {
+              const highs = historicalData.map(d => d.high).filter(h => h > 0);
+              const lows = historicalData.map(d => d.low).filter(l => l > 0);
+              const technicalIndicators = calculateTechnicalIndicators(historicalData);
+              
+              if (highs.length > 0 && lows.length > 0) {
+                const week52High = Math.max(...highs);
+                const week52Low = Math.min(...lows);
+                const range = week52High - week52Low;
+                const week52ChangePercent = range > 0 
+                  ? ((quote.price - week52Low) / range) * 100 
+                  : 50;
+                
+                return { ...quote, week52High, week52Low, week52ChangePercent, technicalIndicators };
+              }
+              return { ...quote, technicalIndicators };
+            }
+            return quote;
+          } catch (error) {
+            console.warn(`[MarketData] History für ${quote.symbol} fehlgeschlagen, nutze Basis-Quote`, error);
+            return quote; // Return basic quote even if history fails
+          }
+        })
+      );
+      enrichedResults.push(...enrichedBatch);
+      
+      // Pause between batches to avoid rate limiting on history endpoint
+      if (i + batchSize < basicQuotes.length) {
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+    }
+    
+    console.log(`[MarketData] ${enrichedResults.length}/${symbols.length} Aktien erfolgreich geladen (davon ${enrichedResults.filter(s => s.technicalIndicators).length} mit Indikatoren)`);
+    return enrichedResults;
   }
 
   // Get market news (using Finnhub if API key is available)
