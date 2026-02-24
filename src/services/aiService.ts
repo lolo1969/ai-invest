@@ -312,7 +312,7 @@ export class AIService {
     const now = new Date();
     const dateStr = now.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-    return `Du bist ein erfahrener Investment-Analyst und technischer Analyst. Analysiere die folgenden Aktien anhand der bereitgestellten TECHNISCHEN INDIKATOREN und gib fundierte Kauf-/Verkaufsempfehlungen.
+    return `Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Analysiere die folgenden Aktien GANZHEITLICH anhand aller verfügbaren Faktoren und gib fundierte Kauf-/Verkaufsempfehlungen.
 
 AKTUELLES DATUM: ${dateStr}
 
@@ -402,6 +402,25 @@ request.strategy === 'short' ? `KURZFRISTIGE TRADING-STRATEGIE (Tage bis Wochen)
 - RSI + MACD für Timing
 - Moderate Stop-Loss-Abstände`}
 
+═══════════════════════════════════════
+GANZHEITLICHE ANALYSE – ÜBER TECHNISCHE INDIKATOREN HINAUS:
+═══════════════════════════════════════
+Berücksichtige bei deiner Analyse ZUSÄTZLICH zu den technischen Indikatoren:
+
+**FUNDAMENTALANALYSE:** Bewertung (KGV, KUV, PEG), Profitabilität (Margen, FCF), Wachstum (Umsatz/Gewinn YoY), Bilanzqualität (Verschuldung), Wettbewerbsvorteile (Moat), Management-Qualität.
+
+**MAKROÖKONOMIE:** Zinsentwicklung (Fed/EZB), Inflation, Konjunkturzyklus, Anleiherenditen (Yield Curve), Arbeitsmarkt, Geldpolitik (QE/QT). Wie wirkt sich das aktuelle Umfeld auf die analysierten Aktien aus?
+
+**GEOPOLITIK:** Konflikte/Kriege (Energie, Rüstung, Supply Chains), Handelspolitik (Zölle, Sanktionen, US-China), Lieferketten-Risiken, Energiepolitik (Ölpreis, Energiewende).
+
+**SEKTORANALYSE:** Sektorrotation (Zykliker vs. Defensive), branchenspezifische Risiken/Chancen, Megatrends (KI, E-Mobilität, Biotech, Cybersecurity, Cloud), ESG-Regulierung.
+
+**PORTFOLIO-RISIKEN:** Korrelationsrisiko (zu ähnliche Positionen?), Konzentrationsrisiko, Währungsrisiko (EUR/USD bei US-Aktien), Liquiditätsrisiko.
+
+**SENTIMENT & TIMING:** Marktstimmung (Fear & Greed, VIX), Saisonalität, kommende Events (Earnings, Zentralbank-Sitzungen), Institutional Flows.
+
+WICHTIG: Fokussiere in der BEGRÜNDUNG je Aktie auf die 2-3 RELEVANTESTEN Faktoren. Nicht jeder Faktor ist für jede Aktie gleich wichtig. Aber die Makro-/Geopolitik-Lage MUSS in der marketSummary abgebildet werden!
+
 ${request.currentPositions?.length ? `
 AKTUELLE PORTFOLIO-POSITIONEN (SEHR WICHTIG!):
 Diese Aktien besitzt der Nutzer bereits. Berücksichtige dies bei deinen Empfehlungen!
@@ -470,12 +489,12 @@ WICHTIG - WARNUNGEN AUSGEBEN:
 - Bei Portfolio-Aktien die nicht passen: "🔄 [SYMBOL] im Portfolio: Verkauf empfohlen - [Grund warum ungeeignet]"
 
 AUFGABE:
-Analysiere jede Aktie GANZHEITLICH anhand aller technischen Indikatoren und gib für jede eine Empfehlung (BUY/SELL/HOLD) mit:
+Analysiere jede Aktie GANZHEITLICH anhand technischer Indikatoren, Fundamentaldaten, Makro-/Geopolitik-Lage und Branchentrends. Gib für jede eine Empfehlung (BUY/SELL/HOLD) mit:
 1. Signal (BUY, SELL, oder HOLD)
 2. Konfidenz (0-100%)
-3. Begründung (2-3 Sätze – FOKUS auf RSI, MACD, Moving Averages und Bollinger Bands. Erwähne den 52W-Bereich höchstens nebensächlich!)
+3. Begründung (2-3 Sätze – Kombiniere technische Signale (RSI, MACD, SMA, BB) mit den RELEVANTESTEN fundamentalen/makro/geopolitischen Faktoren für diese spezifische Aktie)
 4. Idealer Einstiegspreis (bei BUY: basierend auf Support-Levels/SMA)
-5. Zielpreis (basierend auf Widerstandszonen/Bollinger oberes Band)
+5. Zielpreis (basierend auf Widerstandszonen/Bollinger oberes Band/Fundamentalbewertung)
 6. Stop-Loss (basierend auf ATR oder Support-Levels)
 7. Risikoeinschätzung (low/medium/high)
 
@@ -486,14 +505,14 @@ Antworte im folgenden JSON-Format:
       "symbol": "AAPL",
       "signal": "BUY",
       "confidence": 75,
-      "reasoning": "RSI bei 42 signalisiert neutrale Zone ohne Überhitzung. MACD-Histogramm dreht positiv (bullisches Momentum). Kurs über SMA200 bestätigt langfristigen Aufwärtstrend, Bollinger %B bei 35% bietet Raum nach oben.",
+      "reasoning": "RSI bei 42 ohne Überhitzung, MACD dreht bullish. Solides iPhone-Zyklus-Wachstum bei KGV 28 fair bewertet. Fed-Zinspause stützt Growth-Aktien. Kurs über SMA200 bestätigt Aufwärtstrend.",
       "idealEntryPrice": 165.00,
       "targetPrice": 180.00,
       "stopLoss": 155.00,
       "riskLevel": "medium"
     }
   ],
-  "marketSummary": "Kurze Zusammenfassung der Marktlage...",
+  "marketSummary": "Umfassende Zusammenfassung: Makrolage (Zinsen, Inflation, Konjunktur), geopolitische Risiken, Marktsentiment — und was das für die analysierten Aktien bedeutet.",
   "recommendations": ["Empfehlung 1", "Empfehlung 2"],
   "warnings": ["Warnung 1"],
   "suggestedOrders": [

@@ -15,6 +15,7 @@ import {
   ShoppingCart,
   ArrowRightLeft
 } from 'lucide-react';
+import { CSVImportModal } from './CSVImportModal';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
 import emailjs from '@emailjs/browser';
@@ -53,6 +54,7 @@ export function Portfolio() {
 
   const [editingBuyPrice, setEditingBuyPrice] = useState<string | null>(null);
   const [editBuyPriceValue, setEditBuyPriceValue] = useState('');
+  const [analysisProgress, setAnalysisProgress] = useState<{ step: string; detail: string; percent: number } | null>(null);
   const [tradeAction, setTradeAction] = useState<{ positionId: string; type: 'buy' | 'sell' } | null>(null);
   const [tradeQuantity, setTradeQuantity] = useState('');
   const [yahooPrices, setYahooPrices] = useState<Record<string, number>>({});
@@ -73,6 +75,29 @@ export function Portfolio() {
     currency: 'EUR'
   });
 
+  // Berechne verfügbares Cash (abzgl. reserviertes Cash durch aktive/pendende Kauf-Orders)
+  const getAvailableCash = () => {
+    const store = useAppStore.getState();
+    const currentCash = store.cashBalance;
+    const reservedCash = store.orders
+      .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
+      .reduce((sum, o) => {
+        const oCost = o.triggerPrice * o.quantity;
+        const oFee = (orderSettings.transactionFeeFlat || 0) + oCost * (orderSettings.transactionFeePercent || 0) / 100;
+        return sum + oCost + oFee;
+      }, 0);
+    return { currentCash, reservedCash, availableCash: currentCash - reservedCash };
+  };
+
+  // Berechne verfügbare Stücke (abzgl. reservierter Stücke durch aktive/pendende Sell-Orders)
+  const getAvailableShares = (symbol: string, totalQuantity: number) => {
+    const store = useAppStore.getState();
+    const reservedShares = store.orders
+      .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss') && o.symbol === symbol)
+      .reduce((sum, o) => sum + o.quantity, 0);
+    return { reservedShares, availableShares: totalQuantity - reservedShares };
+  };
+
   // Execute instant trade at current market price
   const executeTrade = (positionId: string, type: 'buy' | 'sell', quantity: number) => {
     const position = userPositions.find(p => p.id === positionId);
@@ -85,11 +110,11 @@ export function Portfolio() {
     const fee = (orderSettings.transactionFeeFlat || 0) + totalCost * (orderSettings.transactionFeePercent || 0) / 100;
 
     // WICHTIG: Immer den aktuellen Cash-Wert aus dem Store lesen (nicht aus der Closure!)
-    const currentCash = useAppStore.getState().cashBalance;
+    const { currentCash, reservedCash, availableCash } = getAvailableCash();
 
     if (type === 'buy') {
-      if (totalCost + fee > currentCash) {
-        setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${currentCash.toFixed(2)} €`);
+      if (totalCost + fee > availableCash) {
+        setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${availableCash.toFixed(2)} €${reservedCash > 0 ? ` (${reservedCash.toFixed(2)} € reserviert durch aktive Orders)` : ''}`);
         return;
       }
       // Nachkaufen: Durchschnittspreis berechnen
@@ -98,8 +123,9 @@ export function Portfolio() {
       updateUserPosition(positionId, { quantity: newTotalQty, buyPrice: avgBuyPrice, currentPrice: price });
       setCashBalance(currentCash - totalCost - fee);
     } else {
-      if (quantity > position.quantity) {
-        setError(`Nicht genügend Aktien. Verfügbar: ${position.quantity}`);
+      const { reservedShares, availableShares } = getAvailableShares(position.symbol, position.quantity);
+      if (quantity > availableShares) {
+        setError(`Nicht genügend verfügbare Aktien. Gesamt: ${position.quantity}${reservedShares > 0 ? `, davon ${reservedShares} reserviert durch aktive Sell-Orders` : ''}, verfügbar: ${availableShares}`);
         return;
       }
       const newQty = position.quantity - quantity;
@@ -249,6 +275,7 @@ export function Portfolio() {
   };
 
   const [addingPosition, setAddingPosition] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const handleAddPosition = async () => {
     if ((!formData.symbol && !formData.isin) || !formData.quantity || !formData.currentPrice) {
@@ -286,11 +313,11 @@ export function Portfolio() {
     const fee = (orderSettings.transactionFeeFlat || 0) + totalCost * (orderSettings.transactionFeePercent || 0) / 100;
 
     // WICHTIG: Immer den aktuellen Cash-Wert aus dem Store lesen (nicht aus der Closure!)
-    const currentCash = useAppStore.getState().cashBalance;
+    const { currentCash, reservedCash, availableCash } = getAvailableCash();
 
-    // Cash-Prüfung
-    if (totalCost + fee > currentCash) {
-      setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${currentCash.toFixed(2)} €`);
+    // Cash-Prüfung (inkl. reserviertes Cash durch aktive Kauf-Orders)
+    if (totalCost + fee > availableCash) {
+      setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${availableCash.toFixed(2)} €${reservedCash > 0 ? ` (${reservedCash.toFixed(2)} € reserviert durch aktive Orders)` : ''}`);
       return;
     }
 
@@ -340,11 +367,13 @@ export function Portfolio() {
     }
 
     setAnalyzing(true);
+    setAnalysisProgress({ step: 'Vorbereitung', detail: 'Starte Portfolio-Analyse...', percent: 0 });
     // Alte Analyse NICHT löschen, damit sie während des Ladens sichtbar bleibt
     // setAnalysisResult(null); — wird erst bei Erfolg überschrieben
 
     try {
       // 52-Wochen-Daten laden (wie Autopilot) für konsistente Analyse
+      setAnalysisProgress({ step: 'Marktdaten', detail: '52-Wochen-Daten & technische Indikatoren laden...', percent: 5 });
       const portfolioSymbols = userPositions.map(p => p.symbol);
       const watchlistSymbolsList = watchlist.map(s => s.symbol);
       const allSymbolsForQuotes = [...new Set([...portfolioSymbols, ...watchlistSymbolsList])];
@@ -355,21 +384,28 @@ export function Portfolio() {
         console.warn('[Portfolio] Konnte 52W-Daten nicht laden, fahre ohne fort:', e);
       }
 
-      // Build portfolio context with 52-week data (harmonized with Autopilot)
+      // Build portfolio context with 52-week data and technical indicators (harmonized with Autopilot)
+      setAnalysisProgress({ step: 'Portfolio-Kontext', detail: `${userPositions.length} Positionen mit Kursen, P/L & Indikatoren aufbereiten...`, percent: 15 });
       const portfolioSummary = userPositions.map(p => {
         const pl = getProfitLoss(p);
         const identifier = p.isin ? `${p.name} (ISIN: ${p.isin})` : `${p.symbol} (${p.name})`;
         let info = `${identifier}: ${p.quantity} Stück, Kaufpreis: ${p.buyPrice.toFixed(2)} ${p.currency}, Aktuell: ${p.currentPrice.toFixed(2)} ${p.currency}, P/L: ${pl.percent >= 0 ? '+' : ''}${pl.percent.toFixed(2)}% (${pl.absolute >= 0 ? '+' : ''}${pl.absolute.toFixed(2)} ${p.currency})`;
         
-        // 52-Wochen-Daten hinzufügen (gleich wie in aiService.buildAnalysisPrompt)
+        // 52-Wochen-Daten hinzufügen (ohne wertende Labels — die KI soll selbst bewerten)
         const stockData = stocksWithRange.find(s => s.symbol === p.symbol);
         if (stockData?.week52High && stockData?.week52Low) {
           const positionInRange = stockData.week52ChangePercent ?? 0;
           info += ` | 52W: ${stockData.week52Low.toFixed(2)}-${stockData.week52High.toFixed(2)} (${positionInRange.toFixed(0)}% im Bereich)`;
-          if (positionInRange > 100) info += ' ⚠️ ÜBER 52W-HOCH - EXTREM ÜBERHITZT!';
-          else if (positionInRange > 90) info += ' ⚠️ ÜBERHITZT';
-          else if (positionInRange > 80) info += ' ⚡ Nahe 52W-Hoch - Vorsicht';
-          else if (positionInRange < 20) info += ' ✅ Nahe 52W-Tief';
+        }
+        // Technische Indikatoren hinzufügen (gleich wie aiService)
+        if (stockData?.technicalIndicators) {
+          const ti = stockData.technicalIndicators;
+          const parts: string[] = [];
+          if (ti.rsi14 !== null) parts.push(`RSI: ${ti.rsi14.toFixed(1)}`);
+          if (ti.macdHistogram !== null) parts.push(`MACD-Hist: ${ti.macdHistogram > 0 ? '+' : ''}${ti.macdHistogram.toFixed(2)}`);
+          if (ti.sma200 !== null) parts.push(`SMA200: ${ti.sma200.toFixed(2)}`);
+          if (ti.bollingerPercentB !== null) parts.push(`BB%B: ${(ti.bollingerPercentB * 100).toFixed(0)}%`);
+          if (parts.length > 0) info += ` | ${parts.join(', ')}`;
         }
         return info;
       }).join('\n');
@@ -399,7 +435,8 @@ export function Portfolio() {
           };
 
       // Build watchlist context (stocks NOT in portfolio, for new recommendations)
-      // Mit 52W-Daten angereichert (harmonisiert mit Autopilot/aiService)
+      // Mit 52W-Daten und technischen Indikatoren angereichert (harmonisiert mit Autopilot/aiService)
+      setAnalysisProgress({ step: 'Watchlist', detail: `${watchlist.length} Watchlist-Aktien mit Kursdaten & Indikatoren aufbereiten...`, percent: 25 });
       const portfolioSymbolsUpper = userPositions.map(p => p.symbol.toUpperCase());
       const watchlistOnly = watchlist.filter(s => !portfolioSymbolsUpper.includes(s.symbol.toUpperCase()));
       const watchlistSummary = watchlistOnly.length > 0
@@ -409,16 +446,23 @@ export function Portfolio() {
             if (stockData?.week52High && stockData?.week52Low) {
               const posInRange = stockData.week52ChangePercent ?? 0;
               info += ` | 52W: ${stockData.week52Low.toFixed(2)}-${stockData.week52High.toFixed(2)} (${posInRange.toFixed(0)}% im Bereich)`;
-              if (posInRange > 100) info += ' ⚠️ ÜBER 52W-HOCH!';
-              else if (posInRange > 90) info += ' ⚠️ ÜBERHITZT';
-              else if (posInRange > 80) info += ' ⚡ Nahe 52W-Hoch';
-              else if (posInRange < 20) info += ' ✅ Nahe 52W-Tief';
+            }
+            // Technische Indikatoren hinzufügen
+            if (stockData?.technicalIndicators) {
+              const ti = stockData.technicalIndicators;
+              const parts: string[] = [];
+              if (ti.rsi14 !== null) parts.push(`RSI: ${ti.rsi14.toFixed(1)}`);
+              if (ti.macdHistogram !== null) parts.push(`MACD-Hist: ${ti.macdHistogram > 0 ? '+' : ''}${ti.macdHistogram.toFixed(2)}`);
+              if (ti.sma200 !== null) parts.push(`SMA200: ${ti.sma200.toFixed(2)}`);
+              if (ti.bollingerPercentB !== null) parts.push(`BB%B: ${(ti.bollingerPercentB * 100).toFixed(0)}%`);
+              if (parts.length > 0) info += ` | ${parts.join(', ')}`;
             }
             return info;
           }).join('\n')
         : 'Keine Watchlist-Aktien vorhanden.';
 
       // Build AI memory context from previous analyses
+      setAnalysisProgress({ step: 'KI-Gedächtnis', detail: 'Vorherige Analysen & Änderungen seit letzter Analyse auswerten...', percent: 35 });
       const memoryContext = (() => {
         const history = useAppStore.getState().analysisHistory;
         if (history.length === 0) return '';
@@ -530,6 +574,7 @@ WICHTIG FÜR DIESE ANALYSE:
 `;
       })();
 
+      setAnalysisProgress({ step: 'Autopilot-Signale', detail: 'Letzte Autopilot-Signale für konsistente Bewertung laden...', percent: 40 });
       // Letzte Autopilot-Signale einbinden für Konsistenz zwischen Portfolio und Autopilot
       const autopilotSignalsContext = (() => {
         const allSignals = useAppStore.getState().signals || [];
@@ -543,7 +588,8 @@ WICHTIG FÜR DIESE ANALYSE:
         return '═══════════════════════════════════════\n🤖 LETZTE AUTOPILOT-SIGNALE (für konsistente Bewertung):\n═══════════════════════════════════════\nDiese Signale wurden vom Autopilot-Modul generiert. Deine Portfolio-Analyse sollte mit diesen Einschätzungen konsistent sein, es sei denn neue Informationen rechtfertigen eine Abweichung.\n' + signalLines + '\n\nWICHTIG: Wenn deine Einschätzung von den Autopilot-Signalen abweicht, erkläre warum!\n';
       })();
 
-      const promptContent = `Du bist ein erfahrener Investment-Analyst. Analysiere mein aktuelles Portfolio und gib konkrete Empfehlungen.
+      setAnalysisProgress({ step: 'Prompt aufbauen', detail: 'Analyse-Anfrage mit allen Faktoren zusammenstellen...', percent: 50 });
+      const promptContent = `Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Analysiere mein aktuelles Portfolio ganzheitlich und gib konkrete Empfehlungen.
 
 ═══════════════════════════════════════
 MEIN PORTFOLIO (NUR diese ${userPositions.length} Positionen besitze ich!):
@@ -581,7 +627,8 @@ ${settings.strategy === 'long' ? `═══════════════�
 - Bevorzuge Unternehmen mit: stabilem Gewinnwachstum, niedriger Verschuldung, starker Marktposition
 - Dividendenwachstum und Dividendenhistorie sind wichtige Faktoren
 - Kurzfristige Kursschwankungen sind weniger relevant - Fokus auf langfristiges Wachstumspotenzial
-- Der 52W-Bereich ist bei langfristigen Investments weniger kritisch, aber günstige Einstiegspreise sind trotzdem wünschenswert
+- Der 52W-Bereich ist bei langfristigen Investments KEIN guter Indikator für Überhitzung
+- Nutze stattdessen RSI, MACD und Bollinger Bands zur Bewertung
 - Bei langfristigen Investments können auch Aktien nahe dem 52W-Hoch gekauft werden, wenn die Fundamentaldaten stimmen
 - Stop-Loss ist bei langfristigen Investments weniger relevant - setze ihn großzügiger (20-30% unter Kaufpreis)
 - Berücksichtige Megatrends: Digitalisierung, Gesundheit, erneuerbare Energien, demographischer Wandel
@@ -594,26 +641,46 @@ ${settings.strategy === 'long' ? `═══════════════�
 : settings.strategy === 'short' ? `═══════════════════════════════════════
 📏 BEWERTUNGSREGELN (KURZFRISTIGE STRATEGIE Tage-Wochen):
 ═══════════════════════════════════════
-- TIMING-ANALYSE & BEWERTUNG anhand 52-Wochen-Bereich:
-- KAUF nur empfehlen wenn der Preis unter 50% im 52W-Bereich liegt (guter Einstieg)
-- Bei 50-70% im Bereich: HALTEN oder vorsichtiger Kauf nur bei sehr starken Fundamentaldaten
-- Bei 70-90% im Bereich: HALTEN oder VERKAUFEN empfehlen (teuer bewertet)
-- NIEMALS KAUF empfehlen bei >90% im Bereich - diese Aktien sind ÜBERHITZT!
-- Bei >100% (über 52W-Hoch): STARKE VERKAUFSWARNUNG, extrem überhitzt
-- Achte besonders auf technische Signale und kurzfristige Katalysatoren
-- Bei Gewinn >20% und hoher 52W-Position: Empfehle Teilverkauf oder Gewinnmitnahme`
+TECHNISCHE INDIKATOREN (PRIMÄR):
+- RSI: <30 = überverkauft (Kaufchance), >70 = überkauft (Vorsicht/Verkauf), 30-70 = neutral
+- MACD > Signal = bullishes Momentum, MACD < Signal = bearishes Momentum
+- Bollinger %B > 100% = Überdehnung, %B < 0% = überverkauft
+- Kurs über SMA200 = langfristiger Aufwärtstrend, SMA50 über SMA200 = Golden Cross
+
+52-WOCHEN-BEREICH (nur Nebenfaktor!):
+- Der 52W-Bereich allein sagt NICHTS über Überhitzung aus!
+- Aktien in starkem Aufwärtstrend stehen DAUERHAFT nahe dem 52W-Hoch → das ist NORMAL
+- Nutze RSI und MACD als primäre Überhitzungs-Indikatoren, nicht den 52W-Bereich
+- Eine Aktie bei 95% im 52W-Bereich mit RSI 45 ist NICHT überhitzt
+- Eine Aktie bei 60% im 52W-Bereich mit RSI 78 IST überhitzt
+
+KURZFRISTIGE REGELN:
+- Technische Indikatoren sind BESONDERS wichtig für Timing
+- RSI-Extreme und MACD-Crossovers als Entry/Exit-Signale
+- Enge Stop-Loss setzen (ATR-basiert)
+- Bei Gewinn >20% UND RSI >70: Empfehle Teilverkauf oder Gewinnmitnahme`
 : `═══════════════════════════════════════
 📏 BEWERTUNGSREGELN (MITTELFRISTIGE STRATEGIE Wochen-Monate):
 ═══════════════════════════════════════
-- TIMING-ANALYSE & BEWERTUNG anhand 52-Wochen-Bereich:
-- KAUF nur empfehlen wenn der Preis unter 50% im 52W-Bereich liegt (guter Einstieg)
-- Bei 50-70% im Bereich: HALTEN oder vorsichtiger Kauf nur bei sehr starken Fundamentaldaten
-- Bei 70-90% im Bereich: HALTEN oder VERKAUFEN empfehlen (teuer bewertet)
-- NIEMALS KAUF empfehlen bei >90% im Bereich - diese Aktien sind ÜBERHITZT!
-- Bei >100% (über 52W-Hoch): STARKE VERKAUFSWARNUNG, extrem überhitzt
+TECHNISCHE INDIKATOREN (PRIMÄR):
+- RSI: <30 = überverkauft (Kaufchance), >70 = überkauft (Vorsicht/Verkauf), 30-70 = neutral
+- MACD > Signal = bullishes Momentum, MACD < Signal = bearishes Momentum
+- Bollinger %B > 100% = Überdehnung, %B < 0% = überverkauft
+- Kurs über SMA200 = langfristiger Aufwärtstrend, SMA50 über SMA200 = Golden Cross
+
+52-WOCHEN-BEREICH (nur Nebenfaktor!):
+- Der 52W-Bereich allein sagt NICHTS über Überhitzung aus!
+- Aktien in starkem Aufwärtstrend stehen DAUERHAFT nahe dem 52W-Hoch → das ist NORMAL
+- Nutze RSI und MACD als primäre Überhitzungs-Indikatoren, nicht den 52W-Bereich
+- Eine Aktie bei 95% im 52W-Bereich mit RSI 45 ist NICHT überhitzt
+- Eine Aktie bei 60% im 52W-Bereich mit RSI 78 IST überhitzt
+
+MITTELFRISTIGE REGELN:
+- Kombination aus technischer und fundamentaler Analyse
+- Trend-Bestätigung über Moving Averages + MACD
 - Balance zwischen Wachstum und Risiko
 - Achte auf kommende Earnings, Produktlaunches, Branchentrends
-- Bei Gewinn >20% und hoher 52W-Position: Empfehle Teilverkauf oder Gewinnmitnahme`}
+- Bei Gewinn >20% UND RSI >70: Empfehle Teilverkauf oder Gewinnmitnahme`}
 
 ═══════════════════════════════════════
 MEINE WATCHLIST (beobachtete Aktien, die ich NICHT besitze):
@@ -621,6 +688,61 @@ MEINE WATCHLIST (beobachtete Aktien, die ich NICHT besitze):
 ${watchlistSummary}
 
 HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+
+═══════════════════════════════════════
+🌍 GANZHEITLICHE ANALYSE-METHODIK:
+═══════════════════════════════════════
+Analysiere JEDE Aktie und das Gesamtportfolio aus ALLEN folgenden Perspektiven:
+
+**A) TECHNISCHE ANALYSE** (bereits oben bei den Kursdaten):
+- RSI, MACD, SMA, Bollinger Bands → bereits in den Kursdaten enthalten
+- Chartmuster, Support/Resistance, Trendlinien
+
+**B) FUNDAMENTALANALYSE:**
+- Bewertungskennzahlen: KGV, KUV, KBV, PEG-Ratio — Ist die Aktie fair bewertet?
+- Profitabilität: Gewinnmargen, operative Marge, Free Cashflow
+- Wachstum: Umsatz- und Gewinnwachstum (YoY), Forward-Guidance
+- Bilanzqualität: Verschuldungsgrad (Debt/Equity), Current Ratio, Cash-Position
+- Wettbewerbsvorteile: Moat (Marke, Netzwerkeffekte, Switching Costs, Kostenvorteile, Patente)
+- Management-Qualität: Track Record, Kapitalallokation, Insider-Transaktionen
+
+**C) MAKROÖKONOMISCHES UMFELD:**
+- Zinsentwicklung: Fed/EZB Leitzinsen und deren Auswirkung auf Aktien (Growth vs. Value)
+- Inflation: Aktuelle Inflationsrate, Auswirkung auf Unternehmen und Konsumenten
+- Konjunkturzyklus: Wo stehen wir im Wirtschaftszyklus? (Expansion, Peak, Rezession, Erholung)
+- Anleiherenditen: 10-Jahres-Renditen und Yield Curve — Rezessionssignal?
+- Arbeitsmarkt: Beschäftigungslage, Lohnentwicklung, Konsumklima
+- Geldpolitik: QE/QT, Bilanzreduktion der Zentralbanken
+
+**D) GEOPOLITISCHE FAKTOREN:**
+- Konflikte & Kriege: Auswirkungen auf Energie, Rüstung, Supply Chains
+- Handelspolitik: Zölle, Sanktionen, Handelsabkommen (US-China, EU-Regulierung)
+- Politische Stabilität: Wahlen, Regierungswechsel, regulatorische Änderungen
+- Lieferketten: Engpässe, Reshoring-Trends, China-Risiko, Chip-Embargo
+- Energiepolitik: Ölpreis, Gaspreise, Energiewende-Dynamik
+
+**E) SEKTORANALYSE & BRANCHENTRENDS:**
+- Sektorrotation: Welche Sektoren sind aktuell bevorzugt? (Zykliker vs. Defensive)
+- Branchenspezifische Risiken: Regulierung, Wettbewerb, technologische Disruption
+- Megatrends: KI/Machine Learning, Elektromobilität, Gesundheit/Biotech, Cybersecurity, Cloud
+- ESG-Faktoren: Nachhaltigkeitsrisiken, CO2-Regulierung, Greenwashing-Risiken
+
+**F) RISIKO- & PORTFOLIOANALYSE:**
+- Korrelationsrisiko: Sind Positionen zu stark korreliert? (z.B. mehrere Tech-Aktien)
+- Konzentrationsrisiko: Ist eine einzelne Position oder Branche zu dominant?
+- Währungsrisiko: EUR/USD-Auswirkungen bei US-Aktien, Hedging-Bedarf
+- Liquiditätsrisiko: Handelsvolumen, Spread, Market Cap
+- Tail-Risk: Black-Swan-Szenarien, maximaler Drawdown
+- Dividendeneigenschaften: Rendite, Ausschüttungsquote, Dividendenwachstum, Ex-Dividend-Termine
+
+**G) MARKTSENTIMENT & TIMING:**
+- Marktstimmung: Aktuelles Sentiment (Fear & Greed), VIX-Niveau
+- Saisonalität: "Sell in May", Jahresendrallye, Steuereffekte
+- Kommende Events: Earnings-Termine, Zentralbank-Sitzungen, Wirtschaftsdaten
+- Optionsmarkt-Signale: Put/Call-Ratio, ungewöhnliche Aktivitäten
+- Institutional Flow: Sind große Investoren Käufer oder Verkäufer?
+
+WICHTIG: Du musst NICHT zu jedem Punkt bei jeder Aktie etwas sagen. Fokussiere auf die RELEVANTESTEN Faktoren je Aktie. Aber berücksichtige die Makro-/Geopolitik-Lage für das GESAMTPORTFOLIO!
 
 ${(() => {
   const activeOrders = useAppStore.getState().orders.filter(o => o.status === 'active');
@@ -643,6 +765,12 @@ ${autopilotSignalsContext}
 AUFGABE:
 ═══════════════════════════════════════
 
+🌍 **0. MARKT- & MAKRO-LAGEBEURTEILUNG** (kurz und prägnant)
+- Aktuelle Makrolage: Zinsen, Inflation, Konjunktur
+- Geopolitische Risiken die das Portfolio betreffen könnten
+- Marktsentiment & relevante kommende Events (Earnings, Fed etc.)
+- Was bedeutet das für MEIN konkretes Portfolio?
+
 📊 **1. PORTFOLIO-ANALYSE** (NUR meine ${userPositions.length} oben gelisteten Positionen!)
 WICHTIG: Analysiere AUSSCHLIESSLICH die Positionen die oben unter "MEIN PORTFOLIO" aufgelistet sind.
 Erfinde KEINE zusätzlichen Positionen! Füge KEINE Watchlist-Aktien hier hinzu!
@@ -653,21 +781,24 @@ ${userPositions.map((p, i) => `  ${i + 1}. ${p.name} (${p.symbol})`).join('\n')}
 
 Für JEDE dieser ${userPositions.length} Positionen MUSS eine Bewertung enthalten sein:
 - HALTEN, NACHKAUFEN, TEILVERKAUF oder VERKAUFEN
-- Begründung (2-3 Sätze)
+- Technische Lage (RSI, MACD, Trend) + wichtigste Fundamentaldaten
+- Makro/Geopolitik-Einfluss falls relevant für diese Aktie
 - Konkreter Aktionsvorschlag mit Zielpreis
 
 📈 **2. GESAMTBEWERTUNG**
-- Diversifikations-Check (Branchen, Regionen, Risiko)
-- Risiko-Einschätzung des Gesamtportfolios
+- Diversifikations-Check (Branchen, Regionen, Währungen, Korrelationen)
+- Konzentrationsrisiken (zu viel in einem Sektor/Region?)
+- Währungsrisiko-Einschätzung (EUR/USD-Exposure)
+- Risiko-Einschätzung des Gesamtportfolios im aktuellen Marktumfeld
 
 🆕 **3. NEUE KAUFEMPFEHLUNGEN** (aus Watchlist und darüber hinaus)
 Basierend auf meinem verfügbaren Cash von ${cashBalance.toFixed(2)} EUR und meiner Strategie:
 - Prüfe zuerst meine Watchlist-Aktien oben und empfehle die besten daraus
 - Ergänze mit weiteren Aktien/ETFs falls nötig (insgesamt 3-5 Empfehlungen)
 - Für jede Empfehlung: Name, Ticker-Symbol, aktueller ungefährer Kurs in EUR
-- Begründung warum diese Aktie jetzt interessant ist
+- Begründung: Technisch UND fundamental UND Makro-Passung zum aktuellen Umfeld
+- Wie passt die Empfehlung zur Diversifikation meines bestehenden Portfolios? (Sektor, Region, Währung)
 - Vorgeschlagene Investitionssumme in EUR
-- Berücksichtige aktuelle Markttrends 2025/2026
 - WICHTIG: Empfehle hier KEINE Aktien die ich bereits im Portfolio habe!
 
 📝 **4. BESTEHENDE ORDERS BEWERTEN** (falls vorhanden)
@@ -710,14 +841,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             model: modelName,
             max_completion_tokens: 16384,
             messages: [
-              { role: 'system', content: 'Du bist ein erfahrener Investment-Analyst. Antworte auf Deutsch mit Emojis.' },
+              { role: 'system', content: 'Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Antworte auf Deutsch mit Emojis.' },
               { role: 'user', content: promptContent },
             ],
           })
         : isGemini
         ? JSON.stringify({
             contents: [{ parts: [{ text: promptContent }] }],
-            systemInstruction: { parts: [{ text: 'Du bist ein erfahrener Investment-Analyst. Antworte auf Deutsch mit Emojis.' }] },
+            systemInstruction: { parts: [{ text: 'Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Antworte auf Deutsch mit Emojis.' }] },
             generationConfig: { maxOutputTokens: 16384, temperature: 0.7 },
           })
         : JSON.stringify({
@@ -729,6 +860,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           });
 
       // Retry bei Overloaded (529), Rate Limit (429), Service Unavailable (503)
+      setAnalysisProgress({ step: 'KI-Analyse', detail: `${modelDisplayName} analysiert Portfolio (Technik, Fundamentals, Makro, Geopolitik)...`, percent: 60 });
       let response: Response | null = null;
       const maxRetries = 2;
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -742,6 +874,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           const retryAfter = response.headers.get('retry-after');
           const waitMs = retryAfter ? parseInt(retryAfter) * 1000 : (5000 * Math.pow(2, attempt));
           console.warn(`[Portfolio-Analyse] Status ${response.status} - Retry ${attempt + 1}/${maxRetries} in ${waitMs}ms...`);
+          setAnalysisProgress({ step: 'KI-Analyse', detail: `Server überlastet — Wiederholung ${attempt + 1}/${maxRetries} in ${Math.round(waitMs / 1000)}s...`, percent: 65 });
           await new Promise(resolve => setTimeout(resolve, waitMs));
           continue;
         }
@@ -765,6 +898,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         throw new Error(errorMsg);
       }
 
+      setAnalysisProgress({ step: 'Antwort verarbeiten', detail: 'KI-Antwort empfangen, Ergebnis aufbereiten...', percent: 90 });
       const data = await response.json();
       const content = isOpenAI 
         ? (data.choices?.[0]?.message?.content)
@@ -777,6 +911,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         throw new Error('KI hat keine Antwort geliefert. Bitte erneut versuchen.');
       }
 
+      setAnalysisProgress({ step: 'Speichern', detail: 'Analyse speichern & Benachrichtigungen senden...', percent: 95 });
       setAnalysisResult(content);
 
       // Save analysis to history for AI memory
@@ -922,6 +1057,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       setError(msg.length > 300 ? msg.slice(0, 300) + '...' : msg);
     } finally {
       setAnalyzing(false);
+      setAnalysisProgress(null);
     }
   };
 
@@ -948,6 +1084,16 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             <Plus size={18} />
             Position hinzufügen
           </button>
+          {/* CSV Import - temporär deaktiviert
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 
+                     text-white rounded-lg transition-colors"
+          >
+            <Upload size={18} />
+            CSV Import
+          </button>
+          */}
           <button
             onClick={analyzePortfolio}
             disabled={analyzing || userPositions.length === 0}
@@ -957,7 +1103,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             {analyzing ? (
               <>
                 <RefreshCw className="animate-spin" size={18} />
-                Analysiere...
+                {analysisProgress?.step || 'Analysiere...'}
               </>
             ) : (
               <>
@@ -1019,9 +1165,23 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <p className="text-2xl font-bold text-yellow-500">
-                    {cashBalance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
-                  </p>
+                  <div>
+                    <p className="text-2xl font-bold text-yellow-500">
+                      {cashBalance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                    </p>
+                    {(() => {
+                      const { reservedCash, availableCash } = getAvailableCash();
+                      if (reservedCash > 0) {
+                        return (
+                          <p className="text-xs text-orange-400 mt-0.5">
+                            davon {reservedCash.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € reserviert
+                            <span className="text-gray-500"> → frei: {availableCash.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €</span>
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
                   <button
                     onClick={() => {
                       setCashInput(cashBalance.toString());
@@ -1649,13 +1809,29 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       {/* AI Analysis Loading */}
       {analyzing && (
-        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-indigo-500/30 animate-pulse">
-          <div className="flex items-center gap-3">
+        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-indigo-500/30">
+          <div className="flex items-center gap-3 mb-3">
             <RefreshCw className="animate-spin text-indigo-400" size={20} />
-            <span className="text-indigo-300 font-medium">KI-Analyse läuft... Dies kann bis zu 60 Sekunden dauern.</span>
+            <span className="text-indigo-300 font-medium">
+              {analysisProgress?.step ? `${analysisProgress.step}` : 'KI-Analyse läuft...'}
+            </span>
           </div>
+          {analysisProgress && (
+            <>
+              <div className="w-full bg-[#252542] rounded-full h-2 mb-2">
+                <div 
+                  className="bg-indigo-500 h-2 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${analysisProgress.percent}%` }}
+                />
+              </div>
+              <p className="text-sm text-gray-400">{analysisProgress.detail}</p>
+            </>
+          )}
         </div>
       )}
+
+      {/* CSV Import Modal */}
+      <CSVImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} />
 
       {/* AI Analysis Result */}
       {analysisResult && (
