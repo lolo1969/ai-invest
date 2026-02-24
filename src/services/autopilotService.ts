@@ -213,11 +213,21 @@ export async function runAutopilotCycle(): Promise<void> {
     const profitPctVal = initCap > 0 ? (combinedProfit / (initCap || 1)) * 100 : 0;
     const os = store.orderSettings;
 
+    // Verfügbares Cash berechnen (abzgl. reserviertes Cash durch aktive Kauf-Orders inkl. Gebühren)
+    const reservedCash = orders
+      .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
+      .reduce((sum, o) => {
+        const oCost = o.triggerPrice * o.quantity;
+        const oFee = (os.transactionFeeFlat || 0) + oCost * (os.transactionFeePercent || 0) / 100;
+        return sum + oCost + oFee;
+      }, 0);
+    const availableCash = Math.max(0, cashBalance - reservedCash);
+
     const analysisResponse = await aiService.analyzeMarket({
       stocks,
       strategy: appSettings.strategy,
       riskTolerance: appSettings.riskTolerance,
-      budget: cashBalance,
+      budget: availableCash,
       currentPositions,
       previousSignals: signals.slice(0, 10),
       activeOrders: orders.filter(o => o.status === 'active'),
@@ -390,9 +400,27 @@ function applySafetyRules(
 ): AISuggestedOrder[] {
   const store = useAppStore.getState();
   const settings = store.autopilotSettings;
-  const { cashBalance, userPositions } = store;
+  const { cashBalance, userPositions, orders, orderSettings } = store;
   const totalPortfolioValue = userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0) + cashBalance;
   
+  // Berechne bereits reserviertes Cash durch aktive/pendende Kauf-Orders (inkl. Gebühren)
+  const reservedCashByOrders = orders
+    .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
+    .reduce((sum, o) => {
+      const oCost = o.triggerPrice * o.quantity;
+      const oFee = (orderSettings.transactionFeeFlat || 0) + oCost * (orderSettings.transactionFeePercent || 0) / 100;
+      return sum + oCost + oFee;
+    }, 0);
+  let availableCash = cashBalance - reservedCashByOrders;
+
+  // Berechne bereits reservierte Stücke pro Symbol durch aktive/pendende Verkaufs-Orders
+  const reservedSharesBySymbol = new Map<string, number>();
+  orders
+    .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss'))
+    .forEach(o => {
+      reservedSharesBySymbol.set(o.symbol, (reservedSharesBySymbol.get(o.symbol) || 0) + o.quantity);
+    });
+
   const approved: AISuggestedOrder[] = [];
   let tradesThisCycle = 0;
 
@@ -453,10 +481,12 @@ function applySafetyRules(
       }
     }
 
-    // Min Cash-Reserve bei Käufen
+    // Min Cash-Reserve bei Käufen (mit Gebühren und bereits reserviertem Cash)
     if (isBuy) {
       const orderCost = order.triggerPrice * order.quantity;
-      const cashAfter = cashBalance - orderCost;
+      const orderFee = (orderSettings.transactionFeeFlat || 0) + orderCost * (orderSettings.transactionFeePercent || 0) / 100;
+      const totalOrderCost = orderCost + orderFee;
+      const cashAfter = availableCash - totalOrderCost;
       const cashPercentAfter = totalPortfolioValue > 0 ? (cashAfter / totalPortfolioValue) * 100 : 0;
       
       if (cashPercentAfter < settings.minCashReservePercent) {
@@ -467,26 +497,34 @@ function applySafetyRules(
         continue;
       }
 
-      // Genug Cash?
-      if (orderCost > cashBalance) {
+      // Genug verfügbares Cash? (inkl. Gebühren, abzgl. reserviertes Cash)
+      if (totalOrderCost > availableCash) {
         log(createLogEntry('skipped',
-          `⏭️ ${order.symbol}: Nicht genug Cash (${orderCost.toFixed(2)}€ > ${cashBalance.toFixed(2)}€)`,
+          `⏭️ ${order.symbol}: Nicht genug verfügbares Cash (${totalOrderCost.toFixed(2)}€ inkl. Gebühren > ${availableCash.toFixed(2)}€ verfügbar)`,
           undefined, order.symbol
         ));
         continue;
       }
+
+      // Cash für diesen genehmigten Kauf reservieren (für nachfolgende Orders in diesem Zyklus)
+      availableCash -= totalOrderCost;
     }
 
-    // Genug Stücke für Verkauf?
+    // Genug Stücke für Verkauf? (abzgl. bereits reservierte durch andere Sell-Orders)
     if (isSell) {
       const position = userPositions.find(p => p.symbol === order.symbol);
-      if (!position || position.quantity < order.quantity) {
+      const reserved = reservedSharesBySymbol.get(order.symbol) || 0;
+      const availableShares = (position?.quantity ?? 0) - reserved;
+      if (!position || availableShares < order.quantity) {
         log(createLogEntry('skipped',
-          `⏭️ ${order.symbol}: Nicht genug Aktien (${position?.quantity ?? 0} < ${order.quantity})`,
+          `⏭️ ${order.symbol}: Nicht genug verfügbare Aktien (${availableShares} frei, ${reserved > 0 ? `${reserved} reserviert, ` : ''}benötigt ${order.quantity})`,
           undefined, order.symbol
         ));
         continue;
       }
+
+      // Stücke für diesen genehmigten Verkauf reservieren
+      reservedSharesBySymbol.set(order.symbol, reserved + order.quantity);
     }
 
     // Alles OK

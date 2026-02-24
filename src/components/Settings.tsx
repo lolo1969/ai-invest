@@ -49,7 +49,7 @@ export function Settings() {
   // Export all data as JSON
   const handleExport = () => {
     const exportData = {
-      version: '1.4',
+      version: '1.5.1',
       exportDate: new Date().toISOString(),
       // Alle Einstellungen (Strategie, Risiko, KI-Anbieter, Modelle, API-Keys, Benachrichtigungen, Custom Prompt)
       settings,

@@ -113,11 +113,22 @@ export function Dashboard() {
       const profitPctVal = (initialCapital || 0) > 0 ? (combinedProfit / (initialCapital || 1)) * 100 : 0;
       const { orderSettings: os } = useAppStore.getState();
 
+      // Verfügbares Cash berechnen (abzgl. reserviertes Cash durch aktive Kauf-Orders)
+      const activeOrders = useAppStore.getState().orders;
+      const reservedCash = activeOrders
+        .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
+        .reduce((sum, o) => {
+          const oCost = o.triggerPrice * o.quantity;
+          const oFee = (os.transactionFeeFlat || 0) + oCost * (os.transactionFeePercent || 0) / 100;
+          return sum + oCost + oFee;
+        }, 0);
+      const availableCash = Math.max(0, cashBalance - reservedCash);
+
       const response = await aiAnalysis.mutateAsync({
         stocks,
         strategy: settings.strategy,
         riskTolerance: settings.riskTolerance,
-        budget: cashBalance,
+        budget: availableCash,
         currentPositions,
         previousSignals: signals.slice(0, 10),
         activeOrders: orders.filter(o => o.status === 'active'),

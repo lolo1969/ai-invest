@@ -471,7 +471,7 @@ function saveAutoBackup() {
     const state = useAppStore.getState();
     const backup = {
       timestamp: new Date().toISOString(),
-      version: '1.3.7',
+      version: '1.5.1',
       data: {
         settings: state.settings,
         portfolios: state.portfolios,

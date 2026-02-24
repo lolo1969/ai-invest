@@ -178,20 +178,35 @@ export function Orders() {
       // Fallback auf triggerPrice
     }
 
-    // Validierung: Genug Cash für Kauf-Orders?
+    // Validierung: Genug Cash für Kauf-Orders? (inkl. Gebühren + reserviertes Cash durch aktive Orders)
     if (formData.orderType === 'limit-buy' || formData.orderType === 'stop-buy') {
       const cost = triggerPrice * quantity;
-      if (cost > cashBalance) {
-        alert(`Nicht genug Cash! Benötigt: ${cost.toFixed(2)}, Verfügbar: ${cashBalance.toFixed(2)}`);
+      const fee = (orderSettings.transactionFeeFlat || 0) + cost * (orderSettings.transactionFeePercent || 0) / 100;
+      // Cash der bereits durch aktive/pendende Kauf-Orders reserviert ist
+      const reservedCash = orders
+        .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
+        .reduce((sum, o) => {
+          const oCost = o.triggerPrice * o.quantity;
+          const oFee = (orderSettings.transactionFeeFlat || 0) + oCost * (orderSettings.transactionFeePercent || 0) / 100;
+          return sum + oCost + oFee;
+        }, 0);
+      const availableCash = cashBalance - reservedCash;
+      if (cost + fee > availableCash) {
+        alert(`Nicht genug Cash! Benötigt: ${(cost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${availableCash.toFixed(2)} € (${reservedCash > 0 ? `${reservedCash.toFixed(2)} € reserviert durch aktive Orders` : 'keine Order-Reservierungen'})`);
         return;
       }
     }
 
-    // Validierung: Genug Stück für Verkauf-Orders?
+    // Validierung: Genug Stück für Verkauf-Orders? (inkl. reservierte Stücke durch aktive Sell-Orders)
     if (formData.orderType === 'limit-sell' || formData.orderType === 'stop-loss') {
       const position = userPositions.find((p) => p.symbol === formData.symbol);
-      if (!position || position.quantity < quantity) {
-        alert(`Nicht genug Aktien! Verfügbar: ${position?.quantity ?? 0}`);
+      // Bereits durch aktive/pendende Verkaufs-Orders reservierte Stücke
+      const reservedQuantity = orders
+        .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss') && o.symbol === formData.symbol)
+        .reduce((sum, o) => sum + o.quantity, 0);
+      const availableQuantity = (position?.quantity ?? 0) - reservedQuantity;
+      if (!position || availableQuantity < quantity) {
+        alert(`Nicht genug Aktien! Verfügbar: ${availableQuantity} (${reservedQuantity > 0 ? `${reservedQuantity} reserviert durch aktive Orders` : 'gesamt: ' + (position?.quantity ?? 0)})`);
         return;
       }
     }
@@ -334,6 +349,29 @@ export function Orders() {
           <p className="text-xl font-bold text-white mt-1">
             {cashBalance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
           </p>
+          {(() => {
+            const reservedCash = orders
+              .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
+              .reduce((sum, o) => {
+                const oCost = o.triggerPrice * o.quantity;
+                const oFee = (orderSettings.transactionFeeFlat || 0) + oCost * (orderSettings.transactionFeePercent || 0) / 100;
+                return sum + oCost + oFee;
+              }, 0);
+            if (reservedCash > 0) {
+              const availableCash = cashBalance - reservedCash;
+              return (
+                <div className="mt-1">
+                  <p className="text-xs text-orange-400">
+                    {reservedCash.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })} reserviert
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Frei: {availableCash.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                  </p>
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
 
         {/* Active Orders */}
