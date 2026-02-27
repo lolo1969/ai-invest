@@ -54,20 +54,20 @@ export function StockChart({ stock, onClose }: StockChartProps) {
   ];
 
   return (
-    <div className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542]">
+    <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-[#252542]">
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h3 className="text-xl font-bold text-white">{stock.symbol}</h3>
-            <span className="text-gray-400">{stock.name}</span>
+      <div className="flex items-start justify-between mb-3 md:mb-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <h3 className="text-lg md:text-xl font-bold text-white">{stock.symbol}</h3>
+            <span className="text-gray-400 text-sm truncate">{stock.name}</span>
           </div>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-2xl font-bold text-white">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span className="text-xl md:text-2xl font-bold text-white">
               {stock.price.toFixed(2)} {stock.currency}
             </span>
-            <span className={`flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
-              {isPositive ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+            <span className={`flex items-center gap-1 text-sm ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+              {isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
               {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%)
             </span>
           </div>

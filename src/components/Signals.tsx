@@ -26,11 +26,11 @@ export function Signals() {
     : signals.filter(s => s.signal === filter);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
         <div>
-          <h1 className="text-3xl font-bold text-white">Investment Signale</h1>
-          <p className="text-gray-400">KI-generierte Kauf- und Verkaufsempfehlungen</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-white">Investment Signale</h1>
+          <p className="text-sm text-gray-400">KI-generierte Kauf- und Verkaufsempfehlungen</p>
         </div>
         {signals.length > 0 && (
           <button
@@ -44,7 +44,7 @@ export function Signals() {
       </div>
 
       {/* Signal Stats - Klickbar zum Filtern */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
         <button
           onClick={() => setFilter(filter === 'BUY' ? 'ALL' : 'BUY')}
           className={`bg-green-500/20 border rounded-xl p-4 flex items-center gap-4 transition-all
@@ -168,8 +168,8 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
   };
 
   return (
-    <div className={`${config.bg} ${config.border} border rounded-xl p-6`}>
-      <div className="flex flex-col md:flex-row md:items-start gap-4">
+    <div className={`${config.bg} ${config.border} border rounded-xl p-4 md:p-6`}>
+      <div className="flex flex-col md:flex-row md:items-start gap-3 md:gap-4">
         {/* Icon & Badge */}
         <div className="flex items-center gap-4">
           <div className="p-3 bg-[#1a1a2e] rounded-lg">
@@ -184,17 +184,17 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
 
         {/* Content */}
         <div className="flex-1">
-          <div className="flex items-center gap-3 mb-2">
-            <h3 className="text-xl font-bold text-white">{signal.stock.symbol}</h3>
-            <span className="text-gray-400">{signal.stock.name}</span>
+          <div className="flex items-center gap-2 md:gap-3 mb-2 flex-wrap">
+            <h3 className="text-lg md:text-xl font-bold text-white">{signal.stock.symbol}</h3>
+            <span className="text-gray-400 text-sm">{signal.stock.name}</span>
             <span className={`hidden md:inline ${config.badge} px-3 py-1 rounded-full text-sm font-bold`}>
               {config.label}
             </span>
           </div>
 
-          <p className="text-gray-300 mb-4">{signal.reasoning}</p>
+          <p className="text-gray-300 mb-3 md:mb-4 text-sm md:text-base">{signal.reasoning}</p>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 text-xs md:text-sm">
             <div>
               <p className="text-gray-500 flex items-center gap-1">
                 <Target size={14} /> Aktueller Preis

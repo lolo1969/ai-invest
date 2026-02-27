@@ -98,31 +98,31 @@ export function PriceAlerts() {
   const triggeredAlerts = priceAlerts.filter(a => a.triggered);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
         <div>
-          <h1 className="text-3xl font-bold text-white">Preisalarme</h1>
-          <p className="text-gray-400">Werde benachrichtigt, wenn Kurse bestimmte Werte erreichen</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-white">Preisalarme</h1>
+          <p className="text-sm text-gray-400">Werde benachrichtigt, wenn Kurse bestimmte Werte erreichen</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 
-                   text-white rounded-lg transition-colors"
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 
+                   text-white rounded-lg transition-colors text-sm md:text-base"
         >
-          {showForm ? <X size={18} /> : <Plus size={18} />}
+          {showForm ? <X size={16} /> : <Plus size={16} />}
           {showForm ? 'Abbrechen' : 'Neuer Alarm'}
         </button>
       </div>
 
       {/* Create Alert Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542]">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Bell size={18} className="text-indigo-500" />
+        <form onSubmit={handleSubmit} className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-[#252542]">
+          <h2 className="text-base md:text-lg font-semibold text-white mb-3 md:mb-4 flex items-center gap-2">
+            <Bell size={16} className="text-indigo-500" />
             Neuen Preisalarm erstellen
           </h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <div>
               <label className="block text-sm text-gray-400 mb-2">Symbol</label>
               <select
@@ -183,16 +183,16 @@ export function PriceAlerts() {
 
       {/* Active Alerts */}
       <div className="bg-[#1a1a2e] rounded-xl border border-[#252542]">
-        <div className="p-6 border-b border-[#252542]">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Bell size={18} className="text-yellow-500" />
+        <div className="p-4 md:p-6 border-b border-[#252542]">
+          <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
+            <Bell size={16} className="text-yellow-500" />
             Aktive Alarme ({activeAlerts.length})
           </h2>
         </div>
 
         {activeAlerts.length === 0 ? (
-          <div className="p-12 text-center">
-            <Bell size={48} className="mx-auto text-gray-500 mb-4" />
+          <div className="p-6 md:p-12 text-center">
+            <Bell size={40} className="mx-auto text-gray-500 mb-4" />
             <h3 className="text-xl font-semibold text-white mb-2">Keine aktiven Alarme</h3>
             <p className="text-gray-400">Erstelle einen Alarm, um bei Kursbewegungen benachrichtigt zu werden.</p>
           </div>
@@ -248,22 +248,22 @@ function AlertCard({
   triggered?: boolean;
 }) {
   return (
-    <div className={`p-4 flex items-center justify-between ${triggered ? 'opacity-60' : ''}`}>
-      <div className="flex items-center gap-4">
-        <div className={`p-3 rounded-lg ${
+    <div className={`p-3 md:p-4 flex items-center justify-between gap-3 ${triggered ? 'opacity-60' : ''}`}>
+      <div className="flex items-center gap-3 md:gap-4 min-w-0">
+        <div className={`p-2 md:p-3 rounded-lg flex-shrink-0 ${
           alert.condition === 'above' 
             ? 'bg-green-500/20' 
             : 'bg-red-500/20'
         }`}>
           {alert.condition === 'above' 
-            ? <TrendingUp size={20} className="text-green-500" />
-            : <TrendingDown size={20} className="text-red-500" />
+            ? <TrendingUp size={18} className="text-green-500" />
+            : <TrendingDown size={18} className="text-red-500" />
           }
         </div>
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-white">{alert.symbol}</span>
-            <span className="text-gray-400">{alert.name}</span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-white text-sm md:text-base">{alert.symbol}</span>
+            <span className="text-gray-400 text-sm truncate">{alert.name}</span>
             {triggered && (
               <span className="px-2 py-0.5 text-xs bg-green-500/20 text-green-400 rounded">
                 Ausgelöst

@@ -49,7 +49,7 @@ export function Settings() {
   // Export all data as JSON
   const handleExport = () => {
     const exportData = {
-      version: '1.5.1',
+      version: '1.5.6',
       exportDate: new Date().toISOString(),
       // Alle Einstellungen (Strategie, Risiko, KI-Anbieter, Modelle, API-Keys, Benachrichtigungen, Custom Prompt)
       settings,
@@ -291,16 +291,16 @@ export function Settings() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-white">Einstellungen</h1>
-        <p className="text-gray-400">Konfiguriere deinen Investment Advisor</p>
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4 md:space-y-6">
+      <div className="pt-12 lg:pt-0">
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Einstellungen</h1>
+        <p className="text-sm text-gray-400">Konfiguriere deinen Investment Advisor</p>
       </div>
 
       {/* Investment Settings */}
-      <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-6">
-        <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-          <Target size={20} className="text-indigo-500" />
+      <section className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-[#252542] space-y-4 md:space-y-6">
+        <h2 className="text-lg md:text-xl font-semibold text-white flex items-center gap-2">
+          <Target size={18} className="text-indigo-500" />
           Investment-Einstellungen
         </h2>
 

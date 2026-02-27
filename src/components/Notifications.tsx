@@ -20,10 +20,10 @@ export function Notifications() {
   const emailEnabled = settings.notifications.email.enabled;
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-white">Benachrichtigungen</h1>
-        <p className="text-gray-400">Übersicht deiner Investment-Alerts</p>
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="pt-12 lg:pt-0">
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Benachrichtigungen</h1>
+        <p className="text-sm text-gray-400">Übersicht deiner Investment-Alerts</p>
       </div>
 
       {/* Status Cards */}
@@ -97,10 +97,10 @@ export function Notifications() {
 
       {/* Notification History */}
       <div className="bg-[#1a1a2e] rounded-xl border border-[#252542]">
-        <div className="p-6 border-b border-[#252542]">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Clock size={18} className="text-indigo-500" />
-            Letzte Signale (würden als Notification gesendet)
+        <div className="p-4 md:p-6 border-b border-[#252542]">
+          <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
+            <Clock size={16} className="text-indigo-500" />
+            Letzte Signale
           </h2>
         </div>
 
