@@ -8,7 +8,7 @@ import {
   RefreshCw,
   Brain
 } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
+import { useAppStore, checkDuplicateOrder } from '../store/useAppStore';
 import { useStocksWithRange, useAIAnalysis } from '../hooks/useMarketData';
 import { notificationService } from '../services/notifications';
 import type { InvestmentSignal } from '../types';
@@ -255,28 +255,34 @@ export function Dashboard() {
       // Process AI-suggested orders: override existing orders for same symbol
       if (response.suggestedOrders && response.suggestedOrders.length > 0) {
         for (const suggested of response.suggestedOrders) {
-          // Storniere bestehende aktive Orders für dieses Symbol/Typ
+          // Storniere bestehende aktive KI-Orders für dieses Symbol/Typ (manuelle bleiben)
           const existingOrders = orders.filter(
-            o => o.status === 'active' && o.symbol === suggested.symbol && o.orderType === suggested.orderType
+            o => o.status === 'active' && o.symbol === suggested.symbol && o.orderType === suggested.orderType && o.note?.startsWith('🤖 KI:')
           );
           for (const existing of existingOrders) {
             cancelOrder(existing.id);
           }
 
-          // Erstelle neue Order aus KI-Vorschlag
-          const stockData = stocks.find(s => s.symbol === suggested.symbol);
-          addOrder({
+          // Duplikat-Check: Erstelle nur wenn keine ähnliche Order existiert
+          const newOrder = {
             id: crypto.randomUUID(),
             symbol: suggested.symbol,
-            name: stockData?.name || suggested.symbol,
+            name: (stocks.find(s => s.symbol === suggested.symbol))?.name || suggested.symbol,
             orderType: suggested.orderType,
             quantity: suggested.quantity,
             triggerPrice: suggested.triggerPrice,
-            currentPrice: stockData?.price || suggested.triggerPrice,
-            status: 'active',
+            currentPrice: (stocks.find(s => s.symbol === suggested.symbol))?.price || suggested.triggerPrice,
+            status: 'active' as const,
             createdAt: new Date(),
             note: `🤖 KI: ${suggested.reasoning}`,
-          });
+          };
+
+          const dupCheck = checkDuplicateOrder(newOrder);
+          if (dupCheck.ok) {
+            addOrder(newOrder);
+          } else {
+            console.log(`[Vestia] KI-Order übersprungen: ${dupCheck.reason}`);
+          }
         }
       }
 

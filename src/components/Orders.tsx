@@ -15,7 +15,7 @@ import {
   Filter,
   RefreshCw
 } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
+import { useAppStore, checkDuplicateOrder } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
 import type { OrderType, OrderStatus } from '../types';
 
@@ -229,6 +229,11 @@ export function Orders() {
       note: formData.note || undefined,
     };
 
+    const dupCheck = checkDuplicateOrder(order);
+    if (!dupCheck.ok) {
+      alert(`Order nicht erstellt: ${dupCheck.reason}`);
+      return;
+    }
     addOrder(order);
     setFormData({
       symbol: '',
