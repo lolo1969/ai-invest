@@ -1,4 +1,4 @@
-import { useAppStore } from '../store/useAppStore';
+import { useAppStore, checkDuplicateOrder } from '../store/useAppStore';
 import { marketDataService } from './marketData';
 import { getAIService } from './aiService';
 import type { 
@@ -425,6 +425,16 @@ export async function runAutopilotCycle(): Promise<void> {
               expiresAt,
               note: `🤖 Autopilot: ${suggested.reasoning}`,
             };
+
+            // Zentrale Duplikat-Prüfung (nochmal, als letzte Sicherung)
+            const dupCheck = checkDuplicateOrder(newOrder);
+            if (!dupCheck.ok) {
+              log(createLogEntry('skipped',
+                `⏭️ ${suggested.symbol}: ${dupCheck.reason}`,
+                undefined, suggested.symbol
+              ));
+              continue;
+            }
 
             addOrder(newOrder);
             ordersCreated++;

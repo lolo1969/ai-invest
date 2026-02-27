@@ -229,10 +229,17 @@ export const useAppStore = create<AppState>()(
       // Orders
       orders: [],
       orderSettings: { autoExecute: false, checkIntervalSeconds: 30, transactionFeeFlat: 0, transactionFeePercent: 0 },
-      addOrder: (order) =>
+      addOrder: (order) => {
+        // Duplikat-Check über zentrale Funktion
+        const result = checkDuplicateOrder(order);
+        if (!result.ok) {
+          console.warn(`[Vestia] Order abgelehnt: ${result.reason}`);
+          return;
+        }
         set((state) => ({
           orders: [...state.orders, order],
-        })),
+        }));
+      },
       removeOrder: (id) =>
         set((state) => ({
           orders: state.orders.filter((o) => o.id !== id),
@@ -461,6 +468,52 @@ export const useAppStore = create<AppState>()(
   )
 );
 
+/**
+ * Prüft ob eine Order ein Duplikat wäre.
+ * Gleiche Richtung (Buy/Sell), gleiches Symbol, ähnlicher Preis (±5%)
+ * oder Sell-Menge > verfügbare Position.
+ */
+export function checkDuplicateOrder(order: Order): { ok: boolean; reason?: string } {
+  const state = useAppStore.getState();
+  const isBuy = order.orderType === 'limit-buy' || order.orderType === 'stop-buy';
+  const isSell = order.orderType === 'limit-sell' || order.orderType === 'stop-loss';
+
+  const sameDirectionOrders = state.orders.filter(
+    o => (o.status === 'active' || o.status === 'pending')
+      && o.symbol === order.symbol
+      && (
+        (isBuy && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
+        || (isSell && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss'))
+      )
+  );
+
+  const duplicate = sameDirectionOrders.find(o => {
+    if (o.triggerPrice === 0 || order.triggerPrice === 0) return false;
+    const priceDiff = Math.abs(o.triggerPrice - order.triggerPrice) / o.triggerPrice;
+    return priceDiff <= 0.05;
+  });
+
+  if (duplicate) {
+    const direction = isSell ? 'Sell' : 'Buy';
+    return {
+      ok: false,
+      reason: `Duplikat: ${direction}-Order für ${order.symbol} bei ${order.triggerPrice.toFixed(2)}€ – bereits ${duplicate.orderType.toUpperCase()} @ ${duplicate.triggerPrice.toFixed(2)}€ vorhanden (±5%)`,
+    };
+  }
+
+  if (isSell) {
+    const position = state.userPositions.find(p => p.symbol === order.symbol);
+    const totalExistingSellQty = sameDirectionOrders.reduce((sum, o) => sum + o.quantity, 0);
+    if (position && (totalExistingSellQty + order.quantity) > position.quantity) {
+      return {
+        ok: false,
+        reason: `Überverkauf: Sells gesamt (${totalExistingSellQty + order.quantity}) > Position (${position.quantity}) für ${order.symbol}`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
 // Automatisches Backup: Alle 60s eine Sicherheitskopie unter separatem Key speichern
 // Schützt vor Datenverlust bei Storage-Key-Änderungen, Updates oder Bugs
 const BACKUP_KEY = 'vestia-auto-backup';
@@ -501,6 +554,50 @@ function saveAutoBackup() {
     console.warn('[Vestia] Auto-Backup fehlgeschlagen:', e);
   }
 }
+
+// Duplikat-Orders beim App-Start bereinigen (einmalig nach 3s)
+setTimeout(() => {
+  try {
+    const state = useAppStore.getState();
+    const activeOrders = state.orders.filter(
+      o => (o.status === 'active' || o.status === 'pending')
+    );
+    // Gruppiere nach Symbol + Richtung
+    const groups = new Map<string, typeof activeOrders>();
+    for (const o of activeOrders) {
+      const isSell = o.orderType === 'limit-sell' || o.orderType === 'stop-loss';
+      const key = `${o.symbol}_${isSell ? 'sell' : 'buy'}`;
+      const list = groups.get(key) || [];
+      list.push(o);
+      groups.set(key, list);
+    }
+    let cancelled = 0;
+    for (const [, groupOrders] of groups) {
+      if (groupOrders.length <= 1) continue;
+      // Sortiere: älteste zuerst
+      groupOrders.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const kept: typeof activeOrders = [];
+      for (const order of groupOrders) {
+        const isDuplicate = kept.some(k => {
+          if (k.triggerPrice === 0 || order.triggerPrice === 0) return false;
+          const priceDiff = Math.abs(k.triggerPrice - order.triggerPrice) / k.triggerPrice;
+          return priceDiff <= 0.05;
+        });
+        if (isDuplicate) {
+          state.cancelOrder(order.id);
+          cancelled++;
+        } else {
+          kept.push(order);
+        }
+      }
+    }
+    if (cancelled > 0) {
+      console.log(`[Vestia] ${cancelled} doppelte Order(s) beim Start bereinigt`);
+    }
+  } catch (e) {
+    console.warn('[Vestia] Order-Bereinigung fehlgeschlagen:', e);
+  }
+}, 3000);
 
 // Backup beim Start und dann alle 60s
 setTimeout(saveAutoBackup, 5000); // 5s nach Start (damit Daten geladen sind)
