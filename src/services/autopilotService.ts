@@ -125,6 +125,45 @@ export async function runAutopilotCycle(): Promise<void> {
       log(createLogEntry('info', `🧹 ${expiredOrders.length} abgelaufene Order(s) storniert`));
     }
 
+    // 0b. Doppelte Sell-Orders bereinigen (gleiche Richtung + ähnlicher Preis ±5%)
+    const activeOrders = useAppStore.getState().orders.filter(
+      o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss')
+    );
+    // Gruppiere nach Symbol
+    const sellsBySymbol = new Map<string, typeof activeOrders>();
+    for (const o of activeOrders) {
+      const list = sellsBySymbol.get(o.symbol) || [];
+      list.push(o);
+      sellsBySymbol.set(o.symbol, list);
+    }
+    let duplicatesCancelled = 0;
+    for (const [symbol, sellOrders] of sellsBySymbol) {
+      if (sellOrders.length <= 1) continue;
+      // Sortiere nach Erstellungsdatum – älteste zuerst (die behalten wir)
+      sellOrders.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const kept: typeof activeOrders = [];
+      for (const order of sellOrders) {
+        // Prüfe ob bereits eine behaltene Order bei ähnlichem Preis existiert
+        const isDuplicate = kept.some(k => {
+          const priceDiff = Math.abs(k.triggerPrice - order.triggerPrice) / k.triggerPrice;
+          return priceDiff <= 0.05; // ±5%
+        });
+        if (isDuplicate) {
+          cancelOrder(order.id);
+          duplicatesCancelled++;
+          log(createLogEntry('info',
+            `🧹 Doppelte Sell-Order storniert: ${order.orderType.toUpperCase()} ${order.quantity}x ${symbol} @ ${order.triggerPrice.toFixed(2)}€`,
+            undefined, symbol, order.id
+          ));
+        } else {
+          kept.push(order);
+        }
+      }
+    }
+    if (duplicatesCancelled > 0) {
+      log(createLogEntry('info', `🧹 ${duplicatesCancelled} doppelte Sell-Order(s) bereinigt`));
+    }
+
     // 1. Marktzeiten prüfen
     const marketStatus = isMarketOpen();
     if (settings.activeHoursOnly && !marketStatus.open) {
