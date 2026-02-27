@@ -72,7 +72,8 @@ export function Orders() {
   } = useAppStore();
   
   const [showForm, setShowForm] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('active');
+  const [typeFilter, setTypeFilter] = useState<OrderType | 'all'>('all');
   const [searchingSymbol, setSearchingSymbol] = useState(false);
   const [symbolSuggestions, setSymbolSuggestions] = useState<{ symbol: string; name: string }[]>([]);
   const [manualExecuteId, setManualExecuteId] = useState<string | null>(null);
@@ -93,6 +94,9 @@ export function Orders() {
     if (statusFilter !== 'all') {
       filtered = filtered.filter((o) => o.status === statusFilter);
     }
+    if (typeFilter !== 'all') {
+      filtered = filtered.filter((o) => o.orderType === typeFilter);
+    }
     // Neueste zuerst, pending und aktive ganz oben
     filtered.sort((a, b) => {
       const priorityOrder = { pending: 0, active: 1, executed: 2, cancelled: 3, expired: 4 };
@@ -102,7 +106,7 @@ export function Orders() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return filtered;
-  }, [orders, statusFilter]);
+  }, [orders, statusFilter, typeFilter]);
 
   // Statistiken
   const stats = useMemo(() => {
@@ -284,28 +288,28 @@ export function Orders() {
   const isSellOrder = formData.orderType === 'limit-sell' || formData.orderType === 'stop-loss';
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6 md:mb-8 pt-12 lg:pt-0">
         <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <ShoppingCart className="text-purple-400" size={28} />
+          <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
+            <ShoppingCart className="text-purple-400" size={24} />
             Orders
           </h2>
-          <p className="text-gray-400 mt-1">Limit & Stop Orders verwalten</p>
+          <p className="text-gray-400 mt-1 text-sm">Limit & Stop Orders verwalten</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 
-                   text-white rounded-lg transition-colors"
+          className="flex items-center gap-2 px-3 md:px-4 py-2 bg-purple-600 hover:bg-purple-700 
+                   text-white rounded-lg transition-colors text-sm md:text-base"
         >
-          {showForm ? <X size={18} /> : <Plus size={18} />}
+          {showForm ? <X size={16} /> : <Plus size={16} />}
           {showForm ? 'Abbrechen' : 'Neue Order'}
         </button>
       </div>
 
       {/* Auto-Execution Toggle & Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-6">
         {/* Auto-Execute Card */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
           <div className="flex items-center justify-between mb-2">
@@ -344,9 +348,9 @@ export function Orders() {
         </div>
 
         {/* Cash Balance */}
-        <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-          <span className="text-sm text-gray-400">Cash-Bestand</span>
-          <p className="text-xl font-bold text-white mt-1">
+        <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-4 border border-[#252542]">
+          <span className="text-xs md:text-sm text-gray-400">Cash-Bestand</span>
+          <p className="text-base md:text-xl font-bold text-white mt-1 truncate">
             {cashBalance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
           </p>
           {(() => {
@@ -375,9 +379,9 @@ export function Orders() {
         </div>
 
         {/* Active Orders */}
-        <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-          <span className="text-sm text-gray-400">Aktive Orders</span>
-          <p className="text-xl font-bold text-blue-400 mt-1">
+        <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-4 border border-[#252542]">
+          <span className="text-xs md:text-sm text-gray-400">Aktive Orders</span>
+          <p className="text-base md:text-xl font-bold text-blue-400 mt-1">
             {stats.active}
             {stats.pending > 0 && (
               <span className="text-yellow-400 text-sm ml-2">(+{stats.pending} wartend)</span>
@@ -386,9 +390,9 @@ export function Orders() {
         </div>
 
         {/* Executed Orders */}
-        <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-          <span className="text-sm text-gray-400">Ausgeführt</span>
-          <p className="text-xl font-bold text-green-400 mt-1">{stats.executed}</p>
+        <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-4 border border-[#252542]">
+          <span className="text-xs md:text-sm text-gray-400">Ausgeführt</span>
+          <p className="text-base md:text-xl font-bold text-green-400 mt-1">{stats.executed}</p>
           {stats.totalExecutedValue > 0 && (
             <p className="text-xs text-gray-500 mt-1">
               Volumen: {stats.totalExecutedValue.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
@@ -399,15 +403,15 @@ export function Orders() {
 
       {/* Auto-Execution Settings (expandable) */}
       {orderSettings.autoExecute && (
-        <div className="bg-[#1a1a2e] rounded-xl p-4 border border-green-500/30 mb-6">
+        <div className="bg-[#1a1a2e] rounded-xl p-4 border border-green-500/30 mb-4 md:mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Zap size={16} className="text-green-400" />
               <span className="text-sm font-medium text-green-400">Auto-Ausführung aktiv</span>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 md:gap-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400">Intervall (Sek.):</label>
+                <label className="text-xs text-gray-400">Intervall:</label>
                 <select
                   value={orderSettings.checkIntervalSeconds}
                   onChange={(e) => updateOrderSettings({ checkIntervalSeconds: parseInt(e.target.value) })}
@@ -452,7 +456,7 @@ export function Orders() {
 
       {/* Order Form */}
       {showForm && (
-        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] mb-6">
+        <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-[#252542] mb-4 md:mb-6">
           <h3 className="text-lg font-semibold text-white mb-4">Neue Order erstellen</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -671,26 +675,71 @@ export function Orders() {
         </div>
       )}
 
+      {/* Info Box */}
+      <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542] mb-4">
+        <h3 className="text-sm font-semibold text-gray-300 mb-2">ℹ️ So funktionieren Orders</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-500">
+          <div className="flex items-start gap-2">
+            <ArrowDownCircle size={14} className="text-green-400 mt-0.5 flex-shrink-0" />
+            <span><strong className="text-gray-400">Limit Buy:</strong> Kauforder wird ausgeführt wenn der Kurs auf oder unter den Trigger-Preis fällt.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <ArrowUpCircle size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
+            <span><strong className="text-gray-400">Limit Sell:</strong> Verkaufsorder wird ausgeführt wenn der Kurs auf oder über den Trigger-Preis steigt.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <ShieldAlert size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
+            <span><strong className="text-gray-400">Stop Loss:</strong> Automatischer Verkauf zur Verlustbegrenzung wenn der Kurs unter den Trigger fällt.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <Zap size={14} className="text-yellow-400 mt-0.5 flex-shrink-0" />
+            <span><strong className="text-gray-400">Stop Buy:</strong> Kauforder bei Breakout – wird ausgeführt wenn der Kurs über den Trigger steigt.</span>
+          </div>
+        </div>
+      </div>
+
       {/* Filter */}
-      <div className="flex items-center gap-2 mb-4">
-        <Filter size={14} className="text-gray-500" />
-        <span className="text-sm text-gray-500">Filter:</span>
-        {(['all', 'active', 'executed', 'cancelled', 'expired'] as const).map((status) => (
-          <button
-            key={status}
-            onClick={() => setStatusFilter(status)}
-            className={`text-xs px-3 py-1 rounded-full transition-colors ${
-              statusFilter === status
-                ? 'bg-purple-600 text-white'
-                : 'bg-[#252542] text-gray-400 hover:bg-[#353560]'
-            }`}
-          >
-            {status === 'all' ? 'Alle' : STATUS_LABELS[status]}
-            {status !== 'all' && (
-              <span className="ml-1">({orders.filter((o) => o.status === status).length})</span>
-            )}
-          </button>
-        ))}
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <Filter size={14} className="text-gray-500 flex-shrink-0" />
+          <span className="text-xs md:text-sm text-gray-500 flex-shrink-0">Status:</span>
+          {(['all', 'active', 'executed', 'cancelled', 'expired'] as const).map((status) => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              className={`text-xs px-3 py-1 rounded-full transition-colors ${
+                statusFilter === status
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-[#252542] text-gray-400 hover:bg-[#353560]'
+              }`}
+            >
+              {status === 'all' ? 'Alle' : STATUS_LABELS[status]}
+              {status !== 'all' && (
+                <span className="ml-1">({orders.filter((o) => o.status === status).length})</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <ShoppingCart size={14} className="text-gray-500 flex-shrink-0" />
+          <span className="text-xs md:text-sm text-gray-500 flex-shrink-0">Typ:</span>
+          {(['all', 'limit-buy', 'limit-sell', 'stop-loss', 'stop-buy'] as const).map((type) => (
+            <button
+              key={type}
+              onClick={() => setTypeFilter(type)}
+              className={`text-xs px-3 py-1 rounded-full transition-colors ${
+                typeFilter === type
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-[#252542] text-gray-400 hover:bg-[#353560]'
+              }`}
+            >
+              {type === 'all' ? 'Alle' : ORDER_TYPE_LABELS[type]}
+              {type !== 'all' && (
+                <span className="ml-1">({orders.filter((o) => o.orderType === type).length})</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Orders List */}
@@ -917,28 +966,6 @@ export function Orders() {
         </div>
       )}
 
-      {/* Info Box */}
-      <div className="mt-8 bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-        <h3 className="text-sm font-semibold text-gray-300 mb-2">ℹ️ So funktionieren Orders</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-500">
-          <div className="flex items-start gap-2">
-            <ArrowDownCircle size={14} className="text-green-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Limit Buy:</strong> Kauforder wird ausgeführt wenn der Kurs auf oder unter den Trigger-Preis fällt.</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <ArrowUpCircle size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Limit Sell:</strong> Verkaufsorder wird ausgeführt wenn der Kurs auf oder über den Trigger-Preis steigt.</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <ShieldAlert size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Stop Loss:</strong> Automatischer Verkauf zur Verlustbegrenzung wenn der Kurs unter den Trigger fällt.</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <Zap size={14} className="text-yellow-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Stop Buy:</strong> Kauforder bei Breakout – wird ausgeführt wenn der Kurs über den Trigger steigt.</span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

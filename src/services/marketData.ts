@@ -24,6 +24,9 @@ function buildYahooUrl(path: string): string {
 let cachedEurUsdRate: { rate: number; timestamp: number } | null = null;
 const RATE_CACHE_DURATION = 3600000; // 1 hour
 
+// Cache for all currency → EUR rates
+const cachedFxRates: Record<string, { rate: number; timestamp: number }> = {};
+
 // Fallback demo data when API fails
 const DEMO_STOCKS: Record<string, Stock> = {
   'AAPL': { symbol: 'AAPL', name: 'Apple Inc.', price: 165.00, change: 2.30, changePercent: 1.31, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
@@ -73,30 +76,99 @@ export class MarketDataService {
 
   // Get USD to EUR exchange rate
   async getUsdToEurRate(): Promise<number> {
+    return this.getFxRateToEur('USD');
+  }
+
+  // Get exchange rate for any currency → EUR
+  async getFxRateToEur(currency: string): Promise<number> {
+    const cur = currency.toUpperCase();
+    if (cur === 'EUR') return 1;
+    
+    // GBX = British Pence (1/100 GBP) — common for London-listed stocks
+    if (cur === 'GBX' || cur === 'GBP') {
+      const gbpRate = await this._fetchFxRate('GBP');
+      // GBX is pence, so divide by 100
+      return cur === 'GBX' ? gbpRate / 100 : gbpRate;
+    }
+    
+    return this._fetchFxRate(cur);
+  }
+
+  // Internal: fetch and cache an FX rate for currency → EUR
+  private async _fetchFxRate(currency: string): Promise<number> {
     // Return cached rate if still valid
-    if (cachedEurUsdRate && Date.now() - cachedEurUsdRate.timestamp < RATE_CACHE_DURATION) {
+    const cached = cachedFxRates[currency];
+    if (cached && Date.now() - cached.timestamp < RATE_CACHE_DURATION) {
+      return cached.rate;
+    }
+
+    // Also populate cachedEurUsdRate for backward compat
+    if (currency === 'USD' && cachedEurUsdRate && Date.now() - cachedEurUsdRate.timestamp < RATE_CACHE_DURATION) {
       return cachedEurUsdRate.rate;
     }
 
     try {
-      // Use Yahoo Finance to get EUR/USD rate
-      const url = buildYahooUrl('/v8/finance/chart/EURUSD=X?interval=1d&range=1d');
+      // Yahoo Finance: XXXEUR=X gives how many EUR per 1 XXX
+      // For USD: we use EURUSD=X (gives USD per EUR, need inverse)
+      // For others: use XXXEUR=X directly
+      let pair: string;
+      let needsInverse = false;
+      
+      if (currency === 'USD') {
+        pair = 'EURUSD=X'; // gives ~1.08 (USD per EUR) → we need 1/1.08
+        needsInverse = true;
+      } else {
+        pair = `${currency}EUR=X`; // gives EUR per 1 unit of currency
+      }
+
+      const url = buildYahooUrl(`/v8/finance/chart/${pair}?interval=1d&range=1d`);
       const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 10000 }));
       const result = response.data.chart.result?.[0];
       
       if (result?.meta?.regularMarketPrice) {
-        // EURUSD gives us how many USD per EUR, we need the inverse
-        const eurPerUsd = 1 / result.meta.regularMarketPrice;
-        cachedEurUsdRate = { rate: eurPerUsd, timestamp: Date.now() };
-        console.log(`Exchange rate: 1 USD = ${eurPerUsd.toFixed(4)} EUR`);
-        return eurPerUsd;
+        let rate: number;
+        if (needsInverse) {
+          rate = 1 / result.meta.regularMarketPrice;
+        } else {
+          rate = result.meta.regularMarketPrice;
+        }
+        
+        cachedFxRates[currency] = { rate, timestamp: Date.now() };
+        // Backward compat
+        if (currency === 'USD') {
+          cachedEurUsdRate = { rate, timestamp: Date.now() };
+        }
+        console.log(`[FX] 1 ${currency} = ${rate.toFixed(4)} EUR`);
+        return rate;
       }
     } catch (error) {
-      console.error('Failed to fetch exchange rate:', error);
+      console.error(`[FX] Failed to fetch ${currency}→EUR rate:`, error);
     }
 
-    // Fallback rate if API fails
-    return 0.92; // Approximate EUR/USD rate
+    // Fallback rates
+    const fallbackRates: Record<string, number> = {
+      'USD': 0.92,
+      'GBP': 1.17,
+      'CHF': 1.05,
+      'CAD': 0.68,
+      'JPY': 0.0061,
+      'SEK': 0.088,
+      'DKK': 0.134,
+      'NOK': 0.086,
+      'AUD': 0.60,
+      'HKD': 0.118,
+    };
+    const fallback = fallbackRates[currency] || 1;
+    console.warn(`[FX] Using fallback rate: 1 ${currency} = ${fallback} EUR`);
+    return fallback;
+  }
+
+  // Convert a price from any currency to EUR
+  async convertToEur(price: number, fromCurrency: string): Promise<number> {
+    const cur = fromCurrency.toUpperCase();
+    if (cur === 'EUR') return price;
+    const rate = await this.getFxRateToEur(cur);
+    return price * rate;
   }
 
   // Fetch a single quote using Yahoo Finance chart endpoint - always returns EUR
@@ -118,12 +190,13 @@ export class MarketDataService {
       let previousClose = meta.previousClose || meta.chartPreviousClose || price;
       const originalCurrency = meta.currency || 'USD';
       
-      // Convert to EUR if price is in USD
-      if (originalCurrency === 'USD') {
-        const eurRate = await this.getUsdToEurRate();
-        price = price * eurRate;
-        previousClose = previousClose * eurRate;
-        console.log(`Converted ${symbol}: ${meta.regularMarketPrice} USD → ${price.toFixed(2)} EUR`);
+      // Convert any non-EUR currency to EUR
+      if (originalCurrency.toUpperCase() !== 'EUR') {
+        const fxRate = await this.getFxRateToEur(originalCurrency);
+        const origPrice = price;
+        price = price * fxRate;
+        previousClose = previousClose * fxRate;
+        console.log(`[FX] Converted ${symbol}: ${origPrice} ${originalCurrency} → ${price.toFixed(2)} EUR (rate: ${fxRate.toFixed(6)})`);
       }
       
       // Calculate change safely
@@ -168,19 +241,28 @@ export class MarketDataService {
         return this.getQuotesFallback(symbols);
       }
       
-      // Get EUR rate once for all conversions
-      const eurRate = await this.getUsdToEurRate();
+      // Pre-fetch FX rates for all currencies in this batch
+      const currencies = new Set(quotes.map((q: any) => (q.currency || 'USD').toUpperCase()));
+      const fxRates: Record<string, number> = { EUR: 1 };
+      for (const cur of currencies) {
+        const currency = cur as string;
+        if (currency !== 'EUR') {
+          fxRates[currency] = await this.getFxRateToEur(currency);
+        }
+      }
+      console.log('[MarketData] FX-Raten:', fxRates);
       
       const stocks: Stock[] = [];
       for (const q of quotes) {
         try {
           let price = q.regularMarketPrice || 0;
           let previousClose = q.regularMarketPreviousClose || price;
-          const originalCurrency = q.currency || 'USD';
+          const originalCurrency = (q.currency || 'USD').toUpperCase();
           
-          if (originalCurrency === 'USD') {
-            price = price * eurRate;
-            previousClose = previousClose * eurRate;
+          if (originalCurrency !== 'EUR') {
+            const rate = fxRates[originalCurrency] || 1;
+            price = price * rate;
+            previousClose = previousClose * rate;
           }
           
           const change = previousClose > 0 ? price - previousClose : 0;

@@ -197,26 +197,27 @@ export function Autopilot() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6 md:mb-8 pt-12 lg:pt-0">
         <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Bot className="text-emerald-400" size={28} />
+          <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
+            <Bot className="text-emerald-400" size={24} />
             Autopilot
           </h2>
-          <p className="text-gray-400 mt-1">KI-gesteuerter automatischer Handel</p>
+          <p className="text-gray-400 mt-1 text-sm">KI-gesteuerter automatischer Handel</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {/* Manueller Zyklus */}
           <button
             onClick={triggerManualCycle}
             disabled={isRunning || !autopilotSettings.enabled}
-            className="flex items-center gap-2 px-4 py-2 bg-[#252542] hover:bg-[#353560] 
-                     text-gray-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-3 md:px-4 py-2 bg-[#252542] hover:bg-[#353560] 
+                     text-gray-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
           >
-            <RefreshCw size={16} className={isRunning ? 'animate-spin' : ''} />
-            {isRunning ? 'Läuft...' : 'Jetzt analysieren'}
+            <RefreshCw size={14} className={isRunning ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">{isRunning ? 'Läuft...' : 'Jetzt analysieren'}</span>
+            <span className="sm:hidden">{isRunning ? '...' : 'Analyse'}</span>
           </button>
           {/* Hauptschalter */}
           <button

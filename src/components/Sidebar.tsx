@@ -43,11 +43,16 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
   const autopilotEnabled = useAppStore((s) => s.autopilotSettings.enabled);
   const autopilotRunning = useAppStore((s) => s.autopilotState.isRunning);
 
+  // Top 5 items for mobile bottom navigation
+  const mobileNavItems = navItems.filter(item => 
+    ['dashboard', 'portfolio', 'signals', 'orders', 'settings'].includes(item.id)
+  );
+
   return (
     <>
-      {/* Mobile menu button */}
+      {/* Mobile menu button - nur sichtbar wenn NICHT in bottomNav-Ansicht */}
       <button
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-[#1a1a2e] text-white"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-[#1a1a2e] text-white shadow-lg border border-[#252542]"
         onClick={() => setIsOpen(!isOpen)}
       >
         {isOpen ? <X size={24} /> : <Menu size={24} />}
@@ -61,7 +66,7 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - Desktop */}
       <aside
         className={`
           fixed lg:static inset-y-0 left-0 z-40
@@ -127,6 +132,48 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
           </div>
         </div>
       </aside>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#1a1a2e] border-t border-[#252542] safe-bottom">
+        <div className="flex items-center justify-around px-1 py-1">
+          {mobileNavItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                onNavigate(item.id);
+                setIsOpen(false);
+              }}
+              className={`
+                flex flex-col items-center justify-center py-2 px-3 rounded-lg min-w-0 flex-1
+                transition-all duration-200
+                ${
+                  activeView === item.id
+                    ? 'text-indigo-400 bg-indigo-600/10'
+                    : 'text-gray-500'
+                }
+              `}
+            >
+              <span className="relative">
+                {item.icon}
+                {item.id === 'autopilot' && autopilotEnabled && (
+                  <span className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
+                    autopilotRunning ? 'bg-yellow-400 animate-pulse' : 'bg-emerald-400 animate-pulse'
+                  }`} />
+                )}
+              </span>
+              <span className="text-[10px] mt-1 font-medium truncate w-full text-center">{item.label}</span>
+            </button>
+          ))}
+          {/* More button to open sidebar */}
+          <button
+            onClick={() => setIsOpen(true)}
+            className="flex flex-col items-center justify-center py-2 px-3 rounded-lg min-w-0 flex-1 text-gray-500"
+          >
+            <Menu size={20} />
+            <span className="text-[10px] mt-1 font-medium">Mehr</span>
+          </button>
+        </div>
+      </nav>
     </>
   );
 }

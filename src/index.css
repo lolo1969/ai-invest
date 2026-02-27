@@ -17,24 +17,68 @@ body {
   background-color: var(--background);
   color: var(--text);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
+/* Safe area for notched devices */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
-::-webkit-scrollbar-track {
-  background: var(--surface);
+/* Custom scrollbar - hidden on mobile for cleaner look */
+@media (min-width: 1024px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--surface);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--surface-light);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
+  }
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--surface-light);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--primary);
+/* Mobile-friendly touch targets */
+@media (max-width: 768px) {
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  input, select, textarea {
+    font-size: 16px !important; /* Prevents iOS zoom on focus */
+  }
+  /* Mobile table cards */
+  .mobile-card-view table {
+    display: block;
+  }
+  .mobile-card-view thead {
+    display: none;
+  }
+  .mobile-card-view tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .mobile-card-view tr {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 0.75rem;
+    background: var(--surface-light);
+    border-radius: 0.75rem;
+    gap: 0.25rem;
+    border: 1px solid #252542;
+  }
+  .mobile-card-view td {
+    padding: 0.25rem 0 !important;
+  }
 }
 
 /* Animations */
@@ -54,4 +98,29 @@ body {
 
 .pulse-sell {
   animation: pulse-red 2s infinite;
+}
+
+/* Slide in animation for toasts */
+@keyframes slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+/* Mobile bottom nav spacer */
+@media (max-width: 1023px) {
+  .mobile-bottom-spacer {
+    padding-bottom: 5rem;
+  }
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

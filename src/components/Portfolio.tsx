@@ -57,6 +57,7 @@ export function Portfolio() {
   const [analysisProgress, setAnalysisProgress] = useState<{ step: string; detail: string; percent: number } | null>(null);
   const [tradeAction, setTradeAction] = useState<{ positionId: string; type: 'buy' | 'sell' } | null>(null);
   const [tradeQuantity, setTradeQuantity] = useState('');
+  const [tradePrice, setTradePrice] = useState('');
   const [yahooPrices, setYahooPrices] = useState<Record<string, number>>({});
   const [loadingYahooPrices, setLoadingYahooPrices] = useState(false);
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolSuggestion[]>([]);
@@ -99,11 +100,11 @@ export function Portfolio() {
   };
 
   // Execute instant trade at current market price
-  const executeTrade = (positionId: string, type: 'buy' | 'sell', quantity: number) => {
+  const executeTrade = (positionId: string, type: 'buy' | 'sell', quantity: number, customPrice?: number) => {
     const position = userPositions.find(p => p.id === positionId);
     if (!position || quantity <= 0) return;
 
-    const price = yahooPrices[positionId] ?? position.currentPrice;
+    const price = customPrice ?? yahooPrices[positionId] ?? position.currentPrice;
     const totalCost = price * quantity;
     
     // Transaktionsgebühren berechnen
@@ -139,6 +140,7 @@ export function Portfolio() {
     }
     setTradeAction(null);
     setTradeQuantity('');
+    setTradePrice('');
   };
 
   // Calculate totals
@@ -361,8 +363,8 @@ export function Portfolio() {
       return;
     }
 
-    if (userPositions.length === 0) {
-      setError('Füge zuerst Positionen zu deinem Portfolio hinzu.');
+    if (userPositions.length === 0 && watchlist.length === 0) {
+      setError('Füge zuerst Positionen zu deinem Portfolio oder Aktien zur Watchlist hinzu.');
       return;
     }
 
@@ -386,7 +388,7 @@ export function Portfolio() {
 
       // Build portfolio context with 52-week data and technical indicators (harmonized with Autopilot)
       setAnalysisProgress({ step: 'Portfolio-Kontext', detail: `${userPositions.length} Positionen mit Kursen, P/L & Indikatoren aufbereiten...`, percent: 15 });
-      const portfolioSummary = userPositions.map(p => {
+      const portfolioSummary = userPositions.length > 0 ? userPositions.map(p => {
         const pl = getProfitLoss(p);
         const identifier = p.isin ? `${p.name} (ISIN: ${p.isin})` : `${p.symbol} (${p.name})`;
         let info = `${identifier}: ${p.quantity} Stück, Kaufpreis: ${p.buyPrice.toFixed(2)} ${p.currency}, Aktuell: ${p.currentPrice.toFixed(2)} ${p.currency}, P/L: ${pl.percent >= 0 ? '+' : ''}${pl.percent.toFixed(2)}% (${pl.absolute >= 0 ? '+' : ''}${pl.absolute.toFixed(2)} ${p.currency})`;
@@ -408,7 +410,7 @@ export function Portfolio() {
           if (parts.length > 0) info += ` | ${parts.join(', ')}`;
         }
         return info;
-      }).join('\n');
+      }).join('\n') : 'Noch keine Positionen im Portfolio.';
 
       // Direct API call for portfolio analysis - use selected provider
       const isOpenAI = settings.aiProvider === 'openai';
@@ -589,7 +591,9 @@ WICHTIG FÜR DIESE ANALYSE:
       })();
 
       setAnalysisProgress({ step: 'Prompt aufbauen', detail: 'Analyse-Anfrage mit allen Faktoren zusammenstellen...', percent: 50 });
-      const promptContent = `Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Analysiere mein aktuelles Portfolio ganzheitlich und gib konkrete Empfehlungen.
+      const hasPositions = userPositions.length > 0;
+      const promptContent = hasPositions 
+        ? `Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Analysiere mein aktuelles Portfolio ganzheitlich und gib konkrete Empfehlungen.
 
 ═══════════════════════════════════════
 MEIN PORTFOLIO (NUR diese ${userPositions.length} Positionen besitze ich!):
@@ -817,6 +821,74 @@ ${settings.customPrompt ? `
 ═══════════════════════════════════════
 ${settings.customPrompt}
 ` : ''}
+Antworte auf Deutsch mit Emojis für bessere Übersicht.`
+        : `Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Ich habe noch keine Positionen im Portfolio und möchte mit dem Investieren beginnen.
+
+═══════════════════════════════════════
+MEIN PORTFOLIO:
+═══════════════════════════════════════
+Noch keine Positionen vorhanden.
+
+VERFÜGBARES CASH: ${cashBalance.toFixed(2)} EUR
+${(useAppStore.getState().initialCapital || 0) > 0 ? `STARTKAPITAL: ${useAppStore.getState().initialCapital.toFixed(2)} EUR` : ''}
+
+MEINE STRATEGIE:
+- Anlagehorizont: ${settings.strategy === 'short' ? 'Kurzfristig (Tage-Wochen)' : settings.strategy === 'middle' ? 'Mittelfristig (Wochen-Monate)' : 'Langfristig (10+ Jahre, Buy & Hold)'}
+- Risikotoleranz: ${settings.riskTolerance === 'low' ? 'Konservativ' : settings.riskTolerance === 'medium' ? 'Ausgewogen' : 'Aggressiv'}
+
+═══════════════════════════════════════
+MEINE WATCHLIST (beobachtete Aktien):
+═══════════════════════════════════════
+${watchlistSummary}
+
+HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+
+═══════════════════════════════════════
+🌍 GANZHEITLICHE ANALYSE-METHODIK:
+═══════════════════════════════════════
+Analysiere die Watchlist-Aktien aus ALLEN folgenden Perspektiven:
+- **Technische Analyse**: RSI, MACD, SMA, Bollinger Bands, Chartmuster
+- **Fundamentalanalyse**: KGV, Wachstum, Profitabilität, Moat, Bilanzqualität
+- **Makroökonomie**: Zinsen, Inflation, Konjunkturzyklus
+- **Geopolitik**: Handelspolitik, Konflikte, Lieferketten
+- **Sektoranalyse**: Branchentrends, Megatrends, Sektorrotation
+- **Sentiment**: Marktstimmung, VIX, kommende Events
+
+═══════════════════════════════════════
+AUFGABE:
+═══════════════════════════════════════
+
+🌍 **0. MARKT- & MAKRO-LAGEBEURTEILUNG**
+- Aktuelle Makrolage: Zinsen, Inflation, Konjunktur
+- Geopolitische Risiken
+- Marktsentiment & relevante kommende Events
+- Was bedeutet das für einen Neueinsteiger?
+
+🛒 **1. KAUFEMPFEHLUNGEN** (HAUPTFOKUS!)
+Basierend auf meinem verfügbaren Cash von ${cashBalance.toFixed(2)} EUR und meiner Strategie:
+- Analysiere JEDE Watchlist-Aktie detailliert mit Kauf-/Abwarte-Empfehlung
+- Für jede Kaufempfehlung: Technische + fundamentale Begründung, konkreter Einstiegspreis, Stop-Loss, Kursziel
+- Vorgeschlagene Investitionssumme in EUR (Positionsgrößen-Empfehlung)
+- Berücksichtige Diversifikation: Mix aus Branchen, Regionen, Risikoprofilen
+- Ergänze ggf. 2-3 weitere Aktien/ETFs über die Watchlist hinaus
+
+📊 **2. PORTFOLIO-AUFBAU-STRATEGIE**
+- Wie sollte ich mein Cash aufteilen? (z.B. 60% sofort, 20% gestaffelt, 20% Reserve)
+- Empfohlene Branchen- und Regionen-Verteilung
+- Kern-Positionen vs. Wachstums-Positionen
+- Wann und wie nach und nach investieren? (Timing-Strategie)
+
+🎯 **3. AKTIONSPLAN**
+- Priorisierte Kaufliste: Was zuerst kaufen?
+- Einstiegsstrategie: Sofort kaufen oder auf bessere Kurse warten?
+- Cash-Management: Wie viel Cash vorerst zurückhalten?
+
+${settings.customPrompt ? `
+═══════════════════════════════════════
+⚙️ PERSÖNLICHE ANWEISUNGEN (UNBEDINGT BEACHTEN!):
+═══════════════════════════════════════
+${settings.customPrompt}
+` : ''}
 Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       const modelName = isOpenAI 
@@ -839,7 +911,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       const apiBody = isOpenAI
         ? JSON.stringify({
             model: modelName,
-            max_completion_tokens: 16384,
+            max_completion_tokens: 32768,
             messages: [
               { role: 'system', content: 'Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Antworte auf Deutsch mit Emojis.' },
               { role: 'user', content: promptContent },
@@ -849,11 +921,11 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         ? JSON.stringify({
             contents: [{ parts: [{ text: promptContent }] }],
             systemInstruction: { parts: [{ text: 'Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Antworte auf Deutsch mit Emojis.' }] },
-            generationConfig: { maxOutputTokens: 16384, temperature: 0.7 },
+            generationConfig: { maxOutputTokens: 32768, temperature: 0.7 },
           })
         : JSON.stringify({
             model: modelName,
-            max_tokens: 16384,
+            max_tokens: 32768,
             messages: [
               { role: 'user', content: promptContent },
             ],
@@ -1062,14 +1134,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
         <div>
-          <h1 className="text-3xl font-bold text-white">Mein Portfolio</h1>
-          <p className="text-gray-400">
+          <h1 className="text-2xl md:text-3xl font-bold text-white">Mein Portfolio</h1>
+          <p className="text-sm text-gray-400">
             Verwalte und analysiere deine Aktien
             {lastUpdate && (
-              <span className="ml-2 text-xs text-gray-500">
+              <span className="block md:inline md:ml-2 text-xs text-gray-500">
                 • Preise aktualisiert: {lastUpdate.toLocaleTimeString()}
               </span>
             )}
@@ -1078,11 +1150,11 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 
-                     text-white rounded-lg transition-colors"
+            className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 
+                     text-white rounded-lg transition-colors text-sm md:text-base"
           >
-            <Plus size={18} />
-            Position hinzufügen
+            <Plus size={16} />
+            <span className="hidden sm:inline">Position</span> hinzufügen
           </button>
           {/* CSV Import - temporär deaktiviert
           <button
@@ -1096,18 +1168,19 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           */}
           <button
             onClick={analyzePortfolio}
-            disabled={analyzing || userPositions.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 
-                     disabled:bg-green-600/50 text-white rounded-lg transition-colors"
+            disabled={analyzing || (userPositions.length === 0 && watchlist.length === 0)}
+            className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 bg-green-600 hover:bg-green-700 
+                     disabled:bg-green-600/50 text-white rounded-lg transition-colors text-sm md:text-base"
           >
             {analyzing ? (
               <>
-                <RefreshCw className="animate-spin" size={18} />
-                {analysisProgress?.step || 'Analysiere...'}
+                <RefreshCw className="animate-spin" size={16} />
+                <span className="hidden sm:inline">{analysisProgress?.step || 'Analysiere...'}</span>
+                <span className="sm:hidden">...</span>
               </>
             ) : (
               <>
-                <Brain size={18} />
+                <Brain size={16} />
                 KI-Analyse
               </>
             )}
@@ -1115,8 +1188,8 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           <button
             onClick={fetchYahooPrices}
             disabled={loadingYahooPrices || userPositions.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 
-                     disabled:bg-blue-600/50 text-white rounded-lg transition-colors"
+            className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 bg-blue-600 hover:bg-blue-700 
+                     disabled:bg-blue-600/50 text-white rounded-lg transition-colors text-sm md:text-base"
             title={lastUpdate ? `Zuletzt aktualisiert: ${lastUpdate.toLocaleTimeString()}` : 'Noch nicht aktualisiert'}
           >
             {loadingYahooPrices ? (
@@ -1135,15 +1208,15 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-4">
         {/* Cash Balance Card */}
-        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542]">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-yellow-500/20 rounded-lg">
-              <Wallet size={24} className="text-yellow-500" />
+        <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-6 border border-[#252542] col-span-2 md:col-span-1">
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="p-2 md:p-3 bg-yellow-500/20 rounded-lg">
+              <Wallet size={20} className="text-yellow-500 md:w-6 md:h-6" />
             </div>
             <div className="flex-1">
-              <p className="text-gray-400 text-sm">Verfügbares Cash</p>
+              <p className="text-gray-400 text-xs md:text-sm">Verfügbares Cash</p>
               {editingCash ? (
                 <div className="flex items-center gap-2 mt-1">
                   <input
@@ -1166,7 +1239,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               ) : (
                 <div className="flex items-center gap-2">
                   <div>
-                    <p className="text-2xl font-bold text-yellow-500">
+                    <p className="text-lg md:text-2xl font-bold text-yellow-500">
                       {cashBalance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
                     </p>
                     {(() => {
@@ -1197,53 +1270,53 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           </div>
         </div>
 
-        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542]">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-indigo-500/20 rounded-lg">
-              <Briefcase size={24} className="text-indigo-500" />
+        <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-6 border border-[#252542]">
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="p-2 md:p-3 bg-indigo-500/20 rounded-lg">
+              <Briefcase size={20} className="text-indigo-500 md:w-6 md:h-6" />
             </div>
             <div>
-              <p className="text-gray-400 text-sm">Positionen</p>
-              <p className="text-2xl font-bold text-white">{userPositions.length}</p>
+              <p className="text-gray-400 text-xs md:text-sm">Positionen</p>
+              <p className="text-lg md:text-2xl font-bold text-white">{userPositions.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542]">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-500/20 rounded-lg">
-              <DollarSign size={24} className="text-blue-500" />
+        <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-6 border border-[#252542]">
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="p-2 md:p-3 bg-blue-500/20 rounded-lg">
+              <DollarSign size={20} className="text-blue-500 md:w-6 md:h-6" />
             </div>
-            <div>
-              <p className="text-gray-400 text-sm">Investiert</p>
-              <p className="text-2xl font-bold text-white">
+            <div className="min-w-0">
+              <p className="text-gray-400 text-xs md:text-sm">Investiert</p>
+              <p className="text-lg md:text-2xl font-bold text-white truncate">
                 {totalInvested.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542]">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-purple-500/20 rounded-lg">
-              <PieChart size={24} className="text-purple-500" />
+        <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-6 border border-[#252542]">
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="p-2 md:p-3 bg-purple-500/20 rounded-lg">
+              <PieChart size={20} className="text-purple-500 md:w-6 md:h-6" />
             </div>
-            <div>
-              <p className="text-gray-400 text-sm">Aktueller Wert</p>
-              <p className="text-2xl font-bold text-white">
+            <div className="min-w-0">
+              <p className="text-gray-400 text-xs md:text-sm">Aktueller Wert</p>
+              <p className="text-lg md:text-2xl font-bold text-white truncate">
                 {totalCurrentValue.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
               </p>
             </div>
           </div>
         </div>
 
-        <div className={`rounded-xl p-6 border ${
+        <div className={`rounded-xl p-3 md:p-6 border col-span-2 md:col-span-1 ${
           totalProfitLoss >= 0 
             ? 'bg-green-500/10 border-green-500/30' 
             : 'bg-red-500/10 border-red-500/30'
         }`}>
-          <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className={`p-2 md:p-3 rounded-lg ${
               totalProfitLoss >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'
             }`}>
               {totalProfitLoss >= 0 ? (
@@ -1252,13 +1325,13 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                 <TrendingDown size={24} className="text-red-500" />
               )}
             </div>
-            <div>
-              <p className="text-gray-400 text-sm">Gewinn/Verlust</p>
-              <p className={`text-2xl font-bold ${
+            <div className="min-w-0">
+              <p className="text-gray-400 text-xs md:text-sm">Gewinn/Verlust</p>
+              <p className={`text-lg md:text-2xl font-bold ${
                 totalProfitLoss >= 0 ? 'text-green-500' : 'text-red-500'
               }`}>
                 {totalProfitLoss >= 0 ? '+' : ''}{totalProfitLoss.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
-                <span className="text-sm ml-2">
+                <span className="text-xs md:text-sm ml-1 md:ml-2">
                   ({totalProfitLossPercent >= 0 ? '+' : ''}{totalProfitLossPercent.toFixed(2)}%)
                 </span>
               </p>
@@ -1449,8 +1522,8 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       {/* Positions Table */}
       <div className="bg-[#1a1a2e] rounded-xl border border-[#252542] overflow-hidden">
-        <div className="p-6 border-b border-[#252542]">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+        <div className="p-4 md:p-6 border-b border-[#252542]">
+          <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
             <Briefcase size={18} className="text-indigo-500" />
             Meine Positionen
           </h2>
@@ -1723,30 +1796,70 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                             <div className="text-xs font-medium text-gray-300">
                               {tradeAction.type === 'buy' ? '📈 Nachkaufen' : '📉 Verkaufen'}
                             </div>
-                            <div className="text-xs text-gray-500">
-                              Kurs: {(yahooPrices[position.id] ?? position.currentPrice).toFixed(2)} €
-                            </div>
-                            <input
-                              type="number"
-                              step="1"
-                              min="1"
-                              max={tradeAction.type === 'sell' ? position.quantity : undefined}
-                              value={tradeQuantity}
-                              onChange={(e) => setTradeQuantity(e.target.value)}
-                              placeholder="Anzahl"
-                              className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  const qty = parseFloat(tradeQuantity);
-                                  if (qty > 0) executeTrade(position.id, tradeAction.type, qty);
-                                }
-                                if (e.key === 'Escape') { setTradeAction(null); setTradeQuantity(''); }
-                              }}
-                            />
+                            {tradeAction.type === 'buy' ? (
+                              <>
+                                <div className="text-xs text-gray-500">
+                                  Marktpreis: {(yahooPrices[position.id] ?? position.currentPrice).toFixed(2)} €
+                                </div>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0.01"
+                                  value={tradePrice}
+                                  onChange={(e) => setTradePrice(e.target.value)}
+                                  placeholder="Kaufpreis"
+                                  className="w-24 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
+                                  autoFocus
+                                />
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min="1"
+                                  value={tradeQuantity}
+                                  onChange={(e) => setTradeQuantity(e.target.value)}
+                                  placeholder="Anzahl"
+                                  className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      const qty = parseFloat(tradeQuantity);
+                                      const price = parseFloat(tradePrice) || undefined;
+                                      if (qty > 0) executeTrade(position.id, tradeAction.type, qty, price);
+                                    }
+                                    if (e.key === 'Escape') { setTradeAction(null); setTradeQuantity(''); setTradePrice(''); }
+                                  }}
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <div className="text-xs text-gray-500">
+                                  Kurs: {(yahooPrices[position.id] ?? position.currentPrice).toFixed(2)} €
+                                </div>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min="1"
+                                  max={position.quantity}
+                                  value={tradeQuantity}
+                                  onChange={(e) => setTradeQuantity(e.target.value)}
+                                  placeholder="Anzahl"
+                                  className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      const qty = parseFloat(tradeQuantity);
+                                      if (qty > 0) executeTrade(position.id, tradeAction.type, qty);
+                                    }
+                                    if (e.key === 'Escape') { setTradeAction(null); setTradeQuantity(''); setTradePrice(''); }
+                                  }}
+                                />
+                              </>
+                            )}
                             {tradeQuantity && parseFloat(tradeQuantity) > 0 && (() => {
                               const qty = parseFloat(tradeQuantity);
-                              const tradeTotal = qty * (yahooPrices[position.id] ?? position.currentPrice);
+                              const effectivePrice = (tradeAction.type === 'buy' && tradePrice && parseFloat(tradePrice) > 0)
+                                ? parseFloat(tradePrice)
+                                : (yahooPrices[position.id] ?? position.currentPrice);
+                              const tradeTotal = qty * effectivePrice;
                               const tradeFee = (orderSettings.transactionFeeFlat || 0) + tradeTotal * (orderSettings.transactionFeePercent || 0) / 100;
                               return (
                                 <div className="text-xs text-gray-400">
@@ -1761,7 +1874,8 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                               <button
                                 onClick={() => {
                                   const qty = parseFloat(tradeQuantity);
-                                  if (qty > 0) executeTrade(position.id, tradeAction.type, qty);
+                                  const price = tradeAction.type === 'buy' ? (parseFloat(tradePrice) || undefined) : undefined;
+                                  if (qty > 0) executeTrade(position.id, tradeAction.type, qty, price);
                                 }}
                                 className={`px-2 py-1 rounded text-xs font-medium ${
                                   tradeAction.type === 'buy'
@@ -1772,7 +1886,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                 <Check size={14} />
                               </button>
                               <button
-                                onClick={() => { setTradeAction(null); setTradeQuantity(''); }}
+                                onClick={() => { setTradeAction(null); setTradeQuantity(''); setTradePrice(''); }}
                                 className="px-2 py-1 bg-gray-500/20 hover:bg-gray-500/30 rounded text-gray-400 text-xs"
                               >
                                 <X size={14} />
@@ -1782,7 +1896,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                         ) : (
                           <div className="flex items-center justify-center gap-1">
                             <button
-                              onClick={() => { setTradeAction({ positionId: position.id, type: 'buy' }); setTradeQuantity(''); }}
+                              onClick={() => { setTradeAction({ positionId: position.id, type: 'buy' }); setTradeQuantity(''); setTradePrice((yahooPrices[position.id] ?? position.currentPrice).toFixed(2)); }}
                               className="p-1.5 hover:bg-green-500/20 text-green-500 rounded-lg transition-colors"
                               title="Nachkaufen"
                             >
@@ -1809,7 +1923,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       {/* AI Analysis Loading */}
       {analyzing && (
-        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-indigo-500/30">
+        <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-indigo-500/30">
           <div className="flex items-center gap-3 mb-3">
             <RefreshCw className="animate-spin text-indigo-400" size={20} />
             <span className="text-indigo-300 font-medium">
@@ -1835,7 +1949,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       {/* AI Analysis Result */}
       {analysisResult && (
-        <div className="bg-[#1a1a2e] rounded-xl p-6 border border-indigo-500/30">
+        <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-indigo-500/30">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-white flex items-center gap-2">
               <Brain size={20} className="text-indigo-500" />

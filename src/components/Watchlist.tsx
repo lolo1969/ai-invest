@@ -148,11 +148,11 @@ export function Watchlist() {
                 className="flex items-center justify-between px-4 py-3 
                          hover:bg-[#252542] border-b border-[#252542] last:border-b-0"
               >
-                <div className="flex-1">
-                  <span className="font-medium text-white">{result.symbol}</span>
-                  <span className="text-gray-400 ml-2">{result.name}</span>
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-white text-sm md:text-base">{result.symbol}</span>
+                  <span className="text-gray-400 ml-2 text-xs md:text-sm truncate">{result.name}</span>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 md:gap-4">
                   {result.price !== undefined && !isNaN(result.price) && (
                     <div className="text-right">
                       <span className="text-white font-medium">{result.price.toFixed(2)} EUR</span>
@@ -180,8 +180,8 @@ export function Watchlist() {
 
       {/* Watchlist Table */}
       <div className="bg-[#1a1a2e] rounded-xl border border-[#252542] overflow-hidden">
-        <div className="p-6 border-b border-[#252542]">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+        <div className="p-4 md:p-6 border-b border-[#252542]">
+          <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
             <TrendingUp size={18} className="text-indigo-500" />
             Deine Watchlist ({watchlist.length} Aktien)
           </h2>
@@ -198,13 +198,13 @@ export function Watchlist() {
             <table className="w-full">
               <thead>
                 <tr className="text-left text-gray-400 text-sm bg-[#252542]/50">
-                  <th className="px-6 py-4">Symbol</th>
-                  <th className="px-6 py-4">Name</th>
-                  <th className="px-6 py-4 text-right">Preis</th>
-                  <th className="px-6 py-4 text-right">Änderung</th>
-                  <th className="px-6 py-4 text-right">Börse</th>
-                  <th className="px-6 py-4 text-center">Chart</th>
-                  <th className="px-6 py-4 text-center">Aktion</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4">Symbol</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 hidden sm:table-cell">Name</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-right">Preis</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-right">Änderung</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-right hidden md:table-cell">Börse</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-center">Chart</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-center">Aktion</th>
                 </tr>
               </thead>
               <tbody>
@@ -213,16 +213,16 @@ export function Watchlist() {
                     key={stock.symbol} 
                     className="border-b border-[#252542] hover:bg-[#252542]/30 transition-colors"
                   >
-                    <td className="px-6 py-4">
-                      <span className="font-bold text-white">{stock.symbol}</span>
+                    <td className="px-3 md:px-6 py-3 md:py-4">
+                      <span className="font-bold text-white text-sm md:text-base">{stock.symbol}</span>
                     </td>
-                    <td className="px-6 py-4 text-gray-300">{stock.name}</td>
-                    <td className="px-6 py-4 text-right text-white font-medium">
+                    <td className="px-3 md:px-6 py-3 md:py-4 text-gray-300 hidden sm:table-cell text-sm">{stock.name}</td>
+                    <td className="px-3 md:px-6 py-3 md:py-4 text-right text-white font-medium text-sm md:text-base">
                       {stock.price != null && !isNaN(stock.price) ? `${stock.price.toFixed(2)} ${stock.currency}` : '-'}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-3 md:px-6 py-3 md:py-4 text-right">
                       {stock.changePercent != null && !isNaN(stock.changePercent) ? (
-                        <span className={`flex items-center justify-end gap-1 font-medium ${
+                        <span className={`flex items-center justify-end gap-1 font-medium text-sm md:text-base ${
                           stock.changePercent >= 0 ? 'text-green-500' : 'text-red-500'
                         }`}>
                           {stock.changePercent >= 0 ? (
@@ -236,8 +236,8 @@ export function Watchlist() {
                         <span className="text-gray-500">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-right text-gray-400">{stock.exchange || '-'}</td>
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-3 md:px-6 py-3 md:py-4 text-right text-gray-400 hidden md:table-cell text-sm">{stock.exchange || '-'}</td>
+                    <td className="px-3 md:px-6 py-3 md:py-4 text-center">
                       <button
                         onClick={() => setSelectedStock(stock)}
                         className="p-2 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors"
@@ -246,7 +246,7 @@ export function Watchlist() {
                         <BarChart3 size={18} />
                       </button>
                     </td>
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-3 md:px-6 py-3 md:py-4 text-center">
                       <button
                         onClick={() => removeStock(stock.symbol)}
                         className="p-2 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"

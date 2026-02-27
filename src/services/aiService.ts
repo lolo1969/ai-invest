@@ -88,7 +88,7 @@ export class AIService {
       },
       body: JSON.stringify({
         model: this.claudeModel,
-        max_tokens: 16384,
+        max_tokens: 32768,
         messages: [
           {
             role: 'user',
@@ -119,6 +119,14 @@ export class AIService {
   }
 
   private async callOpenAI(prompt: string, stocks: Stock[], strategy?: InvestmentStrategy): Promise<AIAnalysisResponse> {
+    // Modelle mit max 16k completion tokens
+    const smallContextModels = ['gpt-4o-mini', 'gpt-3.5-turbo', 'gpt-3.5-turbo-16k'];
+    const maxTokens = smallContextModels.some(m => this.openaiModel.startsWith(m)) ? 16384 : 32768;
+    
+    // gpt-4o-mini und ältere Modelle brauchen 'max_tokens', neuere 'max_completion_tokens'
+    const useOldParam = smallContextModels.some(m => this.openaiModel.startsWith(m)) || this.openaiModel.startsWith('gpt-3.5');
+    const tokenParam = useOldParam ? { max_tokens: maxTokens } : { max_completion_tokens: maxTokens };
+    
     const response = await this.fetchWithRetry('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -127,7 +135,7 @@ export class AIService {
       },
       body: JSON.stringify({
         model: this.openaiModel,
-        max_completion_tokens: 16384,
+        ...tokenParam,
         messages: [
           {
             role: 'system',
