@@ -323,13 +323,50 @@ export async function runAutopilotCycle(): Promise<void> {
           // full-auto oder confirm-each: Orders erstellen
           let ordersCreated = 0;
           for (const suggested of approvedOrders) {
-            // Bestehende gleiche Orders stornieren (active und pending)
-            const existingOrders = orders.filter(
-              o => (o.status === 'active' || o.status === 'pending') && o.symbol === suggested.symbol && o.orderType === suggested.orderType
+            const isSellOrder = suggested.orderType === 'limit-sell' || suggested.orderType === 'stop-loss';
+
+            // Duplikat-Sell-Schutz: Prüfe ob bereits eine Sell-Order (egal welcher Typ)
+            // für dasselbe Symbol bei ähnlichem Preis (±5%) existiert
+            if (isSellOrder) {
+              const existingSells = orders.filter(
+                o => (o.status === 'active' || o.status === 'pending') 
+                  && o.symbol === suggested.symbol 
+                  && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss')
+              );
+              const similarSell = existingSells.find(o => {
+                const priceDiff = Math.abs(o.triggerPrice - suggested.triggerPrice) / o.triggerPrice;
+                return priceDiff <= 0.05; // innerhalb ±5%
+              });
+              if (similarSell) {
+                log(createLogEntry('skipped',
+                  `⏭️ ${suggested.symbol}: Sell-Order übersprungen – bereits ${similarSell.orderType.toUpperCase()} @ ${similarSell.triggerPrice.toFixed(2)}€ vorhanden (±5% von ${suggested.triggerPrice.toFixed(2)}€)`,
+                  undefined, suggested.symbol, similarSell.id
+                ));
+                continue;
+              }
+
+              // Prüfe ob Gesamtverkaufsvolumen die Position übersteigen würde
+              const position = userPositions.find(p => p.symbol === suggested.symbol);
+              const totalExistingSellQty = existingSells.reduce((sum, o) => sum + o.quantity, 0);
+              if (position && (totalExistingSellQty + suggested.quantity) > position.quantity) {
+                log(createLogEntry('skipped',
+                  `⏭️ ${suggested.symbol}: Sell-Order übersprungen – bestehende Sells (${totalExistingSellQty}) + neue (${suggested.quantity}) > Position (${position.quantity})`,
+                  undefined, suggested.symbol
+                ));
+                continue;
+              }
+            }
+
+            // Bestehende gleiche Autopilot-Orders stornieren (nur Autopilot-generierte, keine manuellen)
+            const existingAutopilotOrders = orders.filter(
+              o => (o.status === 'active' || o.status === 'pending') 
+                && o.symbol === suggested.symbol 
+                && o.orderType === suggested.orderType
+                && o.note?.startsWith('🤖 Autopilot:')
             );
-            for (const existing of existingOrders) {
+            for (const existing of existingAutopilotOrders) {
               cancelOrder(existing.id);
-              log(createLogEntry('info', `🔄 Bestehende Order storniert: ${existing.orderType} ${existing.symbol}`, undefined, existing.symbol, existing.id));
+              log(createLogEntry('info', `🔄 Bestehende Autopilot-Order storniert: ${existing.orderType} ${existing.symbol}`, undefined, existing.symbol, existing.id));
             }
 
             const stockData = stocks.find(s => s.symbol === suggested.symbol);
