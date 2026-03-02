@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { version } from '../../package.json';
 import { 
   LayoutDashboard, 
@@ -11,9 +11,11 @@ import {
   X,
   BellRing,
   ShoppingCart,
-  Bot
+  Bot,
+  Server
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import { isServerAvailable } from '../services/syncService';
 
 interface NavItem {
   id: string;
@@ -37,6 +39,35 @@ const navItems: NavItem[] = [
   { id: 'notifications', label: 'Alerts', icon: <Bell size={20} /> },
   { id: 'settings', label: 'Einstellungen', icon: <Settings size={20} /> },
 ];
+
+function ServerStatusBadge() {
+  const [connected, setConnected] = useState(false);
+  
+  useEffect(() => {
+    const check = () => setConnected(isServerAvailable());
+    check();
+    const interval = setInterval(check, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div 
+      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium ${
+        connected 
+          ? 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20' 
+          : 'text-gray-500 bg-gray-500/10 border border-gray-500/10'
+      }`} 
+      title={connected 
+        ? 'Backend-Server verbunden – Autopilot & Orders laufen auch ohne Browser' 
+        : 'Kein Backend-Server – Autopilot nur im Browser aktiv. Starte den Server mit: npm run server'
+      }
+    >
+      <Server size={12} />
+      <span>{connected ? 'Server aktiv' : 'Nur Browser'}</span>
+      <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+    </div>
+  );
+}
 
 export function Sidebar({ activeView, onNavigate }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -127,7 +158,10 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
           <div className="p-4 border-t border-[#252542]">
             <div className="px-4 py-3 bg-[#252542] rounded-lg">
               <p className="text-xs text-gray-400">Intelligent Investment Advisor</p>
-              <p className="text-xs text-gray-500 mt-1">v{version}</p>
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-xs text-gray-500">v{version}</p>
+                <ServerStatusBadge />
+              </div>
             </div>
           </div>
         </div>

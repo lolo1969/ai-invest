@@ -21,9 +21,11 @@ import {
   X,
   ShoppingCart,
   ArrowRightLeft,
+  Server,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { runAutopilotCycle } from '../services/autopilotService';
+import { checkServerStatus } from '../services/syncService';
 import type { AutopilotMode, AutopilotLogType } from '../types';
 
 const MODE_CONFIG: Record<AutopilotMode, { label: string; description: string; icon: React.ReactNode; color: string }> = {
@@ -296,6 +298,9 @@ export function Autopilot() {
           </p>
         </div>
       </div>
+
+      {/* Server-Status Banner */}
+      <ServerStatusBanner />
 
       {/* Settings Panel */}
       <div className="bg-[#1a1a2e] rounded-xl border border-[#252542] mb-6">
@@ -694,6 +699,55 @@ export function Autopilot() {
             <span><strong className="text-gray-400">Vollautomatisch:</strong> Wie „Mit Bestätigung", zusätzlich wird Auto-Ausführung in Orders aktiviert. ⚠️ Nur mit Sicherheitslimits nutzen!</span>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ServerStatusBanner() {
+  const [connected, setConnected] = useState(false);
+  const [info, setInfo] = useState<any>(null);
+
+  useEffect(() => {
+    const check = async () => {
+      const status = await checkServerStatus();
+      setConnected(status.running);
+      setInfo(status);
+    };
+    check();
+    const interval = setInterval(check, 10_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (connected) {
+    return (
+      <div className="mb-6 bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex items-center gap-3">
+        <div className="p-2 bg-emerald-500/20 rounded-lg">
+          <Server size={20} className="text-emerald-400" />
+        </div>
+        <div className="flex-1">
+          <p className="text-emerald-300 font-medium text-sm">Backend-Server verbunden</p>
+          <p className="text-emerald-400/70 text-xs mt-0.5">
+            Autopilot & Order-Ausführung laufen auch ohne Browser im Hintergrund.
+            {info?.activeOrders > 0 && ` ${info.activeOrders} aktive Orders werden überwacht.`}
+          </p>
+        </div>
+        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center gap-3">
+      <div className="p-2 bg-amber-500/20 rounded-lg">
+        <Server size={20} className="text-amber-400" />
+      </div>
+      <div className="flex-1">
+        <p className="text-amber-300 font-medium text-sm">Kein Backend-Server</p>
+        <p className="text-amber-400/70 text-xs mt-0.5">
+          Autopilot läuft nur solange die App im Browser geöffnet ist.
+          Starte den Server mit <code className="bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300">npm run server</code> für Hintergrund-Betrieb.
+        </p>
       </div>
     </div>
   );

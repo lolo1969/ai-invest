@@ -1832,8 +1832,18 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                             ) : (
                               <>
                                 <div className="text-xs text-gray-500">
-                                  Kurs: {(yahooPrices[position.id] ?? position.currentPrice).toFixed(2)} €
+                                  Marktpreis: {(yahooPrices[position.id] ?? position.currentPrice).toFixed(2)} €
                                 </div>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0.01"
+                                  value={tradePrice}
+                                  onChange={(e) => setTradePrice(e.target.value)}
+                                  placeholder="Verkaufspreis"
+                                  className="w-24 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
+                                  autoFocus
+                                />
                                 <input
                                   type="number"
                                   step="1"
@@ -1843,11 +1853,11 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                   onChange={(e) => setTradeQuantity(e.target.value)}
                                   placeholder="Anzahl"
                                   className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
-                                  autoFocus
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
                                       const qty = parseFloat(tradeQuantity);
-                                      if (qty > 0) executeTrade(position.id, tradeAction.type, qty);
+                                      const price = parseFloat(tradePrice) || undefined;
+                                      if (qty > 0) executeTrade(position.id, tradeAction.type, qty, price);
                                     }
                                     if (e.key === 'Escape') { setTradeAction(null); setTradeQuantity(''); setTradePrice(''); }
                                   }}
@@ -1856,7 +1866,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                             )}
                             {tradeQuantity && parseFloat(tradeQuantity) > 0 && (() => {
                               const qty = parseFloat(tradeQuantity);
-                              const effectivePrice = (tradeAction.type === 'buy' && tradePrice && parseFloat(tradePrice) > 0)
+                              const effectivePrice = (tradePrice && parseFloat(tradePrice) > 0)
                                 ? parseFloat(tradePrice)
                                 : (yahooPrices[position.id] ?? position.currentPrice);
                               const tradeTotal = qty * effectivePrice;
@@ -1874,7 +1884,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                               <button
                                 onClick={() => {
                                   const qty = parseFloat(tradeQuantity);
-                                  const price = tradeAction.type === 'buy' ? (parseFloat(tradePrice) || undefined) : undefined;
+                                  const price = parseFloat(tradePrice) || undefined;
                                   if (qty > 0) executeTrade(position.id, tradeAction.type, qty, price);
                                 }}
                                 className={`px-2 py-1 rounded text-xs font-medium ${
@@ -1903,7 +1913,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                               <ShoppingCart size={16} />
                             </button>
                             <button
-                              onClick={() => { setTradeAction({ positionId: position.id, type: 'sell' }); setTradeQuantity(position.quantity.toString()); }}
+                              onClick={() => { setTradeAction({ positionId: position.id, type: 'sell' }); setTradeQuantity(position.quantity.toString()); setTradePrice((yahooPrices[position.id] ?? position.currentPrice).toFixed(2)); }}
                               className="p-1.5 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
                               title="Verkaufen"
                             >

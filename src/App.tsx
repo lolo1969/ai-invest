@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { useAppStore } from './store/useAppStore';
 import { useAutopilot } from './hooks/useAutopilot';
 import { useOrderExecution } from './hooks/useOrderExecution';
+import { useServerSync } from './hooks/useServerSync';
 import { AlertCircle, X, Loader2 } from 'lucide-react';
 
 // Lazy-loaded components für Code-Splitting
@@ -68,6 +69,9 @@ function App() {
 
   // Order-Execution-Hook auf App-Ebene, damit Orders im Hintergrund geprüft werden
   useOrderExecution();
+
+  // Server-Sync: State mit Backend-Server synchronisieren (falls vorhanden)
+  useServerSync();
 
   const renderView = () => {
     switch (activeView) {
