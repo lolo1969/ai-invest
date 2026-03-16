@@ -29,3 +29,5 @@ server-php/data/state-*.json.tmp
 server-php/data/worker.log
 server-php/data/api.pid
 server-php/data/worker.pid
+server-php/data/cron.lock
+server-php/data/cron.log
