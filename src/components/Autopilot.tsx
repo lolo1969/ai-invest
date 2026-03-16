@@ -379,11 +379,12 @@ export function Autopilot() {
               <div className="flex items-center gap-3 pt-6">
                 <button
                   onClick={() => updateAutopilotSettings({ activeHoursOnly: !autopilotSettings.activeHoursOnly })}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  className={`toggle-switch relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
                     autopilotSettings.activeHoursOnly ? 'bg-emerald-500' : 'bg-gray-600'
                   }`}
+                  style={{ minWidth: '2.75rem', minHeight: '1.5rem', maxWidth: '2.75rem', maxHeight: '1.5rem' }}
                 >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  <span className={`inline-block h-4 w-4 shrink-0 transform rounded-full bg-white transition-transform ${
                     autopilotSettings.activeHoursOnly ? 'translate-x-6' : 'translate-x-1'
                   }`} />
                 </button>

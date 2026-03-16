@@ -10,8 +10,8 @@ import * as market from './marketData.js';
 /**
  * Prüft alle aktiven Orders und führt sie aus wenn die Bedingungen erfüllt sind.
  */
-export async function checkAndExecuteOrders(): Promise<void> {
-  const currentState = state.loadState();
+export async function checkAndExecuteOrders(sessionId = 'default'): Promise<void> {
+  const currentState = state.loadState(sessionId);
   
   if (!currentState.orderSettings.autoExecute) return;
 
@@ -82,11 +82,11 @@ export async function checkAndExecuteOrders(): Promise<void> {
       if (shouldExecute) {
         console.log(`[OrderExecutor] ✅ Order ausführen: ${order.orderType} ${order.quantity}x ${order.symbol} @ ${currentPrice.toFixed(2)}€`);
         // State neu laden (executeOrder speichert intern)
-        state.executeOrder(order.id, currentPrice);
+        state.executeOrder(order.id, currentPrice, sessionId);
         stateChanged = false; // executeOrder hat schon gespeichert
         
         // Log-Eintrag
-        const updatedState = state.loadState();
+        const updatedState = state.loadState(sessionId);
         updatedState.autopilotLog = [{
           id: crypto.randomUUID(),
           timestamp: new Date().toISOString(),
@@ -96,13 +96,13 @@ export async function checkAndExecuteOrders(): Promise<void> {
           orderId: order.id,
         }, ...updatedState.autopilotLog].slice(0, 200);
         updatedState.autopilotState.totalOrdersExecuted += 1;
-        state.saveState(updatedState);
+        state.saveState(updatedState, sessionId);
       }
     }
 
     // Preis-Updates speichern wenn nötig
     if (stateChanged) {
-      state.saveState(currentState);
+      state.saveState(currentState, sessionId);
     }
 
   } catch (error) {

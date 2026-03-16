@@ -1,22 +1,56 @@
 /**
  * Sync-Service: Synchronisiert den Frontend-State mit dem Backend-Server.
  * 
- * Funktionsweise:
- * - Beim App-Start: Prüft ob Server läuft und lädt neueren State
- * - Bei State-Änderungen: Pusht State zum Server (debounced)
- * - Periodisch: Holt Server-State (falls Server Änderungen gemacht hat)
+ * Jeder Browser bekommt automatisch eine eigene Session-ID.
+ * Damit sind die Portfolios zwischen verschiedenen Browsern komplett isoliert.
  * 
- * Wenn der Server nicht erreichbar ist, funktioniert die App wie bisher
- * (rein client-seitig mit localStorage).
+ * Session-ID wird im localStorage gespeichert und bei jedem API-Call mitgeschickt.
  */
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3141';
-const SYNC_INTERVAL = 15_000; // Alle 15 Sekunden Server-State holen
-const DEBOUNCE_PUSH = 3_000;  // 3 Sekunden Debounce für State-Push
+const SYNC_INTERVAL = 15_000;
+const DEBOUNCE_PUSH = 3_000;
+const SESSION_KEY = 'vestia-session-id';
 
 let serverAvailable = false;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 let pushTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// Optimistic Locking
+let knownServerVersion = 0;
+
+// Letzter gepushter State für sendBeacon bei Unload
+let lastPendingState: any = null;
+
+/**
+ * Session-ID generieren oder aus localStorage laden.
+ * Jeder Browser bekommt eine einzigartige ID → komplett isolierter State.
+ */
+function getSessionId(): string {
+  let sessionId = localStorage.getItem(SESSION_KEY);
+  if (!sessionId) {
+    sessionId = crypto.randomUUID().slice(0, 12);
+    localStorage.setItem(SESSION_KEY, sessionId);
+    console.log(`[Sync] Neue Session-ID generiert: ${sessionId}`);
+  }
+  return sessionId;
+}
+
+export function getCurrentSessionId(): string {
+  return getSessionId();
+}
+
+/**
+ * URL mit Session-ID-Parameter bauen
+ */
+function apiUrl(path: string): string {
+  const separator = path.includes('?') ? '&' : '?';
+  return `${SERVER_URL}${path}${separator}session=${getSessionId()}`;
+}
+
+export function getKnownServerVersion(): number {
+  return knownServerVersion;
+}
 
 /**
  * Prüft ob der Backend-Server erreichbar ist
@@ -30,7 +64,7 @@ export async function checkServerStatus(): Promise<{
   activeOrders?: number;
 }> {
   try {
-    const response = await fetch(`${SERVER_URL}/api/status`, { 
+    const response = await fetch(apiUrl('/api/status'), { 
       signal: AbortSignal.timeout(3000) 
     });
     if (response.ok) {
@@ -46,18 +80,21 @@ export async function checkServerStatus(): Promise<{
 }
 
 /**
- * Holt den State vom Server (Pull)
+ * Holt den State vom Server (Pull) inkl. Versionsnummer
  */
-export async function pullState(): Promise<any | null> {
+export async function pullState(): Promise<{ state: any; stateVersion: number } | null> {
   if (!serverAvailable) return null;
   
   try {
-    const response = await fetch(`${SERVER_URL}/api/state`, {
+    const response = await fetch(apiUrl('/api/state'), {
       signal: AbortSignal.timeout(5000),
     });
     if (response.ok) {
       const data = await response.json();
-      return data.state || null;
+      if (data.stateVersion !== undefined) {
+        knownServerVersion = data.stateVersion;
+      }
+      return { state: data.state || null, stateVersion: data.stateVersion || 0 };
     }
   } catch {
     serverAvailable = false;
@@ -66,37 +103,86 @@ export async function pullState(): Promise<any | null> {
 }
 
 /**
- * Schickt den State zum Server (Push)
+ * Schickt den State zum Server (Push) mit Versionsnummer für Conflict Detection.
+ * Returns the server response including conflict info and merged state.
  */
-export async function pushState(state: any): Promise<boolean> {
-  if (!serverAvailable) return false;
+export async function pushState(state: any): Promise<{
+  ok: boolean;
+  conflict?: boolean;
+  stateVersion?: number;
+  mergedState?: any;
+}> {
+  if (!serverAvailable) return { ok: false };
   
   try {
-    const response = await fetch(`${SERVER_URL}/api/state`, {
+    const response = await fetch(apiUrl('/api/state'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state }),
+      body: JSON.stringify({ state, stateVersion: knownServerVersion }),
       signal: AbortSignal.timeout(5000),
     });
-    return response.ok;
+    if (response.ok) {
+      const data = await response.json();
+      if (data.stateVersion !== undefined) {
+        knownServerVersion = data.stateVersion;
+      }
+      return {
+        ok: true,
+        conflict: data.conflict || false,
+        stateVersion: data.stateVersion,
+        mergedState: data.state || undefined,
+      };
+    }
+    return { ok: false };
   } catch {
     serverAvailable = false;
-    return false;
+    return { ok: false };
   }
 }
 
 /**
- * Debounced State-Push (vermeidet Überlastung bei häufigen Änderungen)
+ * Debounced State-Push mit Conflict-Callback
  */
+let onConflictCallback: ((mergedState: any) => void) | null = null;
+
+export function setOnConflictCallback(cb: (mergedState: any) => void): void {
+  onConflictCallback = cb;
+}
+
 export function debouncedPushState(state: any): void {
+  lastPendingState = state;
   if (pushTimeout) clearTimeout(pushTimeout);
   pushTimeout = setTimeout(() => {
-    pushState(state).then(ok => {
-      if (ok) {
-        console.log('[Sync] State zum Server gepusht ✅');
+    lastPendingState = null;
+    pushState(state).then(result => {
+      if (result.ok) {
+        if (result.conflict && result.mergedState && onConflictCallback) {
+          console.log('[Sync] ⚠️ Konflikt erkannt – übernehme gemergten State vom Server');
+          onConflictCallback(result.mergedState);
+        } else {
+          console.log('[Sync] State zum Server gepusht ✅');
+        }
       }
     });
   }, DEBOUNCE_PUSH);
+}
+
+/**
+ * Sofort-Push via sendBeacon – wird bei Page-Unload aufgerufen,
+ * damit kein State verloren geht wenn der User die Seite schließt/neulädt.
+ */
+export function flushPendingState(): void {
+  if (!lastPendingState || !serverAvailable) return;
+  
+  const url = apiUrl('/api/state');
+  const body = JSON.stringify({ state: lastPendingState, stateVersion: knownServerVersion });
+  
+  // sendBeacon ist für genau diesen Zweck gedacht: Daten beim Unload senden
+  const sent = navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+  if (sent) {
+    console.log('[Sync] State via sendBeacon geflusht ✅');
+    lastPendingState = null;
+  }
 }
 
 /**
@@ -106,7 +192,7 @@ export async function triggerServerCycle(): Promise<boolean> {
   if (!serverAvailable) return false;
   
   try {
-    const response = await fetch(`${SERVER_URL}/api/trigger-cycle`, {
+    const response = await fetch(apiUrl('/api/trigger-cycle'), {
       method: 'POST',
       signal: AbortSignal.timeout(5000),
     });
@@ -123,7 +209,7 @@ export async function triggerServerOrderCheck(): Promise<boolean> {
   if (!serverAvailable) return false;
   
   try {
-    const response = await fetch(`${SERVER_URL}/api/check-orders`, {
+    const response = await fetch(apiUrl('/api/check-orders'), {
       method: 'POST',
       signal: AbortSignal.timeout(5000),
     });
@@ -154,9 +240,9 @@ export function startSync(onServerState: (state: any) => void): () => void {
       return;
     }
 
-    const serverState = await pullState();
-    if (serverState) {
-      onServerState(serverState);
+    const result = await pullState();
+    if (result?.state) {
+      onServerState(result.state);
     }
   }, SYNC_INTERVAL);
 

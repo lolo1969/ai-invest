@@ -750,7 +750,11 @@ WICHTIG: Du musst NICHT zu jedem Punkt bei jeder Aktie etwas sagen. Fokussiere a
 
 ${(() => {
   const activeOrders = useAppStore.getState().orders.filter(o => o.status === 'active');
-  if (activeOrders.length === 0) return '';
+  if (activeOrders.length === 0) return `═══════════════════════════════════════
+📝 AKTIVE ORDERS: KEINE
+═══════════════════════════════════════
+Der Nutzer hat KEINE aktiven Orders. Behaupte in deiner Analyse NIEMALS, dass eine Order "steht", "existiert" oder "gesetzt ist"! Wenn du eine neue Order empfiehlst, formuliere es klar als NEUE Empfehlung (z.B. "Empfehle Limit-Sell bei X EUR aufzusetzen").
+`;
   const orderTypeLabels: Record<string, string> = { 'limit-buy': 'Limit Buy', 'limit-sell': 'Limit Sell', 'stop-loss': 'Stop Loss', 'stop-buy': 'Stop Buy' };
   return `═══════════════════════════════════════
 📝 MEINE AKTIVEN ORDERS (diese Orders existieren bereits!):
@@ -761,6 +765,8 @@ WICHTIG: Empfehle KEINE Orders die bereits oben aufgelistet sind!
 - Wenn eine Order für ein Symbol+Typ bereits existiert, erwähne sie NICHT erneut als neue Empfehlung
 - Du kannst bestehende Orders bewerten (ob sie noch sinnvoll sind)
 - Nur wenn eine bestehende Order angepasst werden sollte, empfehle eine neue mit anderem Trigger-Preis
+
+⚠️ KRITISCH: NUR die oben aufgelisteten Orders existieren tatsächlich! Behaupte NIEMALS, dass eine Order "steht" oder "existiert", wenn sie NICHT in dieser Liste aufgeführt ist. Wenn du eine NEUE Order empfiehlst, formuliere es als Empfehlung (z.B. "Empfehle Limit-Sell bei X EUR aufzusetzen"), NICHT als ob sie bereits existiert!
 `;
 })()}
 ${memoryContext}

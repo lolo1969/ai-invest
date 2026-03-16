@@ -1,7 +1,8 @@
 /**
  * Server State Manager
- * Verwaltet den App-State als JSON-Datei statt localStorage.
- * Beide Seiten (Server + Frontend) teilen dasselbe Datenformat.
+ * Verwaltet den App-State als JSON-Dateien pro Session.
+ * Jeder Browser/Client bekommt eine eigene Session-ID und damit
+ * einen komplett isolierten State (Portfolio, Orders, Einstellungen).
  */
 
 import fs from 'node:fs';
@@ -9,13 +10,38 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const STATE_FILE = path.join(__dirname, 'data', 'state.json');
-const LOCK_FILE = STATE_FILE + '.lock';
+const DATA_DIR = path.join(__dirname, 'data');
 
 // Ensure data directory exists
-const dataDir = path.dirname(STATE_FILE);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// Session-ID Validierung: Nur alphanumerisch + Bindestrich, max 64 Zeichen
+const SESSION_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+
+function validateSessionId(sessionId: string): string {
+  if (!sessionId || !SESSION_ID_REGEX.test(sessionId)) {
+    return 'default';
+  }
+  return sessionId;
+}
+
+function getStateFilePath(sessionId: string): string {
+  const safeId = validateSessionId(sessionId);
+  return path.join(DATA_DIR, `state-${safeId}.json`);
+}
+
+// Migration: Alte state.json → state-default.json
+const legacyStateFile = path.join(DATA_DIR, 'state.json');
+const defaultStateFile = getStateFilePath('default');
+if (fs.existsSync(legacyStateFile) && !fs.existsSync(defaultStateFile)) {
+  try {
+    fs.renameSync(legacyStateFile, defaultStateFile);
+    console.log('[StateManager] Migriert: state.json → state-default.json');
+  } catch (err) {
+    console.error('[StateManager] Migration fehlgeschlagen:', err);
+  }
 }
 
 export interface ServerState {
@@ -179,67 +205,260 @@ const DEFAULT_STATE: ServerState = {
   priceAlerts: [],
 };
 
-let cachedState: ServerState | null = null;
-let lastReadTime = 0;
+// Per-Session Cache und Versionierung
+const sessionCache = new Map<string, { state: ServerState; readTime: number; version: number }>();
 const CACHE_TTL = 1000; // Re-read file at most every 1s
 
-/**
- * State aus Datei laden (mit Cache)
- */
-export function loadState(): ServerState {
-  const now = Date.now();
-  if (cachedState && (now - lastReadTime) < CACHE_TTL) {
-    return cachedState;
-  }
-
-  try {
-    if (fs.existsSync(STATE_FILE)) {
-      const raw = fs.readFileSync(STATE_FILE, 'utf-8');
-      const parsed = JSON.parse(raw);
-      // Merge with defaults to ensure all fields exist
-      cachedState = deepMerge(DEFAULT_STATE, parsed.state ?? parsed) as ServerState;
-      lastReadTime = now;
-      return cachedState;
-    }
-  } catch (err) {
-    console.error('[StateManager] Fehler beim Laden:', err);
-  }
-
-  cachedState = { ...DEFAULT_STATE };
-  lastReadTime = now;
-  return cachedState;
+export function getStateVersion(sessionId = 'default'): number {
+  return sessionCache.get(validateSessionId(sessionId))?.version ?? 0;
 }
 
 /**
- * State in Datei speichern (atomar mit temp-file + rename)
+ * Alle aktiven Session-IDs auflisten (für Autopilot/Order-Executor)
  */
-export function saveState(state: ServerState): void {
+export function listSessions(): string[] {
   try {
+    const files = fs.readdirSync(DATA_DIR);
+    return files
+      .filter(f => f.startsWith('state-') && f.endsWith('.json'))
+      .map(f => f.replace('state-', '').replace('.json', ''))
+      .filter(id => SESSION_ID_REGEX.test(id));
+  } catch {
+    return ['default'];
+  }
+}
+
+/**
+ * State aus Datei laden (mit Cache), session-basiert
+ */
+export function loadState(sessionId = 'default'): ServerState {
+  const safeId = validateSessionId(sessionId);
+  const now = Date.now();
+  const cached = sessionCache.get(safeId);
+  
+  if (cached && (now - cached.readTime) < CACHE_TTL) {
+    return cached.state;
+  }
+
+  const stateFile = getStateFilePath(safeId);
+  try {
+    if (fs.existsSync(stateFile)) {
+      const raw = fs.readFileSync(stateFile, 'utf-8');
+      const parsed = JSON.parse(raw);
+      // Merge with defaults to ensure all fields exist
+      const state = deepMerge(DEFAULT_STATE, parsed.state ?? parsed) as ServerState;
+      const version = parsed.stateVersion ?? (cached?.version ?? 0);
+      sessionCache.set(safeId, { state, readTime: now, version });
+      return state;
+    }
+  } catch (err) {
+    console.error(`[StateManager] Fehler beim Laden (Session ${safeId}):`, err);
+  }
+
+  const state = { ...DEFAULT_STATE };
+  sessionCache.set(safeId, { state, readTime: now, version: 0 });
+  return state;
+}
+
+/**
+ * State in Datei speichern (atomar mit temp-file + rename), session-basiert
+ */
+export function saveState(state: ServerState, sessionId = 'default'): void {
+  const safeId = validateSessionId(sessionId);
+  try {
+    const cached = sessionCache.get(safeId);
+    const newVersion = (cached?.version ?? 0) + 1;
+    
     const data = JSON.stringify({ 
       version: '1.0.0',
+      stateVersion: newVersion,
+      sessionId: safeId,
       lastModified: new Date().toISOString(),
       source: 'server',
       state 
     }, null, 2);
     
-    const tmpFile = STATE_FILE + '.tmp';
+    const stateFile = getStateFilePath(safeId);
+    const tmpFile = stateFile + '.tmp';
     fs.writeFileSync(tmpFile, data, 'utf-8');
-    fs.renameSync(tmpFile, STATE_FILE);
+    fs.renameSync(tmpFile, stateFile);
     
-    cachedState = state;
-    lastReadTime = Date.now();
+    sessionCache.set(safeId, { state, readTime: Date.now(), version: newVersion });
   } catch (err) {
-    console.error('[StateManager] Fehler beim Speichern:', err);
+    console.error(`[StateManager] Fehler beim Speichern (Session ${safeId}):`, err);
   }
+}
+
+/**
+ * Intelligenter Merge: Vergleicht incoming State mit aktuellem Server-State
+ * und merged nur die Felder, die sich im Client tatsächlich geändert haben.
+ */
+export function mergeClientState(clientState: Partial<ServerState>, clientVersion: number, sessionId = 'default'): {
+  merged: ServerState;
+  conflict: boolean;
+  serverVersion: number;
+} {
+  const safeId = validateSessionId(sessionId);
+  const current = loadState(safeId);
+  const currentVersion = getStateVersion(safeId);
+  const conflict = clientVersion > 0 && clientVersion < currentVersion;
+
+  if (conflict) {
+    console.log(`[StateManager] Conflict (Session ${safeId}): Client v${clientVersion} vs Server v${currentVersion} – merging`);
+    
+    const merged = smartMerge(current, clientState);
+    saveState(merged, safeId);
+    return { merged, conflict: true, serverVersion: getStateVersion(safeId) };
+  } else {
+    const merged = deepMerge(current, clientState) as ServerState;
+    saveState(merged, safeId);
+    return { merged, conflict: false, serverVersion: getStateVersion(safeId) };
+  }
+}
+
+/**
+ * Smart Merge: Kombiniert Server-State und Client-State intelligent.
+ * - Positionen: Per ID mergen (beide Seiten behalten)
+ * - Orders: Per ID mergen (Status-Updates gewinnen)
+ * - Cash: Client gewinnt NUR wenn keine Server-seitigen Trades passiert sind
+ * - Watchlist: Union beider Listen
+ * - Settings: Client gewinnt (User hat sie aktiv geändert)
+ */
+function smartMerge(server: ServerState, client: Partial<ServerState>): ServerState {
+  const merged = { ...server };
+
+  // Settings: Client gewinnt (aktive User-Änderung)
+  if (client.settings) {
+    merged.settings = { ...server.settings, ...client.settings };
+  }
+
+  // Positionen: Per ID mergen
+  if (client.userPositions) {
+    const serverPositionMap = new Map(server.userPositions.map(p => [p.id, p]));
+    const clientPositionMap = new Map(client.userPositions.map(p => [p.id, p]));
+    
+    // Alle Server-Positionen behalten, Client-Änderungen übernehmen
+    const mergedPositions = [...server.userPositions];
+    for (const [id, clientPos] of clientPositionMap) {
+      if (!serverPositionMap.has(id)) {
+        // Neue Position vom Client
+        mergedPositions.push(clientPos);
+      }
+      // Server-Position hat Vorrang (könnte durch Order-Execution geändert sein)
+    }
+    merged.userPositions = mergedPositions;
+  }
+
+  // Orders: Per ID mergen, ausgeführte/stornierte Orders haben Vorrang
+  if (client.orders) {
+    const serverOrderMap = new Map(server.orders.map(o => [o.id, o]));
+    const clientOrderMap = new Map(client.orders.map(o => [o.id, o]));
+    
+    const mergedOrders = [...server.orders];
+    for (const [id, clientOrder] of clientOrderMap) {
+      if (!serverOrderMap.has(id)) {
+        // Neue Order vom Client
+        mergedOrders.push(clientOrder);
+      } else {
+        // Existierende Order: Wer hat höheren Status-Fortschritt?
+        const serverOrder = serverOrderMap.get(id)!;
+        const statusPriority: Record<string, number> = { pending: 0, active: 1, executed: 2, cancelled: 2, expired: 2 };
+        if ((statusPriority[clientOrder.status] || 0) > (statusPriority[serverOrder.status] || 0)) {
+          // Client hat fortgeschritteneren Status
+          const idx = mergedOrders.findIndex(o => o.id === id);
+          if (idx >= 0) mergedOrders[idx] = clientOrder;
+        }
+      }
+    }
+    merged.orders = mergedOrders;
+  }
+
+  // Cash: Server hat Vorrang (könnte durch Order-Execution korrekt sein)
+  // Client-Cash nur übernehmen wenn Server keine Trades hatte
+  // → Server-Wert bleibt
+
+  // Watchlist: Union (Symbol-basiert)
+  if (client.watchlist) {
+    const serverSymbols = new Set(server.watchlist.map(w => w.symbol));
+    for (const item of client.watchlist) {
+      if (!serverSymbols.has(item.symbol)) {
+        merged.watchlist.push(item);
+      }
+    }
+  }
+
+  // Signals: Server-Signale + neue Client-Signale
+  if (client.signals) {
+    const serverSignalIds = new Set(server.signals.map((s: any) => s.id));
+    for (const sig of client.signals) {
+      if (!serverSignalIds.has((sig as any).id)) {
+        merged.signals.push(sig);
+      }
+    }
+  }
+
+  // Autopilot-State: Server hat Vorrang
+  // (Server führt Zyklen aus, sein State ist maßgeblich)
+
+  // Autopilot-Settings: Client gewinnt (User hat sie geändert)
+  if (client.autopilotSettings) {
+    merged.autopilotSettings = { ...server.autopilotSettings, ...client.autopilotSettings };
+  }
+
+  // Autopilot-Log: Union per ID
+  if (client.autopilotLog) {
+    const serverLogIds = new Set(server.autopilotLog.map(l => l.id));
+    for (const entry of client.autopilotLog) {
+      if (!serverLogIds.has(entry.id)) {
+        merged.autopilotLog.push(entry);
+      }
+    }
+    merged.autopilotLog.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    merged.autopilotLog = merged.autopilotLog.slice(0, 200);
+  }
+
+  // Order-Settings: Client gewinnt
+  if (client.orderSettings) {
+    merged.orderSettings = { ...server.orderSettings, ...client.orderSettings };
+  }
+
+  // Price Alerts: Per ID mergen
+  if (client.priceAlerts) {
+    const serverAlertIds = new Set(server.priceAlerts.map((a: any) => a.id));
+    for (const alert of client.priceAlerts) {
+      if (!serverAlertIds.has((alert as any).id)) {
+        merged.priceAlerts.push(alert);
+      }
+    }
+  }
+
+  // Analysis: Neuer gewinnt
+  if (client.lastAnalysisDate && server.lastAnalysisDate) {
+    if (new Date(client.lastAnalysisDate) > new Date(server.lastAnalysisDate)) {
+      merged.lastAnalysis = client.lastAnalysis ?? server.lastAnalysis;
+      merged.lastAnalysisDate = client.lastAnalysisDate;
+    }
+  } else if (client.lastAnalysisDate && !server.lastAnalysisDate) {
+    merged.lastAnalysis = client.lastAnalysis ?? null;
+    merged.lastAnalysisDate = client.lastAnalysisDate;
+  }
+
+  // Portfolios, capitalÄnderungen: Client gewinnt
+  if (client.portfolios) merged.portfolios = client.portfolios;
+  if (client.activePortfolioId !== undefined) merged.activePortfolioId = client.activePortfolioId;
+  if (client.initialCapital !== undefined) merged.initialCapital = client.initialCapital;
+  if (client.previousProfit !== undefined) merged.previousProfit = client.previousProfit;
+
+  return merged;
 }
 
 /**
  * State partiell updaten (wie Zustand set)
  */
-export function updateState(partial: Partial<ServerState>): ServerState {
-  const current = loadState();
+export function updateState(partial: Partial<ServerState>, sessionId = 'default'): ServerState {
+  const current = loadState(sessionId);
   const updated = { ...current, ...partial };
-  saveState(updated);
+  saveState(updated, sessionId);
   return updated;
 }
 
@@ -248,33 +467,34 @@ export function updateState(partial: Partial<ServerState>): ServerState {
  */
 export function updateStateField<K extends keyof ServerState>(
   key: K,
-  value: ServerState[K]
+  value: ServerState[K],
+  sessionId = 'default'
 ): ServerState {
-  const current = loadState();
+  const current = loadState(sessionId);
   current[key] = value;
-  saveState(current);
+  saveState(current, sessionId);
   return current;
 }
 
 /**
  * Autopilot-Log hinzufügen
  */
-export function addAutopilotLog(entry: ServerState['autopilotLog'][0]): void {
-  const state = loadState();
-  state.autopilotLog = [entry, ...state.autopilotLog].slice(0, 200);
-  saveState(state);
+export function addAutopilotLog(entry: ServerState['autopilotLog'][0], sessionId = 'default'): void {
+  const s = loadState(sessionId);
+  s.autopilotLog = [entry, ...s.autopilotLog].slice(0, 200);
+  saveState(s, sessionId);
 }
 
 /**
  * Order hinzufügen
  */
-export function addOrder(order: ServerState['orders'][0]): void {
-  const state = loadState();
+export function addOrder(order: ServerState['orders'][0], sessionId = 'default'): void {
+  const s = loadState(sessionId);
   // Duplikat-Check
   const isBuy = order.orderType === 'limit-buy' || order.orderType === 'stop-buy';
   const isSell = order.orderType === 'limit-sell' || order.orderType === 'stop-loss';
   
-  const sameDirection = state.orders.filter(
+  const sameDirection = s.orders.filter(
     o => (o.status === 'active' || o.status === 'pending')
       && o.symbol === order.symbol
       && ((isBuy && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
@@ -292,27 +512,27 @@ export function addOrder(order: ServerState['orders'][0]): void {
     return;
   }
   
-  state.orders.push(order);
-  saveState(state);
+  s.orders.push(order);
+  saveState(s, sessionId);
 }
 
 /**
  * Order stornieren
  */
-export function cancelOrder(orderId: string): void {
-  const state = loadState();
-  state.orders = state.orders.map(o =>
+export function cancelOrder(orderId: string, sessionId = 'default'): void {
+  const s = loadState(sessionId);
+  s.orders = s.orders.map(o =>
     o.id === orderId ? { ...o, status: 'cancelled' } : o
   );
-  saveState(state);
+  saveState(s, sessionId);
 }
 
 /**
  * Order ausführen
  */
-export function executeOrder(orderId: string, executedPrice: number): void {
-  const state = loadState();
-  const order = state.orders.find(o => o.id === orderId);
+export function executeOrder(orderId: string, executedPrice: number, sessionId = 'default'): void {
+  const s = loadState(sessionId);
+  const order = s.orders.find(o => o.id === orderId);
   if (!order || (order.status !== 'active' && order.status !== 'pending')) return;
 
   // Trigger-Bedingung validieren
@@ -329,27 +549,27 @@ export function executeOrder(orderId: string, executedPrice: number): void {
   }
 
   const totalCost = executedPrice * order.quantity;
-  const fee = (state.orderSettings.transactionFeeFlat || 0) + totalCost * (state.orderSettings.transactionFeePercent || 0) / 100;
+  const fee = (s.orderSettings.transactionFeeFlat || 0) + totalCost * (s.orderSettings.transactionFeePercent || 0) / 100;
 
   if (order.orderType === 'limit-buy' || order.orderType === 'stop-buy') {
     // Kauf
-    if (totalCost + fee > state.cashBalance) {
+    if (totalCost + fee > s.cashBalance) {
       console.warn(`[executeOrder] Nicht genug Cash für ${order.symbol}`);
       order.status = 'cancelled';
       order.note = (order.note || '') + ' ❌ Storniert: Nicht genug Cash';
-      saveState(state);
+      saveState(s, sessionId);
       return;
     }
-    state.cashBalance = Math.round((state.cashBalance - totalCost - fee) * 100) / 100;
+    s.cashBalance = Math.round((s.cashBalance - totalCost - fee) * 100) / 100;
     
-    const existingPos = state.userPositions.find(p => p.symbol === order.symbol);
+    const existingPos = s.userPositions.find(p => p.symbol === order.symbol);
     if (existingPos) {
       const totalQty = existingPos.quantity + order.quantity;
       existingPos.buyPrice = (existingPos.buyPrice * existingPos.quantity + executedPrice * order.quantity) / totalQty;
       existingPos.quantity = totalQty;
       existingPos.currentPrice = executedPrice;
     } else {
-      state.userPositions.push({
+      s.userPositions.push({
         id: crypto.randomUUID(),
         symbol: order.symbol,
         name: order.name,
@@ -362,18 +582,18 @@ export function executeOrder(orderId: string, executedPrice: number): void {
     }
   } else {
     // Verkauf
-    const existingPos = state.userPositions.find(p => p.symbol === order.symbol);
+    const existingPos = s.userPositions.find(p => p.symbol === order.symbol);
     if (!existingPos || existingPos.quantity < order.quantity) {
       console.warn(`[executeOrder] Nicht genug Aktien für ${order.symbol}`);
       order.status = 'cancelled';
       order.note = (order.note || '') + ' ❌ Storniert: Nicht genug Aktien';
-      saveState(state);
+      saveState(s, sessionId);
       return;
     }
-    state.cashBalance = Math.round((state.cashBalance + totalCost - fee) * 100) / 100;
+    s.cashBalance = Math.round((s.cashBalance + totalCost - fee) * 100) / 100;
     existingPos.quantity -= order.quantity;
     if (existingPos.quantity <= 0) {
-      state.userPositions = state.userPositions.filter(p => p.symbol !== order.symbol);
+      s.userPositions = s.userPositions.filter(p => p.symbol !== order.symbol);
     } else {
       existingPos.currentPrice = executedPrice;
     }
@@ -382,29 +602,35 @@ export function executeOrder(orderId: string, executedPrice: number): void {
   order.status = 'executed';
   order.executedAt = new Date().toISOString();
   order.executedPrice = executedPrice;
-  saveState(state);
+  saveState(s, sessionId);
 }
 
 /**
- * Prüfe ob die State-Datei existiert
+ * Prüfe ob mindestens eine State-Datei existiert
  */
 export function stateFileExists(): boolean {
-  return fs.existsSync(STATE_FILE);
+  try {
+    const files = fs.readdirSync(DATA_DIR);
+    return files.some(f => f.startsWith('state-') && f.endsWith('.json'));
+  } catch {
+    return false;
+  }
 }
 
 /**
- * State-Datei Pfad
+ * State-Datei Pfad (für eine Session)
  */
-export function getStateFilePath(): string {
-  return STATE_FILE;
-}
+export { getStateFilePath };
 
 /**
  * Cache invalidieren (z.B. nach Frontend-Sync)
  */
-export function invalidateCache(): void {
-  cachedState = null;
-  lastReadTime = 0;
+export function invalidateCache(sessionId?: string): void {
+  if (sessionId) {
+    sessionCache.delete(validateSessionId(sessionId));
+  } else {
+    sessionCache.clear();
+  }
 }
 
 // Deep merge helper

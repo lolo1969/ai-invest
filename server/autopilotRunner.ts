@@ -461,8 +461,8 @@ function applySafetyRules(
 
 // ─── Haupt-Zyklus ────────────────────────────────────
 
-export async function runAutopilotCycle(): Promise<void> {
-  const currentState = state.loadState();
+export async function runAutopilotCycle(sessionId = 'default'): Promise<void> {
+  const currentState = state.loadState(sessionId);
   const settings = currentState.autopilotSettings;
   const logEntries: any[] = [];
 
@@ -474,9 +474,9 @@ export async function runAutopilotCycle(): Promise<void> {
   }
 
   const cycleId = crypto.randomUUID().slice(0, 8);
-  logEntries.push(createLogEntry('info', `🔄 [Server] Autopilot-Zyklus #${cycleId} gestartet`));
+  logEntries.push(createLogEntry('info', `🔄 [Server] Autopilot-Zyklus #${cycleId} gestartet (Session: ${sessionId})`));
   currentState.autopilotState.isRunning = true;
-  state.saveState(currentState);
+  state.saveState(currentState, sessionId);
 
   try {
     // 0. Abgelaufene Orders bereinigen
@@ -526,7 +526,7 @@ export async function runAutopilotCycle(): Promise<void> {
       currentState.autopilotState.isRunning = false;
       currentState.autopilotState.lastRunAt = new Date().toISOString();
       currentState.autopilotLog = [...logEntries, ...currentState.autopilotLog].slice(0, 200);
-      state.saveState(currentState);
+      state.saveState(currentState, sessionId);
       return;
     }
     if (marketStatus.open) {
@@ -544,7 +544,7 @@ export async function runAutopilotCycle(): Promise<void> {
       logEntries.push(createLogEntry('error', '❌ Kein API-Key konfiguriert – Autopilot pausiert'));
       currentState.autopilotState.isRunning = false;
       currentState.autopilotLog = [...logEntries, ...currentState.autopilotLog].slice(0, 200);
-      state.saveState(currentState);
+      state.saveState(currentState, sessionId);
       return;
     }
 
@@ -560,7 +560,7 @@ export async function runAutopilotCycle(): Promise<void> {
       currentState.autopilotState.isRunning = false;
       currentState.autopilotState.lastRunAt = new Date().toISOString();
       currentState.autopilotLog = [...logEntries, ...currentState.autopilotLog].slice(0, 200);
-      state.saveState(currentState);
+      state.saveState(currentState, sessionId);
       return;
     }
 
@@ -780,5 +780,5 @@ export async function runAutopilotCycle(): Promise<void> {
 
   // Alle Logs auf einmal speichern
   currentState.autopilotLog = [...logEntries, ...currentState.autopilotLog].slice(0, 200);
-  state.saveState(currentState);
+  state.saveState(currentState, sessionId);
 }
