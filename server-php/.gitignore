@@ -8,3 +8,7 @@ data/worker.log
 # PID-Dateien
 data/api.pid
 data/worker.pid
+
+# Cron
+data/cron.lock
+data/cron.log
