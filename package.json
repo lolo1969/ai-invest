@@ -8,9 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "server": "tsx server/index.ts",
-    "server:dev": "tsx watch server/index.ts",
-    "dev:all": "concurrently \"npm run dev\" \"npm run server:dev\""
+    "server": "php -S 0.0.0.0:3141 -t server-php server-php/router.php",
+    "worker": "php server-php/worker.php",
+    "server:start": "bash server-php/start.sh",
+    "server:stop": "bash server-php/start.sh stop",
+    "dev:all": "concurrently \"npm run dev\" \"npm run server\" \"npm run worker\""
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",

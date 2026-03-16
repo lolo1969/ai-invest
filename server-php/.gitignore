@@ -1,0 +1,10 @@
+# Session-State-Dateien
+data/state-*.json
+data/state-*.json.tmp
+
+# Worker-Logs
+data/worker.log
+
+# PID-Dateien
+data/api.pid
+data/worker.pid
