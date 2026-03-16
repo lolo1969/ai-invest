@@ -473,7 +473,12 @@ Bewerte anhand der technischen Indikatoren:
 - Sind die Trigger-Preise angesichts der aktuellen Indikatoren noch sinnvoll?
 - Stimmen die Stop-Loss Orders mit der ATR und Volatilität überein?
 - Sollten Orders angepasst, beibehalten oder storniert werden?
-` : ''}
+
+⚠️ KRITISCH: NUR die oben aufgelisteten Orders existieren tatsächlich! Behaupte in deiner Analyse NIEMALS, dass eine Order "steht" oder "existiert", wenn sie NICHT in dieser Liste aufgeführt ist. Wenn du eine NEUE Order empfiehlst, formuliere es als Empfehlung (z.B. "Empfehle Limit-Sell bei X EUR"), NICHT als ob sie bereits existiert!
+` : `
+📝 AKTIVE ORDERS: KEINE
+Der Nutzer hat KEINE aktiven Orders. Behaupte in deiner Analyse NIEMALS, dass eine Order "steht", "existiert" oder "gesetzt ist", wenn es keine gibt! Wenn du eine neue Order empfiehlst, formuliere es klar als NEUE Empfehlung (z.B. "Empfehle Limit-Sell bei X EUR aufzusetzen").
+`}
 
 STRATEGIE-KOMPATIBILITÄTSPRÜFUNG (${strategyDesc}):
 ${request.strategy === 'long' ? `Prüfe für JEDE Aktie (Portfolio UND Watchlist):

@@ -321,12 +321,13 @@ export function Orders() {
             <span className="text-sm text-gray-400">Auto-Ausführung</span>
             <button
               onClick={() => updateOrderSettings({ autoExecute: !orderSettings.autoExecute })}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              className={`toggle-switch relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
                 orderSettings.autoExecute ? 'bg-green-500' : 'bg-gray-600'
               }`}
+              style={{ minWidth: '2.75rem', minHeight: '1.5rem', maxWidth: '2.75rem', maxHeight: '1.5rem' }}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 shrink-0 transform rounded-full bg-white transition-transform ${
                   orderSettings.autoExecute ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />

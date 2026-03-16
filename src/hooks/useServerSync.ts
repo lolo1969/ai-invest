@@ -2,8 +2,9 @@
  * Hook für die Synchronisation mit dem Backend-Server.
  * 
  * - Beim Laden: Prüft ob Server verfügbar ist
- * - Pusht State-Änderungen zum Server (debounced)
+ * - Pusht State-Änderungen zum Server (debounced, mit Versionsnummer)
  * - Holt periodisch State vom Server (falls Server Autopilot/Orders ausgeführt hat)
+ * - Conflict Resolution: Bei Konflikten wird der gemergte Server-State übernommen
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -12,7 +13,10 @@ import {
   startSync, 
   checkServerStatus, 
   pushState, 
-  debouncedPushState 
+  debouncedPushState,
+  setOnConflictCallback,
+  pullState,
+  flushPendingState,
 } from '../services/syncService';
 
 export function useServerSync() {
@@ -30,6 +34,20 @@ export function useServerSync() {
       setServerInfo(status);
 
       if (status.running) {
+        // Conflict-Callback registrieren: Wenn ein Push einen Konflikt erzeugt,
+        // übernehmen wir den Server-gemergten State
+        setOnConflictCallback((mergedState) => {
+          skipNextPushRef.current = true;
+          useAppStore.setState({
+            ...mergedState,
+            // UI-State nicht überschreiben
+            isLoading: useAppStore.getState().isLoading,
+            isAnalyzing: useAppStore.getState().isAnalyzing,
+            error: useAppStore.getState().error,
+          });
+          console.log('[ServerSync] ⚠️ Konflikt aufgelöst – gemergten State übernommen');
+        });
+
         // State-Sync starten: Wenn Server einen neueren State hat, übernehmen
         cleanup = startSync((serverState) => {
           if (!serverState) return;
@@ -61,16 +79,63 @@ export function useServerSync() {
           }
         });
 
-        // Initialer Push: Aktuellen State zum Server schicken
+        // Initialer Sync: Lokalen State zum Server pushen (Merge),
+        // dann gemergten State zurückholen.
+        // So geht kein lokaler State verloren (z.B. Verkäufe vor Reload).
         const currentState = useAppStore.getState();
-        pushStateToServer(currentState);
+        const localHasData = currentState.userPositions?.length > 0
+          || currentState.cashBalance > 0
+          || currentState.watchlist?.length > 0;
+        
+        if (localHasData) {
+          // Lokalen State pushen → Server merged intelligent
+          const pushResult = await pushState(extractSyncState(currentState));
+          
+          if (pushResult.ok && pushResult.conflict && pushResult.mergedState) {
+            // Konflikt: Server hatte andere Daten → gemergten State übernehmen
+            skipNextPushRef.current = true;
+            useAppStore.setState({
+              ...pushResult.mergedState,
+              isLoading: currentState.isLoading,
+              isAnalyzing: currentState.isAnalyzing,
+              error: currentState.error,
+            });
+            console.log('[ServerSync] Initialer Merge – gemergten State übernommen ✅');
+          } else if (pushResult.ok) {
+            console.log('[ServerSync] Initialer State-Push erfolgreich ✅');
+          }
+        } else {
+          // Lokal keine Daten → Server-State holen
+          const serverData = await pullState();
+          if (serverData?.state) {
+            const serverHasData = serverData.state.userPositions?.length > 0
+              || serverData.state.cashBalance > 0
+              || serverData.state.watchlist?.length > 0;
+            if (serverHasData) {
+              skipNextPushRef.current = true;
+              useAppStore.setState({
+                ...serverData.state,
+                isLoading: currentState.isLoading,
+                isAnalyzing: currentState.isAnalyzing,
+                error: currentState.error,
+              });
+              console.log('[ServerSync] Initialer State vom Server geladen ✅');
+            }
+          }
+        }
       }
     };
 
     init();
 
+    // Bei Page-Unload: Pending State sofort flushen
+    const handleUnload = () => flushPendingState();
+    window.addEventListener('beforeunload', handleUnload);
+
     return () => {
       if (cleanup) cleanup();
+      setOnConflictCallback(() => {});
+      window.removeEventListener('beforeunload', handleUnload);
     };
   }, []);
 

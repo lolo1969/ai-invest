@@ -711,21 +711,25 @@ export function Settings() {
             <Send size={20} className="text-indigo-500" />
             Telegram Benachrichtigungen
           </h2>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={settings.notifications.telegram.enabled}
-              onChange={(e) => updateSettings({
+          <div className="flex items-center gap-2">
+            <span className="text-gray-300 text-sm">Aktiviert</span>
+            <button
+              onClick={() => updateSettings({
                 notifications: {
                   ...settings.notifications,
-                  telegram: { ...settings.notifications.telegram, enabled: e.target.checked }
+                  telegram: { ...settings.notifications.telegram, enabled: !settings.notifications.telegram.enabled }
                 }
               })}
-              className="w-5 h-5 rounded bg-[#252542] border-[#3a3a5a] text-indigo-600 
-                       focus:ring-indigo-500"
-            />
-            <span className="text-gray-300">Aktiviert</span>
-          </label>
+              className={`toggle-switch relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                settings.notifications.telegram.enabled ? 'bg-indigo-500' : 'bg-gray-600'
+              }`}
+              style={{ minWidth: '2.75rem', minHeight: '1.5rem', maxWidth: '2.75rem', maxHeight: '1.5rem' }}
+            >
+              <span className={`inline-block h-4 w-4 shrink-0 transform rounded-full bg-white transition-transform ${
+                settings.notifications.telegram.enabled ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -802,21 +806,25 @@ export function Settings() {
             <Mail size={20} className="text-indigo-500" />
             E-Mail Benachrichtigungen (EmailJS)
           </h2>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={settings.notifications.email.enabled}
-              onChange={(e) => updateSettings({
+          <div className="flex items-center gap-2">
+            <span className="text-gray-300 text-sm">Aktiviert</span>
+            <button
+              onClick={() => updateSettings({
                 notifications: {
                   ...settings.notifications,
-                  email: { ...settings.notifications.email, enabled: e.target.checked }
+                  email: { ...settings.notifications.email, enabled: !settings.notifications.email.enabled }
                 }
               })}
-              className="w-5 h-5 rounded bg-[#252542] border-[#3a3a5a] text-indigo-600 
-                       focus:ring-indigo-500"
-            />
-            <span className="text-gray-300">Aktiviert</span>
-          </label>
+              className={`toggle-switch relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                settings.notifications.email.enabled ? 'bg-indigo-500' : 'bg-gray-600'
+              }`}
+              style={{ minWidth: '2.75rem', minHeight: '1.5rem', maxWidth: '2.75rem', maxHeight: '1.5rem' }}
+            >
+              <span className={`inline-block h-4 w-4 shrink-0 transform rounded-full bg-white transition-transform ${
+                settings.notifications.email.enabled ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+          </div>
         </div>
 
         <div>

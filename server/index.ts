@@ -12,7 +12,7 @@
  */
 
 import http from 'node:http';
-import { loadState, saveState, invalidateCache, stateFileExists, getStateFilePath, type ServerState } from './stateManager.js';
+import { loadState, saveState, invalidateCache, stateFileExists, getStateFilePath, getStateVersion, mergeClientState, listSessions, type ServerState } from './stateManager.js';
 import { runAutopilotCycle } from './autopilotRunner.js';
 import { checkAndExecuteOrders } from './orderExecutor.js';
 
@@ -27,10 +27,12 @@ let isRunningCycle = false;
 function startScheduler(): void {
   console.log('[Scheduler] Starte...');
   
-  // Order-Execution: alle 30s
+  // Order-Execution: alle 30s – über ALLE Sessions
   orderCheckInterval = setInterval(async () => {
     try {
-      await checkAndExecuteOrders();
+      for (const sessionId of listSessions()) {
+        await checkAndExecuteOrders(sessionId);
+      }
     } catch (err) {
       console.error('[Scheduler] Order-Check Fehler:', err);
     }
@@ -49,38 +51,32 @@ function scheduleAutopilot(): void {
     autopilotInterval = null;
   }
 
-  const state = loadState();
-  if (!state.autopilotSettings.enabled) {
-    console.log('[Scheduler] Autopilot deaktiviert');
+  // Prüfe über ALLE Sessions ob Autopilot aktiv ist
+  const sessions = listSessions();
+  let shortestInterval = Infinity;
+  let anyEnabled = false;
+
+  for (const sessionId of sessions) {
+    const state = loadState(sessionId);
+    if (state.autopilotSettings.enabled) {
+      anyEnabled = true;
+      shortestInterval = Math.min(shortestInterval, state.autopilotSettings.intervalMinutes);
+    }
+  }
+
+  if (!anyEnabled) {
+    console.log('[Scheduler] Autopilot deaktiviert (keine Session aktiv)');
     return;
   }
 
-  const intervalMs = state.autopilotSettings.intervalMinutes * 60 * 1000;
-  console.log(`[Scheduler] Autopilot-Intervall: ${state.autopilotSettings.intervalMinutes} Minuten`);
+  const intervalMs = shortestInterval * 60 * 1000;
+  console.log(`[Scheduler] Autopilot-Intervall: ${shortestInterval} Minuten (kürzestes aktives Intervall)`);
 
-  // Prüfe ob ein Zyklus fällig ist
-  const lastRun = state.autopilotState.lastRunAt
-    ? new Date(state.autopilotState.lastRunAt).getTime()
-    : 0;
-  const timeSinceLastRun = Date.now() - lastRun;
-  
-  if (timeSinceLastRun >= intervalMs) {
-    // Sofort starten (nach 10s Verzögerung)
-    console.log('[Scheduler] Erster Zyklus in 10 Sekunden...');
-    setTimeout(() => runCycle(), 10_000);
-  } else {
-    const nextIn = intervalMs - timeSinceLastRun;
-    console.log(`[Scheduler] Nächster Zyklus in ${Math.round(nextIn / 60000)} Minuten`);
-    setTimeout(() => runCycle(), nextIn);
-  }
+  // Sofort prüfen ob ein Zyklus fällig ist
+  setTimeout(() => runCycle(), 10_000);
 
   // Regelmäßiger Interval
   autopilotInterval = setInterval(() => runCycle(), intervalMs);
-
-  // Next-Run updaten
-  const nextRunAt = new Date(Date.now() + Math.min(timeSinceLastRun >= intervalMs ? 10_000 : intervalMs - timeSinceLastRun, intervalMs));
-  state.autopilotState.nextRunAt = nextRunAt.toISOString();
-  saveState(state);
 }
 
 async function runCycle(): Promise<void> {
@@ -91,16 +87,31 @@ async function runCycle(): Promise<void> {
   isRunningCycle = true;
   
   try {
-    console.log(`[Scheduler] 🔄 Autopilot-Zyklus gestartet (${new Date().toLocaleString('de-DE')})`);
-    await runAutopilotCycle();
-    console.log('[Scheduler] ✅ Zyklus abgeschlossen');
-    
-    // Nächsten Lauf berechnen
-    const state = loadState();
-    if (state.autopilotSettings.enabled) {
-      const nextRun = new Date(Date.now() + state.autopilotSettings.intervalMinutes * 60 * 1000);
-      state.autopilotState.nextRunAt = nextRun.toISOString();
-      saveState(state);
+    // Über ALLE Sessions mit aktivem Autopilot iterieren
+    for (const sessionId of listSessions()) {
+      const state = loadState(sessionId);
+      if (!state.autopilotSettings.enabled) continue;
+
+      // Prüfe ob Zyklus fällig ist
+      const intervalMs = state.autopilotSettings.intervalMinutes * 60 * 1000;
+      const lastRun = state.autopilotState.lastRunAt
+        ? new Date(state.autopilotState.lastRunAt).getTime()
+        : 0;
+      const timeSinceLastRun = Date.now() - lastRun;
+      
+      if (timeSinceLastRun < intervalMs) continue;
+
+      console.log(`[Scheduler] 🔄 Autopilot-Zyklus für Session "${sessionId}" (${new Date().toLocaleString('de-DE')})`);
+      await runAutopilotCycle(sessionId);
+      
+      // Nächsten Lauf berechnen
+      const updatedState = loadState(sessionId);
+      if (updatedState.autopilotSettings.enabled) {
+        const nextRun = new Date(Date.now() + updatedState.autopilotSettings.intervalMinutes * 60 * 1000);
+        updatedState.autopilotState.nextRunAt = nextRun.toISOString();
+        saveState(updatedState, sessionId);
+      }
+      console.log(`[Scheduler] ✅ Zyklus für Session "${sessionId}" abgeschlossen`);
     }
   } catch (err) {
     console.error('[Scheduler] ❌ Zyklus-Fehler:', err);
@@ -148,13 +159,17 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url || '/', `http://localhost:${PORT}`);
   const path = url.pathname;
+  
+  // Session-ID aus Query-Parameter extrahieren (jeder Browser hat seine eigene)
+  const sessionId = url.searchParams.get('session') || 'default';
 
   try {
     // ─── GET /api/status ─────────────
     if (path === '/api/status' && req.method === 'GET') {
-      const state = loadState();
+      const state = loadState(sessionId);
       sendJSON(res, {
         running: true,
+        sessionId,
         autopilotEnabled: state.autopilotSettings.enabled,
         autopilotMode: state.autopilotSettings.mode,
         lastRunAt: state.autopilotState.lastRunAt,
@@ -164,20 +179,21 @@ const server = http.createServer(async (req, res) => {
         totalOrdersExecuted: state.autopilotState.totalOrdersExecuted,
         activeOrders: state.orders.filter(o => o.status === 'active').length,
         orderAutoExecute: state.orderSettings.autoExecute,
-        stateFile: getStateFilePath(),
+        stateFile: getStateFilePath(sessionId),
       });
       return;
     }
 
     // ─── GET /api/state ──────────────
     if (path === '/api/state' && req.method === 'GET') {
-      const state = loadState();
-      sendJSON(res, { state });
+      const state = loadState(sessionId);
+      sendJSON(res, { state, stateVersion: getStateVersion(sessionId), sessionId });
       return;
     }
 
     // ─── POST /api/state ─────────────
-    // Frontend schickt seinen kompletten State hierher
+    // Frontend schickt seinen State + Version + Session-ID
+    // Conflict-aware: Merged intelligent statt blind zu überschreiben
     if (path === '/api/state' && req.method === 'POST') {
       const body = await parseBody(req);
       const parsed = JSON.parse(body);
@@ -187,13 +203,21 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      saveState(parsed.state);
-      invalidateCache();
+      const clientVersion = typeof parsed.stateVersion === 'number' ? parsed.stateVersion : 0;
+      const result = mergeClientState(parsed.state, clientVersion, sessionId);
+      invalidateCache(sessionId);
       
       // Scheduler neu konfigurieren falls Autopilot-Settings geändert
       scheduleAutopilot();
       
-      sendJSON(res, { ok: true, message: 'State synchronisiert' });
+      sendJSON(res, { 
+        ok: true, 
+        message: result.conflict ? 'State gemerged (Konflikt aufgelöst)' : 'State synchronisiert',
+        stateVersion: result.serverVersion,
+        conflict: result.conflict,
+        state: result.conflict ? result.merged : undefined,
+        sessionId,
+      });
       return;
     }
 
@@ -203,17 +227,17 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const parsed = JSON.parse(body);
       
-      const current = loadState();
+      const current = loadState(sessionId);
       const merged = { ...current, ...parsed };
-      saveState(merged);
-      invalidateCache();
+      saveState(merged, sessionId);
+      invalidateCache(sessionId);
       
       // Scheduler neu konfigurieren falls nötig
       if (parsed.autopilotSettings) {
         scheduleAutopilot();
       }
       
-      sendJSON(res, { ok: true });
+      sendJSON(res, { ok: true, sessionId });
       return;
     }
 
@@ -224,24 +248,40 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       
-      // Asynchron starten, sofort antworten
-      runCycle().catch(err => console.error('[Manual Cycle] Fehler:', err));
-      sendJSON(res, { ok: true, message: 'Zyklus gestartet' });
+      // Asynchron starten für diese Session
+      (async () => {
+        isRunningCycle = true;
+        try {
+          await runAutopilotCycle(sessionId);
+        } catch (err) {
+          console.error('[Manual Cycle] Fehler:', err);
+        } finally {
+          isRunningCycle = false;
+        }
+      })();
+      sendJSON(res, { ok: true, message: 'Zyklus gestartet', sessionId });
       return;
     }
 
     // ─── POST /api/check-orders ──────
     if (path === '/api/check-orders' && req.method === 'POST') {
-      checkAndExecuteOrders().catch(err => console.error('[Manual Order Check] Fehler:', err));
-      sendJSON(res, { ok: true, message: 'Order-Check gestartet' });
+      checkAndExecuteOrders(sessionId).catch(err => console.error('[Manual Order Check] Fehler:', err));
+      sendJSON(res, { ok: true, message: 'Order-Check gestartet', sessionId });
       return;
     }
 
     // ─── GET /api/logs ───────────────
     if (path === '/api/logs' && req.method === 'GET') {
-      const state = loadState();
+      const state = loadState(sessionId);
       const limit = parseInt(url.searchParams.get('limit') || '50', 10);
       sendJSON(res, { logs: state.autopilotLog.slice(0, limit) });
+      return;
+    }
+
+    // ─── GET /api/sessions ───────────
+    // Liste aller aktiven Sessions
+    if (path === '/api/sessions' && req.method === 'GET') {
+      sendJSON(res, { sessions: listSessions() });
       return;
     }
 
@@ -271,12 +311,14 @@ server.listen(PORT, () => {
     console.log('║  → Öffne die App im Browser und der State        ║');
     console.log('║    wird automatisch synchronisiert.               ║');
   } else {
-    const state = loadState();
-    console.log(`║  Autopilot:   ${state.autopilotSettings.enabled ? '✅ Aktiv' : '❌ Deaktiviert'}                      ║`);
-    console.log(`║  Modus:       ${state.autopilotSettings.mode.padEnd(20)}         ║`);
-    console.log(`║  Intervall:   ${state.autopilotSettings.intervalMinutes} Minuten                        ║`);
-    console.log(`║  Orders:      ${state.orders.filter(o => o.status === 'active').length} aktiv                            ║`);
-    console.log(`║  Auto-Execute:${state.orderSettings.autoExecute ? ' ✅ Ja' : ' ❌ Nein'}                           ║`);
+    const sessions = listSessions();
+    console.log(`║  Sessions:    ${sessions.length} aktiv                            ║`);
+    for (const sid of sessions) {
+      const state = loadState(sid);
+      const positions = state.userPositions.length;
+      const autopilot = state.autopilotSettings.enabled ? '✅' : '❌';
+      console.log(`║    ${sid.padEnd(12)} ${positions} Pos. | Autopilot: ${autopilot}       ║`);
+    }
   }
 
   console.log('╚══════════════════════════════════════════════════╝');
@@ -285,9 +327,11 @@ server.listen(PORT, () => {
   // Scheduler starten
   startScheduler();
 
-  // Initialer Order-Check
+  // Initialer Order-Check über alle Sessions
   setTimeout(() => {
-    checkAndExecuteOrders().catch(err => console.error('[Init] Order-Check Fehler:', err));
+    for (const sid of listSessions()) {
+      checkAndExecuteOrders(sid).catch(err => console.error(`[Init] Order-Check Fehler (${sid}):`, err));
+    }
   }, 5000);
 });
 
