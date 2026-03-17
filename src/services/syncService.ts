@@ -7,7 +7,7 @@
  * Session-ID wird im localStorage gespeichert und bei jedem API-Call mitgeschickt.
  */
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3141';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || (import.meta.env.PROD ? '' : 'http://localhost:3141');
 const SYNC_INTERVAL = 15_000;
 const DEBOUNCE_PUSH = 3_000;
 const SESSION_KEY = 'vestia-session-id';

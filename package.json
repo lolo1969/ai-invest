@@ -1,11 +1,11 @@
 {
   "name": "vestia",
   "private": true,
-  "version": "1.6.3",
+  "version": "1.6.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && cp -r server-php dist/server-php && rm -rf dist/server-php/data/*.json dist/server-php/data/*.log dist/server-php/data/*.lock dist/server-php/data/*.pid && mkdir -p dist/server-php/data && touch dist/server-php/data/.gitkeep",
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "php -S 0.0.0.0:3141 -t server-php server-php/router.php",

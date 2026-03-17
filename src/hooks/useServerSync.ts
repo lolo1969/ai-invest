@@ -195,9 +195,3 @@ function extractSyncState(state: any) {
     priceAlerts: state.priceAlerts,
   };
 }
-
-function pushStateToServer(state: any) {
-  pushState(extractSyncState(state)).then(ok => {
-    if (ok) console.log('[ServerSync] Initialer State-Push erfolgreich ✅');
-  });
-}
