@@ -166,23 +166,27 @@ if (empty($url)) {
     exit();
 }
 
-// 5. Nur Yahoo Finance URLs erlauben (Sicherheit)
-$allowedHosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
+// 5. Nur erlaubte URLs (Yahoo Finance + Google News RSS)
+$allowedHosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com', 'news.google.com'];
 $parsedUrl = parse_url($url);
 $urlHost = $parsedUrl['host'] ?? '';
 
 if (!in_array($urlHost, $allowedHosts)) {
     logAccess('Blocked: Invalid target URL ' . $url, true);
     http_response_code(400);
-    echo json_encode(['error' => 'Invalid URL. Only Yahoo Finance URLs allowed.']);
+    echo json_encode(['error' => 'Invalid URL. Only allowed hosts permitted.']);
     exit();
 }
+
+// Google News returns XML – convert to JSON for the frontend
+$isGoogleNews = ($urlHost === 'news.google.com');
 
 // ============================================
 // PROXY REQUEST
 // ============================================
 
 $ch = curl_init();
+$acceptHeader = $isGoogleNews ? 'Accept: application/xml, text/xml' : 'Accept: application/json';
 curl_setopt_array($ch, [
     CURLOPT_URL => $url,
     CURLOPT_RETURNTRANSFER => true,
@@ -190,7 +194,7 @@ curl_setopt_array($ch, [
     CURLOPT_TIMEOUT => 30,
     CURLOPT_HTTPHEADER => [
         'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept: application/json',
+        $acceptHeader,
         'Accept-Language: en-US,en;q=0.9',
     ],
     CURLOPT_SSL_VERIFYPEER => true,
@@ -211,4 +215,26 @@ if ($error) {
 
 // Response weiterleiten
 http_response_code($httpCode);
-echo $response;
+
+// Google News RSS: XML → JSON konvertieren
+if ($isGoogleNews && $httpCode === 200 && $response) {
+    libxml_use_internal_errors(true);
+    $xml = simplexml_load_string($response);
+    if ($xml && isset($xml->channel->item)) {
+        $items = [];
+        foreach ($xml->channel->item as $item) {
+            $pubDate = (string)($item->pubDate ?? '');
+            $items[] = [
+                'title' => (string)($item->title ?? ''),
+                'source' => (string)($item->source ?? 'Google News'),
+                'pubDate' => $pubDate,
+                'timestamp' => $pubDate ? strtotime($pubDate) : time(),
+            ];
+        }
+        echo json_encode(['items' => $items]);
+    } else {
+        echo json_encode(['items' => [], 'error' => 'XML parse failed']);
+    }
+} else {
+    echo $response;
+}

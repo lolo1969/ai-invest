@@ -666,6 +666,36 @@ export function Settings() {
             </a>
           </p>
         </div>
+
+        {/* Finnhub API Key (für Live-News) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Finnhub API-Schlüssel
+            <span className="text-gray-500 ml-2 font-normal">(optional – für Live-News)</span>
+            {settings.apiKeys.marketData && <span className="text-green-400 ml-2">• Konfiguriert</span>}
+          </label>
+          <input
+            type="password"
+            value={settings.apiKeys.marketData}
+            onChange={(e) => updateSettings({
+              apiKeys: { ...settings.apiKeys, marketData: e.target.value }
+            })}
+            placeholder="Finnhub API-Key..."
+            className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                     text-white focus:outline-none focus:border-indigo-500"
+          />
+          <p className="text-xs text-gray-500 mt-2">
+            Finnhub liefert Live-News für Makro- & Geopolitik-Kontext in der KI-Analyse. Ohne diesen Key nutzt die App Yahoo Finance News (eingeschränkt). Kostenlos auf{' '}
+            <a 
+              href="https://finnhub.io/register" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-indigo-400 hover:underline"
+            >
+              finnhub.io
+            </a>
+          </p>
+        </div>
       </section>
 
       {/* KI-Gedächtnis */}

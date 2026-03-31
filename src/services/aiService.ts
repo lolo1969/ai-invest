@@ -417,17 +417,23 @@ Berücksichtige bei deiner Analyse ZUSÄTZLICH zu den technischen Indikatoren:
 
 **FUNDAMENTALANALYSE:** Bewertung (KGV, KUV, PEG), Profitabilität (Margen, FCF), Wachstum (Umsatz/Gewinn YoY), Bilanzqualität (Verschuldung), Wettbewerbsvorteile (Moat), Management-Qualität.
 
-**MAKROÖKONOMIE:** Zinsentwicklung (Fed/EZB), Inflation, Konjunkturzyklus, Anleiherenditen (Yield Curve), Arbeitsmarkt, Geldpolitik (QE/QT). Wie wirkt sich das aktuelle Umfeld auf die analysierten Aktien aus?
-
-**GEOPOLITIK:** Konflikte/Kriege (Energie, Rüstung, Supply Chains), Handelspolitik (Zölle, Sanktionen, US-China), Lieferketten-Risiken, Energiepolitik (Ölpreis, Energiewende).
+**MAKROÖKONOMIE & GEOPOLITIK – NUR AUS LIVE-NEWS:**
+⚠️ KRITISCHE REGEL: Du hast KEIN eigenes aktuelles Wissen über die Weltlage!
+- Dir werden die aktuellen Top-Headlines aus Google News (DE + international) ungefiltert mitgegeben.
+- DEINE Aufgabe ist es, aus diesen Headlines selbstständig zu erkennen, welche Ereignisse für die Finanzmärkte und das Portfolio relevant sind.
+- Das können Kriege, Konflikte, Zinsentscheidungen, Handelskriege, Naturkatastrophen, Pandemien, Technologie-Umbrüche oder JEDES andere marktbewegende Ereignis sein – es gibt keine vordefinierte Liste.
+- Geopolitische und makroökonomische Aussagen DÜRFEN NUR auf diesen Live-Headlines basieren.
+- Wenn KEIN Live-News-Snapshot vorhanden ist oder dieser leer ist: Schreibe EXPLIZIT "Keine aktuellen Nachrichten verfügbar" und erfinde KEINE Ereignisse.
+- VERBOTEN: Jegliche Behauptungen über die aktuelle Weltlage ohne Beleg aus dem News-Snapshot.
+- Dein Trainingswissen über vergangene Ereignisse ist VERALTET und darf NICHT als aktuelle Lage dargestellt werden.
 
 **SEKTORANALYSE:** Sektorrotation (Zykliker vs. Defensive), branchenspezifische Risiken/Chancen, Megatrends (KI, E-Mobilität, Biotech, Cybersecurity, Cloud), ESG-Regulierung.
 
 **PORTFOLIO-RISIKEN:** Korrelationsrisiko (zu ähnliche Positionen?), Konzentrationsrisiko, Währungsrisiko (EUR/USD bei US-Aktien), Liquiditätsrisiko.
 
-**SENTIMENT & TIMING:** Marktstimmung (Fear & Greed, VIX), Saisonalität, kommende Events (Earnings, Zentralbank-Sitzungen), Institutional Flows.
+**SENTIMENT & TIMING:** Marktstimmung (aus Kursdaten ableitbar), Saisonalität, kommende Events (Earnings), technische Extremzonen.
 
-WICHTIG: Fokussiere in der BEGRÜNDUNG je Aktie auf die 2-3 RELEVANTESTEN Faktoren. Nicht jeder Faktor ist für jede Aktie gleich wichtig. Aber die Makro-/Geopolitik-Lage MUSS in der marketSummary abgebildet werden!
+WICHTIG: Fokussiere in der BEGRÜNDUNG je Aktie auf die 2-3 RELEVANTESTEN Faktoren. Nicht jeder Faktor ist für jede Aktie gleich wichtig. Makro-/Geopolitik DARF NUR in die marketSummary einfließen, wenn Live-News dazu vorliegen!
 
 ${request.currentPositions?.length ? `
 AKTUELLE PORTFOLIO-POSITIONEN (SEHR WICHTIG!):
@@ -525,7 +531,7 @@ Antworte im folgenden JSON-Format:
       "riskLevel": "medium"
     }
   ],
-  "marketSummary": "Umfassende Zusammenfassung: Makrolage (Zinsen, Inflation, Konjunktur), geopolitische Risiken, Marktsentiment — und was das für die analysierten Aktien bedeutet.",
+  "marketSummary": "Technische Zusammenfassung der Marktlage. Makro-/Geopolitik NUR erwähnen wenn Live-News-Headlines dazu vorliegen, sonst explizit 'Keine aktuellen Nachrichten verfügbar' schreiben.",
   "recommendations": ["Empfehlung 1", "Empfehlung 2"],
   "warnings": ["Warnung 1"],
   "suggestedOrders": [

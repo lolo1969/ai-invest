@@ -670,8 +670,13 @@ export function Autopilot() {
                         </span>
                       )}
                       <span className="text-xs text-gray-600">
-                        {new Date(entry.timestamp).toLocaleTimeString('de-DE', { 
-                          hour: '2-digit', minute: '2-digit', second: '2-digit' 
+                        {new Date(entry.timestamp).toLocaleString('de-DE', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
                         })}
                       </span>
                     </div>

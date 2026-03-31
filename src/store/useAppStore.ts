@@ -92,6 +92,13 @@ interface AppState {
   setLastAnalysis: (analysis: string | null) => void;
   setAnalyzing: (analyzing: boolean) => void;
 
+  // Dashboard Analysis (separat vom Portfolio-Analyse-Text)
+  dashboardAnalysisSummary: string | null;
+  dashboardAnalysisDate: string | null;
+  isDashboardAnalyzing: boolean;
+  setDashboardAnalysisSummary: (summary: string | null) => void;
+  setDashboardAnalyzing: (analyzing: boolean) => void;
+
   // Analysis History (AI Memory)
   analysisHistory: AnalysisHistoryEntry[];
   addAnalysisHistory: (entry: AnalysisHistoryEntry) => void;
@@ -378,6 +385,14 @@ export const useAppStore = create<AppState>()(
         lastAnalysisDate: analysis ? new Date().toISOString() : null 
       }),
       setAnalyzing: (analyzing) => set({ isAnalyzing: analyzing }),
+      dashboardAnalysisSummary: null,
+      dashboardAnalysisDate: null,
+      isDashboardAnalyzing: false,
+      setDashboardAnalysisSummary: (summary) => set({
+        dashboardAnalysisSummary: summary,
+        dashboardAnalysisDate: summary ? new Date().toISOString() : null,
+      }),
+      setDashboardAnalyzing: (analyzing) => set({ isDashboardAnalyzing: analyzing }),
 
       // Analysis History (AI Memory)
       analysisHistory: [],
@@ -459,6 +474,9 @@ export const useAppStore = create<AppState>()(
         orderSettings: state.orderSettings,
         lastAnalysis: state.lastAnalysis,
         lastAnalysisDate: state.lastAnalysisDate,
+        dashboardAnalysisSummary: state.dashboardAnalysisSummary,
+        dashboardAnalysisDate: state.dashboardAnalysisDate,
+        isDashboardAnalyzing: state.isDashboardAnalyzing,
         analysisHistory: state.analysisHistory,
         autopilotSettings: state.autopilotSettings,
         autopilotLog: state.autopilotLog,
@@ -540,6 +558,9 @@ function saveAutoBackup() {
         orderSettings: state.orderSettings,
         lastAnalysis: state.lastAnalysis,
         lastAnalysisDate: state.lastAnalysisDate,
+        dashboardAnalysisSummary: state.dashboardAnalysisSummary,
+        dashboardAnalysisDate: state.dashboardAnalysisDate,
+        isDashboardAnalyzing: state.isDashboardAnalyzing,
         analysisHistory: state.analysisHistory,
         autopilotSettings: state.autopilotSettings,
         autopilotLog: state.autopilotLog,
