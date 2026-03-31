@@ -310,6 +310,8 @@ VERFÜGBARES BUDGET: " . number_format($budget, 2) . " EUR";
         $prompt .= "\nZUSÄTZLICHE ANWEISUNGEN:\n{$customPrompt}\n";
     }
 
+    $prompt .= "\nWICHTIG ZU MAKRO/GEOPOLITIK: Du hast KEIN aktuelles Wissen über die Weltlage. Erfinde KEINE geopolitischen Ereignisse, Kriege, Konflikte, Zinsentscheidungen oder Inflationsdaten. Wenn in den ZUSÄTZLICHEN ANWEISUNGEN Live-News-Headlines enthalten sind, nutze NUR diese als Basis. Andernfalls beschränke dich auf technische Analyse und schreibe explizit dass keine aktuellen Nachrichten verfügbar sind.\n";
+
     $prompt .= '
 Antworte AUSSCHLIESSLICH als JSON im folgenden Format:
 ```json

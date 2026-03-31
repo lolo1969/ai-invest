@@ -79,20 +79,38 @@ export function useServerSync() {
           }
         });
 
-        // Initialer Sync: Lokalen State zum Server pushen (Merge),
-        // dann gemergten State zurückholen.
-        // So geht kein lokaler State verloren (z.B. Verkäufe vor Reload).
+        // Initialer Sync:
+        // 1) Immer zuerst Server-State laden
+        // 2) Wenn Server Daten hat, Server als Source of Truth verwenden
+        // 3) Nur wenn Server leer ist, lokalen State initial pushen
+        // Dadurch wird verhindert, dass ein frisch eingespieltes Server-Backup
+        // beim Reload durch alten lokalen State überschrieben wird.
         const currentState = useAppStore.getState();
         const localHasData = currentState.userPositions?.length > 0
           || currentState.cashBalance > 0
           || currentState.watchlist?.length > 0;
-        
-        if (localHasData) {
-          // Lokalen State pushen → Server merged intelligent
+
+        const serverData = await pullState();
+        const serverHasData = !!(serverData?.state && (
+          serverData.state.userPositions?.length > 0
+          || serverData.state.cashBalance > 0
+          || serverData.state.watchlist?.length > 0
+        ));
+
+        if (serverHasData && serverData?.state) {
+          skipNextPushRef.current = true;
+          useAppStore.setState({
+            ...serverData.state,
+            isLoading: currentState.isLoading,
+            isAnalyzing: currentState.isAnalyzing,
+            error: currentState.error,
+          });
+          console.log('[ServerSync] Initialer State vom Server geladen (Server hat Vorrang) ✅');
+        } else if (localHasData) {
+          // Server leer → lokalen State pushen
           const pushResult = await pushState(extractSyncState(currentState));
-          
+
           if (pushResult.ok && pushResult.conflict && pushResult.mergedState) {
-            // Konflikt: Server hatte andere Daten → gemergten State übernehmen
             skipNextPushRef.current = true;
             useAppStore.setState({
               ...pushResult.mergedState,
@@ -103,24 +121,6 @@ export function useServerSync() {
             console.log('[ServerSync] Initialer Merge – gemergten State übernommen ✅');
           } else if (pushResult.ok) {
             console.log('[ServerSync] Initialer State-Push erfolgreich ✅');
-          }
-        } else {
-          // Lokal keine Daten → Server-State holen
-          const serverData = await pullState();
-          if (serverData?.state) {
-            const serverHasData = serverData.state.userPositions?.length > 0
-              || serverData.state.cashBalance > 0
-              || serverData.state.watchlist?.length > 0;
-            if (serverHasData) {
-              skipNextPushRef.current = true;
-              useAppStore.setState({
-                ...serverData.state,
-                isLoading: currentState.isLoading,
-                isAnalyzing: currentState.isAnalyzing,
-                error: currentState.error,
-              });
-              console.log('[ServerSync] Initialer State vom Server geladen ✅');
-            }
           }
         }
       }

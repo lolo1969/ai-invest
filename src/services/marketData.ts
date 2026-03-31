@@ -7,16 +7,25 @@ const isProduction = typeof window !== 'undefined' && window.location.hostname !
 const OWN_PROXY = '/api/proxy.php?url=';
 // For localhost, use Vite's built-in proxy (no encoding needed)
 const LOCAL_PROXY = '/yahoo-api';
+const LOCAL_GNEWS_PROXY = '/google-news';
 const FINNHUB_API = 'https://finnhub.io/api/v1';
 
 // Helper to build URL based on environment
 function buildYahooUrl(path: string): string {
   if (isProduction) {
-    // Production: use PHP proxy with full URL encoded
     return `${OWN_PROXY}${encodeURIComponent(`https://query1.finance.yahoo.com${path}`)}`;
   } else {
-    // Local dev: use Vite proxy directly
     return `${LOCAL_PROXY}${path}`;
+  }
+}
+
+function buildGoogleNewsUrl(path: string): string {
+  if (isProduction) {
+    // Production: PHP proxy converts XML→JSON automatically
+    return `${OWN_PROXY}${encodeURIComponent(`https://news.google.com${path}`)}`;
+  } else {
+    // Local dev: Vite proxy returns raw XML, parse in browser
+    return `${LOCAL_GNEWS_PROXY}${path}`;
   }
 }
 
@@ -42,6 +51,10 @@ export class MarketDataService {
   private apiKey: string;
 
   constructor(apiKey: string = '') {
+    this.apiKey = apiKey;
+  }
+
+  setApiKey(apiKey: string): void {
     this.apiKey = apiKey;
   }
 
@@ -483,22 +496,117 @@ export class MarketDataService {
     return enrichedResults;
   }
 
-  // Get market news (using Finnhub if API key is available)
+  // Get market news: Google News RSS (free, no key) + Finnhub (optional) + Yahoo Finance fallback
   async getMarketNews(): Promise<any[]> {
-    if (!this.apiKey) return [];
-    
-    try {
-      const response = await axios.get(`${FINNHUB_API}/news`, {
-        params: {
-          category: 'general',
-          token: this.apiKey,
-        },
-      });
-      return response.data.slice(0, 10);
-    } catch (error) {
-      console.error('Failed to fetch news:', error);
-      return [];
+    const allNews: any[] = [];
+
+    // 1) Google News RSS – allgemeine Top-Headlines (KEIN API-Key, KEINE vordefinierten Themen)
+    // Wir holen die breiten Top-Nachrichten (DE + EN) und lassen die KI selbst entscheiden,
+    // was geopolitisch/wirtschaftlich relevant ist. So passen sich die News automatisch an
+    // jede Weltlage an – egal ob Iran-Krieg, Pandemie oder Finanzkrise.
+    const googleNewsFeeds = [
+      '/rss?hl=de&gl=DE&ceid=DE:de',           // Deutsche Top-Headlines (alle Themen)
+      '/rss?hl=en&gl=US&ceid=US:en',           // Englische Top-Headlines (internationale Perspektive)
+    ];
+
+    for (const feed of googleNewsFeeds) {
+      try {
+        const url = buildGoogleNewsUrl(feed);
+        const response = await axios.get(url, { timeout: 5000, responseType: isProduction ? 'json' : 'text' });
+
+        let items: any[] = [];
+
+        if (isProduction) {
+          // PHP proxy already converted XML → JSON
+          items = response.data?.items || [];
+        } else {
+          // Local dev: parse RSS XML in browser
+          const parser = new DOMParser();
+          const xml = parser.parseFromString(response.data, 'text/xml');
+          const xmlItems = xml.querySelectorAll('item');
+          xmlItems.forEach((item) => {
+            const title = item.querySelector('title')?.textContent || '';
+            const source = item.querySelector('source')?.textContent || 'Google News';
+            const pubDate = item.querySelector('pubDate')?.textContent || '';
+            items.push({
+              title,
+              source,
+              pubDate,
+              timestamp: pubDate ? Math.floor(new Date(pubDate).getTime() / 1000) : Math.floor(Date.now() / 1000),
+            });
+          });
+        }
+
+        for (const item of items) {
+          const headline = (item.title || '').replace(/\s+/g, ' ').trim();
+          if (headline && !allNews.some(n => n.headline === headline)) {
+            allNews.push({
+              headline,
+              summary: headline,
+              source: item.source || 'Google News',
+              datetime: item.timestamp || Math.floor(Date.now() / 1000),
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(`[MarketData] Google News RSS fehlgeschlagen:`, error);
+      }
     }
+
+    if (allNews.length > 0) {
+      console.log(`[MarketData] ${allNews.length} Google-News geladen (kein API-Key benötigt)`);
+    }
+
+    // 2) Finnhub als optionale Ergänzung (nur wenn API key vorhanden)
+    if (this.apiKey) {
+      try {
+        const response = await axios.get(`${FINNHUB_API}/news`, {
+          params: { category: 'general', token: this.apiKey },
+        });
+        if (response.data && response.data.length > 0) {
+          for (const n of response.data.slice(0, 10)) {
+            const headline = (n.headline || '').replace(/\s+/g, ' ').trim();
+            if (headline && !allNews.some(existing => existing.headline === headline)) {
+              allNews.push(n);
+            }
+          }
+          console.log(`[MarketData] +${Math.min(10, response.data.length)} Finnhub-News ergänzt`);
+        }
+      } catch (error) {
+        console.warn('[MarketData] Finnhub-News fehlgeschlagen:', error);
+      }
+    }
+
+    // 3) Yahoo Finance Search als letzter Fallback (wenn Google News fehlschlägt)
+    if (allNews.length === 0) {
+      const searchQueries = ['war conflict geopolitical', 'federal reserve interest rate inflation', 'stock market economy'];
+      for (const query of searchQueries) {
+        try {
+          const url = buildYahooUrl(`/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=0&newsCount=5`);
+          const response = await axios.get(url, { timeout: 5000 });
+          for (const n of (response.data?.news || [])) {
+            if (n.title && !allNews.some(existing => existing.headline === n.title)) {
+              allNews.push({
+                headline: n.title,
+                summary: n.title,
+                source: n.publisher || 'Yahoo Finance',
+                datetime: n.providerPublishTime || Math.floor(Date.now() / 1000),
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`[MarketData] Yahoo-News "${query}" fehlgeschlagen:`, error);
+        }
+      }
+    }
+
+    if (allNews.length > 0) {
+      console.log(`[MarketData] Gesamt: ${allNews.length} News-Headlines geladen`);
+      return allNews.slice(0, 20);
+    }
+
+    console.warn('[MarketData] Keine News-Quelle verfügbar');
+    return [];
   }
 }
 

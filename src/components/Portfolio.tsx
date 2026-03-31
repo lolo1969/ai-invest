@@ -4,7 +4,7 @@ import {
   TrendingUp,
   TrendingDown,
   DollarSign,
-  PieChart,
+  PieChart as PieChartIcon,
   Plus,
   Brain,
   RefreshCw,
@@ -15,6 +15,14 @@ import {
   ShoppingCart,
   ArrowRightLeft
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from 'recharts';
 import { CSVImportModal } from './CSVImportModal';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
@@ -28,6 +36,18 @@ interface SymbolSuggestion {
   changePercent?: number;
   loading?: boolean;
 }
+
+type PortfolioChartRange = '1d' | '5d' | '1mo' | '1y';
+
+interface PortfolioHistoryPoint {
+  timestamp: number;
+  label: string;
+  value: number;
+  changePercent: number;
+}
+
+const HISTORY_CACHE_TTL_MS = 10 * 60 * 1000;
+const PORTFOLIO_CHART_RANGES: PortfolioChartRange[] = ['1d', '5d', '1mo', '1y'];
 
 export function Portfolio() {
   const { 
@@ -64,6 +84,11 @@ export function Portfolio() {
   const [searchingSymbol, setSearchingSymbol] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const symbolSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historicalDataCacheRef = useRef<Record<string, { data: Array<{ date: Date; close: number }>; fetchedAt: number }>>({});
+  const [portfolioChartRange, setPortfolioChartRange] = useState<PortfolioChartRange>('1mo');
+  const [portfolioHistory, setPortfolioHistory] = useState<PortfolioHistoryPoint[]>([]);
+  const [loadingPortfolioHistory, setLoadingPortfolioHistory] = useState(false);
+  const [portfolioHistoryCacheVersion, setPortfolioHistoryCacheVersion] = useState(0);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -205,6 +230,20 @@ export function Portfolio() {
   // Refetch when positions change or useYahooPrice toggles change
   const positionCount = userPositions.length;
   const yahooEnabledSignature = userPositions.map(p => `${p.id}:${p.useYahooPrice}`).join(',');
+  const portfolioSymbolSignature = userPositions
+    .map((p) => p.symbol.trim())
+    .filter(Boolean)
+    .sort()
+    .join('|');
+  const portfolioQuantitySignature = userPositions
+    .map(p => `${p.id}:${p.quantity}`)
+    .sort()
+    .join('|');
+
+  const isHistoryCacheFresh = (range: PortfolioChartRange, symbol: string, now = Date.now()) => {
+    const cached = historicalDataCacheRef.current[`${range}:${symbol}`];
+    return !!cached && (now - cached.fetchedAt) <= HISTORY_CACHE_TTL_MS;
+  };
   
   useEffect(() => {
     if (positionCount > 0) {
@@ -213,6 +252,230 @@ export function Portfolio() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positionCount, yahooEnabledSignature]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadMissingPortfolioHistory = async () => {
+      const symbols = [...new Set(userPositions.map((p) => p.symbol.trim()).filter(Boolean))];
+      if (symbols.length === 0) {
+        setLoadingPortfolioHistory(false);
+        return;
+      }
+
+      const now = Date.now();
+      const symbolsToFetch = symbols.filter((symbol) => {
+        return !isHistoryCacheFresh(portfolioChartRange, symbol, now);
+      });
+
+      if (symbolsToFetch.length === 0) {
+        return;
+      }
+
+      setLoadingPortfolioHistory(true);
+      try {
+        const fetched = await Promise.all(
+          symbolsToFetch.map(async (symbol) => {
+            try {
+              const history = await marketDataService.getHistoricalData(symbol, portfolioChartRange);
+              return { symbol, history };
+            } catch (error) {
+              console.warn(`[Portfolio] Verlauf nicht verfügbar für ${symbol}:`, error);
+              return { symbol, history: [] as Array<{ date: Date; close: number }> };
+            }
+          })
+        );
+
+        if (isCancelled) {
+          return;
+        }
+
+        const fetchedAt = Date.now();
+        fetched.forEach(({ symbol, history }) => {
+          historicalDataCacheRef.current[`${portfolioChartRange}:${symbol}`] = {
+            data: history,
+            fetchedAt,
+          };
+        });
+
+        setPortfolioHistoryCacheVersion((prev) => prev + 1);
+      } finally {
+        if (!isCancelled) {
+          setLoadingPortfolioHistory(false);
+        }
+      }
+    };
+
+    loadMissingPortfolioHistory();
+    return () => {
+      isCancelled = true;
+    };
+  }, [portfolioChartRange, portfolioSymbolSignature, userPositions]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const symbols = [...new Set(userPositions.map((p) => p.symbol.trim()).filter(Boolean))];
+    if (symbols.length === 0) {
+      return;
+    }
+
+    const prefetchRanges = PORTFOLIO_CHART_RANGES.filter((range) => range !== portfolioChartRange);
+
+    const prefetchInBackground = async () => {
+      // Kleine Verzögerung, damit aktive UI-Requests Vorrang haben.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (isCancelled) return;
+
+      for (const range of prefetchRanges) {
+        if (isCancelled) break;
+
+        const now = Date.now();
+        const symbolsToFetch = symbols.filter((symbol) => !isHistoryCacheFresh(range, symbol, now));
+        if (symbolsToFetch.length === 0) {
+          continue;
+        }
+
+        const chunkSize = 4;
+        for (let i = 0; i < symbolsToFetch.length; i += chunkSize) {
+          if (isCancelled) break;
+
+          const chunk = symbolsToFetch.slice(i, i + chunkSize);
+          const results = await Promise.allSettled(
+            chunk.map((symbol) => marketDataService.getHistoricalData(symbol, range))
+          );
+
+          if (isCancelled) break;
+
+          const fetchedAt = Date.now();
+          results.forEach((result, index) => {
+            if (result.status !== 'fulfilled') return;
+            const symbol = chunk[index];
+            historicalDataCacheRef.current[`${range}:${symbol}`] = {
+              data: result.value,
+              fetchedAt,
+            };
+          });
+        }
+      }
+    };
+
+    prefetchInBackground();
+    return () => {
+      isCancelled = true;
+    };
+  }, [portfolioChartRange, portfolioSymbolSignature, userPositions]);
+
+  useEffect(() => {
+    if (userPositions.length === 0) {
+      setPortfolioHistory([]);
+      return;
+    }
+
+    const getBucketKey = (date: Date): string => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hour = String(date.getHours()).padStart(2, '0');
+      const minute = String(date.getMinutes()).padStart(2, '0');
+      return portfolioChartRange === '1d'
+        ? `${year}-${month}-${day} ${hour}:${minute}`
+        : `${year}-${month}-${day}`;
+    };
+
+    const formatLabel = (date: Date): string => {
+      if (portfolioChartRange === '1d') {
+        return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      }
+      if (portfolioChartRange === '5d') {
+        return date.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit' });
+      }
+      if (portfolioChartRange === '1mo') {
+        return date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
+      }
+      return date.toLocaleDateString('de-DE', { month: 'short', year: '2-digit' });
+    };
+
+    const allBuckets = new Map<string, number>();
+    const symbolSeries = userPositions.map((position) => {
+      const symbol = position.symbol.trim();
+      const cacheKey = `${portfolioChartRange}:${symbol}`;
+      const history = historicalDataCacheRef.current[cacheKey]?.data ?? [];
+      const pointByKey = new Map<string, number>();
+
+      let firstKnownPrice = 0;
+      history
+        .filter((point) => point.close > 0)
+        .forEach((point) => {
+          const date = point.date instanceof Date ? point.date : new Date(point.date);
+          const key = getBucketKey(date);
+          const ts = date.getTime();
+
+          if (!allBuckets.has(key) || ts < (allBuckets.get(key) ?? Number.MAX_SAFE_INTEGER)) {
+            allBuckets.set(key, ts);
+          }
+          if (!pointByKey.has(key)) {
+            pointByKey.set(key, point.close);
+          }
+          if (firstKnownPrice === 0) {
+            firstKnownPrice = point.close;
+          }
+        });
+
+      return {
+        quantity: position.quantity,
+        lastKnownPrice: firstKnownPrice > 0 ? firstKnownPrice : position.currentPrice,
+        pointByKey,
+      };
+    });
+
+    const sortedBuckets = [...allBuckets.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .map(([key, timestamp]) => ({ key, timestamp }));
+
+    if (sortedBuckets.length === 0) {
+      const fallbackValue = userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
+      setPortfolioHistory([
+        {
+          timestamp: Date.now(),
+          label: 'Jetzt',
+          value: fallbackValue,
+          changePercent: 0,
+        },
+      ]);
+      return;
+    }
+
+    const chartPointsRaw: Omit<PortfolioHistoryPoint, 'changePercent'>[] = sortedBuckets.map((bucket) => {
+      let totalValue = 0;
+
+      symbolSeries.forEach((series) => {
+        const pointValue = series.pointByKey.get(bucket.key);
+        if (typeof pointValue === 'number') {
+          series.lastKnownPrice = pointValue;
+        }
+        totalValue += (series.lastKnownPrice || 0) * series.quantity;
+      });
+
+      return {
+        timestamp: bucket.timestamp,
+        label: formatLabel(new Date(bucket.timestamp)),
+        value: Math.max(0, totalValue),
+      };
+    });
+
+    const baseValue = chartPointsRaw[0]?.value ?? 0;
+    const chartPoints: PortfolioHistoryPoint[] = chartPointsRaw.map((point) => ({
+      ...point,
+      changePercent: baseValue > 0 ? ((point.value - baseValue) / baseValue) * 100 : 0,
+    }));
+    setPortfolioHistory(chartPoints);
+  }, [portfolioChartRange, portfolioSymbolSignature, portfolioQuantitySignature, portfolioHistoryCacheVersion, userPositions]);
+
+  const portfolioHistoryStart = portfolioHistory.length > 0 ? portfolioHistory[0].value : 0;
+  const portfolioHistoryEnd = portfolioHistory.length > 0 ? portfolioHistory[portfolioHistory.length - 1].value : 0;
+  const portfolioHistoryDiff = portfolioHistoryEnd - portfolioHistoryStart;
+  const portfolioHistoryDiffPercent = portfolioHistoryStart > 0 ? (portfolioHistoryDiff / portfolioHistoryStart) * 100 : 0;
 
   // Symbol search with debounce
   const handleSymbolSearch = (query: string) => {
@@ -463,6 +726,74 @@ export function Portfolio() {
           }).join('\n')
         : 'Keine Watchlist-Aktien vorhanden.';
 
+      // Live-News-Snapshot für aktuelle Makro-/Geopolitik-Lage einbinden
+      setAnalysisProgress({ step: 'Live-News', detail: 'Aktuelle Makro- und Geopolitik-Headlines laden...', percent: 30 });
+      let liveNewsContext = `
+═══════════════════════════════════════
+🗞️ LIVE-NEWS-SNAPSHOT (Makro & Geopolitik):
+═══════════════════════════════════════
+Keine Live-News verfügbar.
+
+STRIKT VERBOTEN:
+- Erfinde KEINE geopolitischen Ereignisse, Kriege, Konflikte oder Makro-Entwicklungen.
+- Behaupte NICHT, dass bestimmte Kriege andauern, Zentralbanken bestimmte Entscheidungen getroffen haben, oder geopolitische Spannungen bestehen – du hast KEINE aktuellen Informationen darüber.
+- Schreibe im marketSummary EXPLIZIT: "Hinweis: Keine aktuellen Nachrichten verfügbar. Die Analyse basiert ausschließlich auf technischen Indikatoren und Kursdaten. Geopolitische/makroökonomische Einschätzungen können nicht gegeben werden."
+- Beschränke die Analyse auf technische Indikatoren, Kursdaten und Chartmuster.
+`;
+      try {
+        // News-Abruf: versucht Finnhub (mit Key) oder Yahoo Finance (ohne Key)
+        marketDataService.setApiKey(settings.apiKeys.marketData || '');
+        const rawNews = await marketDataService.getMarketNews();
+
+          const toDateLabel = (item: any) => {
+            const epoch = typeof item?.datetime === 'number' ? item.datetime * 1000 : NaN;
+            const d = Number.isFinite(epoch) ? new Date(epoch) : new Date();
+            return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+          };
+
+          // Scoring: Boost für offensichtlich marktrelevante News, aber ALLE Headlines
+          // werden berücksichtigt – die KI entscheidet selbst was relevant ist.
+          const highRelevancePattern = /(krieg|war|conflict|sanktion|inflat|zins|rate|rezession|börse|stock|oil|öl|fed|ecb|ezb|gdp|bip|trade|zoll|tariff|crash|rally|default|schulden|debt|bank|energy|energie|nuclear|nuklear|attack|angriff|pandem|climate|klima)/i;
+
+          const normalizedNews = (rawNews || [])
+            .map((n: any) => {
+              const headline = (n?.headline || n?.title || '').replace(/\s+/g, ' ').trim();
+              const summary = (n?.summary || '').replace(/\s+/g, ' ').trim();
+              const source = (n?.source || 'Unbekannt').toString();
+              const dateLabel = toDateLabel(n);
+              const text = `${headline} ${summary}`.trim();
+              // Booste offensichtlich relevante News, aber schließe andere nicht aus
+              let score = 1; // Basis-Score: Jede Headline hat Chance
+              if (highRelevancePattern.test(text)) score += 3;
+              return { headline, source, dateLabel, text, score };
+            })
+            .filter((n: any) => n.headline.length > 0)
+            .sort((a: any, b: any) => b.score - a.score)
+            .slice(0, 15);
+
+          if (normalizedNews.length > 0) {
+            const newsLines = normalizedNews
+              .map((n: any) => `- ${n.dateLabel} | ${n.source}: ${n.headline}`)
+              .join('\n');
+
+            liveNewsContext = `
+═══════════════════════════════════════
+🗞️ LIVE-NEWS-SNAPSHOT (Makro & Geopolitik):
+═══════════════════════════════════════
+${newsLines}
+
+VERBINDLICHE REGELN FÜR DIE ANALYSE:
+- Nutze diese Headlines als primäre tagesaktuelle Ereignisbasis für Makro-/Geopolitik.
+- Nenne die 1-3 wichtigsten aktuellen Konflikte/Ereignisse EXPLIZIT beim Namen (nicht nur "geopolitische Spannungen").
+- Wenn ein Ereignis im Snapshot enthalten ist, das das Portfolio beeinflusst (z.B. Energie, Handel, Lieferketten, regionale Konflikte), MUSS es im Markt-/Makro-Abschnitt konkret erwähnt werden.
+- Erwähne NUR Geopolitik/Makro-Ereignisse die in den obigen Headlines belegt sind. Erfinde KEINE zusätzlichen Konflikte oder Entwicklungen!
+- Trenne bestätigte News-Fakten klar von Schlussfolgerungen für das Portfolio.
+`;
+          }
+      } catch (e) {
+        console.warn('[Portfolio] Live-News konnten nicht geladen werden, fahre ohne News-Snapshot fort:', e);
+      }
+
       // Build AI memory context from previous analyses
       setAnalysisProgress({ step: 'KI-Gedächtnis', detail: 'Vorherige Analysen & Änderungen seit letzter Analyse auswerten...', percent: 35 });
       const memoryContext = (() => {
@@ -693,6 +1024,8 @@ ${watchlistSummary}
 
 HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
 
+${liveNewsContext}
+
 ═══════════════════════════════════════
 🌍 GANZHEITLICHE ANALYSE-METHODIK:
 ═══════════════════════════════════════
@@ -777,7 +1110,7 @@ AUFGABE:
 
 🌍 **0. MARKT- & MAKRO-LAGEBEURTEILUNG** (kurz und prägnant)
 - Aktuelle Makrolage: Zinsen, Inflation, Konjunktur
-- Geopolitische Risiken die das Portfolio betreffen könnten
+- Geopolitische Risiken die das Portfolio betreffen könnten (nenne aktuelle Konflikte/Ereignisse explizit beim Namen, wenn im Live-News-Snapshot enthalten)
 - Marktsentiment & relevante kommende Events (Earnings, Fed etc.)
 - Was bedeutet das für MEIN konkretes Portfolio?
 
@@ -849,6 +1182,8 @@ ${watchlistSummary}
 
 HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
 
+${liveNewsContext}
+
 ═══════════════════════════════════════
 🌍 GANZHEITLICHE ANALYSE-METHODIK:
 ═══════════════════════════════════════
@@ -866,7 +1201,7 @@ AUFGABE:
 
 🌍 **0. MARKT- & MAKRO-LAGEBEURTEILUNG**
 - Aktuelle Makrolage: Zinsen, Inflation, Konjunktur
-- Geopolitische Risiken
+- Geopolitische Risiken (nenne aktuelle Konflikte/Ereignisse explizit beim Namen, wenn im Live-News-Snapshot enthalten)
 - Marktsentiment & relevante kommende Events
 - Was bedeutet das für einen Neueinsteiger?
 
@@ -1187,7 +1522,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             ) : (
               <>
                 <Brain size={16} />
-                KI-Analyse
+                Vollanalyse
               </>
             )}
           </button>
@@ -1305,7 +1640,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-6 border border-[#252542]">
           <div className="flex items-center gap-3 md:gap-4">
             <div className="p-2 md:p-3 bg-purple-500/20 rounded-lg">
-              <PieChart size={20} className="text-purple-500 md:w-6 md:h-6" />
+              <PieChartIcon size={20} className="text-purple-500 md:w-6 md:h-6" />
             </div>
             <div className="min-w-0">
               <p className="text-gray-400 text-xs md:text-sm">Aktueller Wert</p>
@@ -1343,6 +1678,114 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Portfolio-Verlauf */}
+      <div className="bg-[#1a1a2e] rounded-xl border border-[#252542] p-4 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-base md:text-lg font-semibold text-white">Portfolio-Verlauf</h2>
+            <p className="text-xs md:text-sm text-gray-400 mt-1">
+              Entwicklung des Gesamtwerts deiner Positionen
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {[
+              { value: '1d' as const, label: 'Tag' },
+              { value: '5d' as const, label: 'Woche' },
+              { value: '1mo' as const, label: 'Monat' },
+              { value: '1y' as const, label: 'Jahr' },
+            ].map((range) => (
+              <button
+                key={range.value}
+                onClick={() => setPortfolioChartRange(range.value)}
+                className={`px-3 py-1.5 text-xs md:text-sm rounded-lg transition-colors ${
+                  portfolioChartRange === range.value
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-[#252542] text-gray-400 hover:text-white'
+                }`}
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 mb-4 text-sm">
+          <span className="text-gray-400">Periode:</span>
+          <span className="text-white font-semibold">
+            {portfolioHistoryEnd.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+          </span>
+          <span className={`flex items-center gap-1 ${portfolioHistoryDiff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {portfolioHistoryDiff >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+            {portfolioHistoryDiff >= 0 ? '+' : ''}
+            {portfolioHistoryDiff.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+            ({portfolioHistoryDiffPercent >= 0 ? '+' : ''}{portfolioHistoryDiffPercent.toFixed(2)}%)
+          </span>
+        </div>
+
+        <div className="h-72">
+          {loadingPortfolioHistory ? (
+            <div className="h-full flex items-center justify-center">
+              <RefreshCw className="animate-spin text-indigo-500" size={28} />
+            </div>
+          ) : portfolioHistory.length < 2 ? (
+            <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+              Zu wenig Verlaufsdaten verfügbar
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={portfolioHistory}>
+                <defs>
+                  <linearGradient id="portfolio-gradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={portfolioHistoryDiff >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0.28} />
+                    <stop offset="95%" stopColor={portfolioHistoryDiff >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <XAxis
+                  dataKey="label"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#6b7280', fontSize: 12 }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#6b7280', fontSize: 12 }}
+                  tickFormatter={(value) =>
+                    `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`
+                  }
+                  width={70}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1a1a2e',
+                    border: '1px solid #252542',
+                    borderRadius: '8px',
+                  }}
+                  labelStyle={{ color: '#9ca3af' }}
+                  formatter={(value: number | string | undefined, _name, item) => {
+                    const percentValue = typeof value === 'number' ? value : Number(value ?? 0);
+                    const absoluteValue = Number(item?.payload?.value ?? 0);
+                    return [
+                      `${percentValue >= 0 ? '+' : ''}${percentValue.toFixed(2)}% (${absoluteValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €)`,
+                      'Veränderung',
+                    ];
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="changePercent"
+                  stroke={portfolioHistoryDiff >= 0 ? '#22c55e' : '#ef4444'}
+                  strokeWidth={2.2}
+                  fill="url(#portfolio-gradient)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
@@ -1969,7 +2412,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-white flex items-center gap-2">
               <Brain size={20} className="text-indigo-500" />
-              KI-Portfolio-Analyse
+              Portfolio-Vollanalyse
             </h2>
             {lastAnalysisDate && (
               <span className="text-xs text-gray-500">

@@ -10,11 +10,32 @@ import {
 } from 'lucide-react';
 import { useAppStore, checkDuplicateOrder } from '../store/useAppStore';
 import { useStocksWithRange, useAIAnalysis } from '../hooks/useMarketData';
+import { marketDataService } from '../services/marketData';
 import { notificationService } from '../services/notifications';
 import type { InvestmentSignal } from '../types';
 
 export function Dashboard() {
-  const { settings, signals, addSignal, addToWatchlist, setError, cashBalance, initialCapital, previousProfit, userPositions, orders, addOrder, cancelOrder, watchlist: cachedWatchlist, updateUserPosition } = useAppStore();
+  const {
+    settings,
+    signals,
+    addSignal,
+    addToWatchlist,
+    setError,
+    cashBalance,
+    initialCapital,
+    previousProfit,
+    userPositions,
+    orders,
+    addOrder,
+    cancelOrder,
+    watchlist: cachedWatchlist,
+    updateUserPosition,
+    dashboardAnalysisSummary,
+    dashboardAnalysisDate,
+    isDashboardAnalyzing,
+    setDashboardAnalysisSummary,
+    setDashboardAnalyzing,
+  } = useAppStore();
   
   // Merge symbol sources: settings.watchlist (string[]) is the source of truth + portfolio positions
   // Only include cached watchlist items that are still in settings.watchlist
@@ -180,7 +201,70 @@ export function Dashboard() {
       return;
     }
 
+    setDashboardAnalyzing(true);
     try {
+      // Live-News-Kontext fuer tagesaktuelle Makro-/Geopolitik-Signale
+      let liveNewsPromptContext = `
+═══════════════════════════════════════
+LIVE-NEWS-SNAPSHOT (Dashboard-Schnellanalyse)
+═══════════════════════════════════════
+Keine Live-News verfügbar.
+
+STRIKT VERBOTEN:
+- Erfinde KEINE geopolitischen Ereignisse, Kriege, Konflikte oder Makro-Entwicklungen.
+- Behaupte NICHT, dass bestimmte Kriege andauern, Zentralbanken bestimmte Entscheidungen getroffen haben, oder geopolitische Spannungen bestehen – du hast KEINE aktuellen Informationen darüber.
+- Schreibe im marketSummary EXPLIZIT: "Hinweis: Keine aktuellen Nachrichten verfügbar. Die Analyse basiert ausschließlich auf technischen Indikatoren und Kursdaten. Geopolitische/makroökonomische Einschätzungen können nicht gegeben werden."
+- Beschränke die Analyse auf technische Indikatoren, Kursdaten und Chartmuster.
+`;
+
+      try {
+        // News-Abruf: versucht Finnhub (mit Key) oder Yahoo Finance (ohne Key)
+        marketDataService.setApiKey(settings.apiKeys.marketData || '');
+        const rawNews = await marketDataService.getMarketNews();
+
+        // Scoring: Boost für offensichtlich marktrelevante News, aber ALLE Headlines
+        // werden berücksichtigt – die KI entscheidet selbst was relevant ist.
+        const highRelevancePattern = /(krieg|war|conflict|sanktion|inflat|zins|rate|rezession|börse|stock|oil|öl|fed|ecb|ezb|gdp|bip|trade|zoll|tariff|crash|rally|default|schulden|debt|bank|energy|energie|nuclear|nuklear|attack|angriff|pandem|climate|klima)/i;
+
+        const normalizedNews = (rawNews || [])
+          .map((n: any) => {
+            const headline = (n?.headline || n?.title || '').replace(/\s+/g, ' ').trim();
+            const summary = (n?.summary || '').replace(/\s+/g, ' ').trim();
+            const source = (n?.source || 'Unbekannt').toString();
+            const epoch = typeof n?.datetime === 'number' ? n.datetime * 1000 : NaN;
+            const date = Number.isFinite(epoch) ? new Date(epoch) : new Date();
+            const dateLabel = date.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const text = `${headline} ${summary}`.trim();
+            // Booste offensichtlich relevante News, aber schließe andere nicht aus
+            let score = 1; // Basis-Score: Jede Headline hat Chance
+            if (highRelevancePattern.test(text)) score += 3;
+            return { headline, source, dateLabel, text, score };
+          })
+          .filter((n: any) => n.headline.length > 0)
+          .sort((a: any, b: any) => b.score - a.score)
+          .slice(0, 15);
+
+        if (normalizedNews.length > 0) {
+          const newsLines = normalizedNews.map((n: any) => `- ${n.dateLabel} | ${n.source}: ${n.headline}`).join('\n');
+
+            liveNewsPromptContext = `
+═══════════════════════════════════════
+LIVE-NEWS-SNAPSHOT (Dashboard-Schnellanalyse)
+═══════════════════════════════════════
+${newsLines}
+
+VERBINDLICH:
+- Nutze diese Headlines als primaere Ereignisbasis fuer Makro/Geopolitik.
+- Nenne die wichtigsten Konflikte/Ereignisse explizit beim Namen (nicht nur "geopolitische Spannungen").
+- Wenn ein Ereignis im Snapshot enthalten ist, das das Portfolio beeinflusst (z.B. Energie, Handel, Lieferketten, regionale Konflikte), MUSS es im Markt-/Makro-Abschnitt konkret erwähnt werden.
+- Erwähne NUR Geopolitik/Makro-Ereignisse die in den obigen Headlines belegt sind. Erfinde KEINE zusätzlichen Konflikte oder Entwicklungen!
+- Trenne Fakten aus Headlines klar von Portfolio-Schlussfolgerungen.
+`;
+          }
+      } catch (e) {
+        console.warn('[Dashboard] Live-News konnten nicht geladen werden, fahre ohne News-Snapshot fort:', e);
+      }
+
       // Convert userPositions to Position format for AI analysis
       const currentPositions = userPositions.map(up => {
         const stockData = stocks.find(s => s.symbol === up.symbol);
@@ -241,7 +325,10 @@ export function Dashboard() {
         currentPositions,
         previousSignals: signals.slice(0, 10),
         activeOrders: orders.filter(o => o.status === 'active'),
-        customPrompt: settings.customPrompt || undefined,
+        customPrompt: [
+          settings.customPrompt?.trim() || '',
+          liveNewsPromptContext.trim(),
+        ].filter(Boolean).join('\n\n'),
         initialCapital: initialCapital || undefined,
         totalAssets: totalAssetsVal,
         portfolioValue: portfolioVal,
@@ -251,6 +338,8 @@ export function Dashboard() {
         transactionFeePercent: os.transactionFeePercent || undefined,
         previousProfit: prevProfitVal !== 0 ? prevProfitVal : undefined,
       });
+
+      setDashboardAnalysisSummary(response.marketSummary || 'Analyse abgeschlossen.');
 
       // Process AI-suggested orders: override existing orders for same symbol
       if (response.suggestedOrders && response.suggestedOrders.length > 0) {
@@ -312,6 +401,8 @@ export function Dashboard() {
       }
     } catch (error: any) {
       setError(error.message || 'Analyse fehlgeschlagen');
+    } finally {
+      setDashboardAnalyzing(false);
     }
   };
 
@@ -342,7 +433,7 @@ export function Dashboard() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-white">Dashboard</h1>
-          <p className="text-sm md:text-base text-gray-400">Dein KI-Investment-Überblick</p>
+          <p className="text-sm md:text-base text-gray-400">Dein KI-Investment-Überblick (Schnellanalyse)</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -356,11 +447,11 @@ export function Dashboard() {
           </button>
           <button
             onClick={runAnalysis}
-            disabled={aiAnalysis.isPending || isLoading}
+            disabled={isDashboardAnalyzing || isLoading}
             className="flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 bg-indigo-600 hover:bg-indigo-700 
                        disabled:bg-indigo-600/50 text-white rounded-lg transition-colors flex-1 md:flex-initial"
           >
-            {aiAnalysis.isPending ? (
+            {isDashboardAnalyzing ? (
               <>
                 <RefreshCw className="animate-spin" size={18} />
                 <span className="text-sm md:text-base">Analysiere...</span>
@@ -368,12 +459,44 @@ export function Dashboard() {
             ) : (
               <>
                 <Brain size={18} />
-                <span className="text-sm md:text-base">KI-Analyse starten</span>
+                <span className="text-sm md:text-base">Schnellanalyse starten</span>
               </>
             )}
           </button>
         </div>
       </div>
+
+      {isDashboardAnalyzing && (
+        <div className="bg-[#1a1a2e] rounded-xl p-4 border border-indigo-500/30">
+          <div className="flex items-center gap-3 text-indigo-300">
+            <RefreshCw className="animate-spin" size={18} />
+            <span className="text-sm">Dashboard-Schnellanalyse läuft im Hintergrund weiter. Du kannst die Seite wechseln und später zurückkommen.</span>
+          </div>
+        </div>
+      )}
+
+      {dashboardAnalysisSummary && (
+        <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-indigo-500/30">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg md:text-xl font-semibold text-white flex items-center gap-2">
+              <Brain size={20} className="text-indigo-500" />
+              Dashboard-Schnellanalyse
+            </h2>
+            {dashboardAnalysisDate && (
+              <span className="text-xs text-gray-500">
+                {new Date(dashboardAnalysisDate).toLocaleDateString('de-DE', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{dashboardAnalysisSummary}</p>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4">
