@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Landmark, 
   TrendingDown, 
-  Clock, 
+  Clock,
   ShieldCheck, 
   ShieldAlert,
   Trash2,
@@ -32,6 +32,60 @@ export function Taxes() {
   const [editingTx, setEditingTx] = useState<string | null>(null);
   const [editBuyDate, setEditBuyDate] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
+
+  // Auto-Fix: Kaufdaten aus Buy-Orders nachschlagen für Transaktionen mit holdingDays === 0
+  useEffect(() => {
+    const store = useAppStore.getState();
+    const unknownDateTxs = store.taxTransactions.filter(tx => tx.holdingDays === 0);
+    if (unknownDateTxs.length === 0) return;
+
+    let fixed = 0;
+    for (const tx of unknownDateTxs) {
+      // 1. Ausgeführte Buy-Orders durchsuchen
+      const buyOrder = store.orders
+        .filter(o => o.status === 'executed'
+          && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy')
+          && o.symbol === tx.symbol
+          && o.executedAt != null)
+        .sort((a, b) => new Date(a.executedAt!).getTime() - new Date(b.executedAt!).getTime())[0];
+
+      let foundBuyDate: Date | null = null;
+      if (buyOrder) {
+        foundBuyDate = new Date(buyOrder.executedAt!);
+      }
+
+      // 2. Fallback: Trade-History
+      if (!foundBuyDate) {
+        const buyTrade = store.tradeHistory
+          ?.filter(t => t.type === 'buy' && t.symbol === tx.symbol)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
+        if (buyTrade) {
+          foundBuyDate = new Date(buyTrade.date);
+        }
+      }
+
+      if (foundBuyDate) {
+        const sellDate = new Date(tx.sellDate);
+        const holdingDays = Math.floor((sellDate.getTime() - foundBuyDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (holdingDays > 0) {
+          const taxFree = holdingDays >= LUX_SPECULATION_DAYS;
+          const gainLoss = (tx.sellPrice - tx.buyPrice) * tx.quantity - tx.fees;
+          removeTaxTransaction(tx.id);
+          addTaxTransaction({
+            ...tx,
+            buyDate: foundBuyDate.toISOString(),
+            holdingDays,
+            taxFree,
+            gainLoss,
+          });
+          fixed++;
+        }
+      }
+    }
+    if (fixed > 0) {
+      console.log(`[Steuern] ${fixed} Transaktion(en) automatisch mit Kaufdatum aus Orders/History ergänzt`);
+    }
+  }, []); // Nur beim ersten Render
 
   // Form state für manuelle Erfassung
   const [formData, setFormData] = useState({
@@ -442,12 +496,13 @@ export function Taxes() {
                     <td className="text-right py-2.5 px-2 text-gray-300">{formatCurrency(tx.sellPrice)} €</td>
                     <td className="text-center py-2.5 px-2">
                       {editingTx === tx.id ? (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 justify-center">
                           <input
                             type="date"
                             value={editBuyDate}
                             onChange={(e) => setEditBuyDate(e.target.value)}
                             className="bg-[#0f0f23] border border-gray-600 rounded px-1.5 py-0.5 text-white text-xs w-28"
+                            autoFocus
                           />
                           <button
                             onClick={() => handleUpdateBuyDate(tx.id)}
@@ -463,23 +518,24 @@ export function Taxes() {
                           </button>
                         </div>
                       ) : (
-                        <span 
-                          className={`text-gray-300 cursor-pointer hover:text-amber-400 ${tx.holdingDays === 0 ? 'text-amber-500 italic' : ''}`}
+                        <button
+                          type="button"
+                          className={`cursor-pointer hover:text-amber-400 ${tx.holdingDays === 0 ? 'text-amber-500 italic' : 'text-gray-300'}`}
                           onClick={() => { 
                             setEditingTx(tx.id); 
-                            setEditBuyDate(new Date(tx.buyDate).toISOString().split('T')[0]); 
+                            setEditBuyDate(tx.holdingDays === 0 ? '' : new Date(tx.buyDate).toISOString().split('T')[0]); 
                           }}
                           title="Klicken zum Bearbeiten"
                         >
                           {tx.holdingDays === 0 ? (
                             <span className="flex items-center justify-center gap-1">
                               <Edit3 size={10} />
-                              <span>unbekannt</span>
+                              unbekannt
                             </span>
                           ) : (
                             formatDate(tx.buyDate)
                           )}
-                        </span>
+                        </button>
                       )}
                     </td>
                     <td className="text-center py-2.5 px-2 text-gray-300">{formatDate(tx.sellDate)}</td>
@@ -500,10 +556,18 @@ export function Taxes() {
                           Frei
                         </span>
                       ) : tx.holdingDays === 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-500/10 text-gray-400 text-xs">
-                          <Clock size={12} />
-                          Prüfen
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => { 
+                            setEditingTx(tx.id); 
+                            setEditBuyDate(''); 
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-xs cursor-pointer hover:bg-amber-500/20"
+                          title="Kaufdatum setzen um Steuerstatus zu ermitteln"
+                        >
+                          <Edit3 size={12} />
+                          Datum setzen
+                        </button>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 text-xs">
                           <ShieldAlert size={12} />
