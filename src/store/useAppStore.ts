@@ -358,10 +358,36 @@ export const useAppStore = create<AppState>()(
             newCashBalance += totalCost - fee;
 
             // Steuer-Transaktion erfassen
-            const buyDate = new Date(order.createdAt);
             const sellDate = new Date();
-            // Verwende Kauf-Datum der Position (approximiert über Order-Erstellungsdatum)
-            // Für genauere Haltedauer: Kaufdatum der Position wäre optimal
+            
+            // Kaufdatum ermitteln: Aus ausgeführten Buy-Orders nachschlagen
+            let buyDate: Date | null = null;
+            const executedBuyOrders = state.orders
+              .filter(o => o.status === 'executed'
+                && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy')
+                && o.symbol === order.symbol
+                && o.executedAt != null)
+              .sort((a, b) => new Date(a.executedAt!).getTime() - new Date(b.executedAt!).getTime());
+            
+            if (executedBuyOrders.length > 0) {
+              buyDate = new Date(executedBuyOrders[0].executedAt!);
+            }
+            
+            // Fallback: Trade-History
+            if (!buyDate) {
+              const buyTrade = state.tradeHistory
+                ?.filter(t => t.type === 'buy' && t.symbol === order.symbol)
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              if (buyTrade && buyTrade.length > 0) {
+                buyDate = new Date(buyTrade[0].date);
+              }
+            }
+            
+            // Letzter Fallback: Order-Erstellungsdatum
+            if (!buyDate) {
+              buyDate = new Date(order.createdAt);
+            }
+            
             const holdingDays = Math.floor((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24));
             const gainLoss = (executedPrice - existingPos.buyPrice) * order.quantity - fee;
             const taxFree = holdingDays >= 183; // ~6 Monate

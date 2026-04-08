@@ -289,19 +289,48 @@ export function Portfolio() {
       // Steuer-Transaktion erfassen (Verkauf)
       const sellDate = new Date();
       const gainLoss = (price - position.buyPrice) * quantity - fee;
-      // Haltedauer: Approximation - Position hat kein explizites Kaufdatum,
-      // verwende das aktuelle Datum minus eine geschätzte Haltedauer
-      // Für manuelle Trades: Haltedauer unbekannt, User kann im Steuer-Tab korrigieren
-      const holdingDays = 0; // Unbekannt bei manuellen Positionen
+      
+      // Kaufdatum ermitteln: Aus ausgeführten Buy-Orders oder Trade-History nachschlagen
+      const store = useAppStore.getState();
+      let buyDate: Date | null = null;
+      
+      // 1. Versuche über ausgeführte Buy-Orders (am genauesten)
+      const executedBuyOrders = store.orders
+        .filter(o => o.status === 'executed' 
+          && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy')
+          && o.symbol === position.symbol
+          && o.executedAt != null)
+        .sort((a, b) => new Date(a.executedAt!).getTime() - new Date(b.executedAt!).getTime());
+      
+      if (executedBuyOrders.length > 0) {
+        // Älteste Buy-Order als Kaufdatum (FIFO-Prinzip)
+        buyDate = new Date(executedBuyOrders[0].executedAt!);
+      }
+      
+      // 2. Fallback: Trade-History nach Käufen durchsuchen
+      if (!buyDate) {
+        const buyTrades = store.tradeHistory
+          .filter(t => t.type === 'buy' && t.symbol === position.symbol)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        if (buyTrades.length > 0) {
+          buyDate = new Date(buyTrades[0].date);
+        }
+      }
+      
+      const effectiveBuyDate = buyDate || sellDate;
+      const holdingDays = buyDate 
+        ? Math.floor((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
       const taxFree = holdingDays >= 183;
-      useAppStore.getState().addTaxTransaction({
+      store.addTaxTransaction({
         id: crypto.randomUUID(),
         symbol: position.symbol,
         name: position.name,
         quantity,
         buyPrice: position.buyPrice,
         sellPrice: price,
-        buyDate: sellDate.toISOString(), // Kaufdatum unbekannt, wird als Verkaufsdatum gesetzt
+        buyDate: effectiveBuyDate.toISOString(),
         sellDate: sellDate.toISOString(),
         gainLoss,
         fees: fee,
