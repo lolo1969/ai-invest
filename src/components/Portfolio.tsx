@@ -49,6 +49,123 @@ interface PortfolioHistoryPoint {
 const HISTORY_CACHE_TTL_MS = 10 * 60 * 1000;
 const PORTFOLIO_CHART_RANGES: PortfolioChartRange[] = ['1d', '5d', '1mo', '1y'];
 
+// Trade-Historie Subkomponente
+function TradeHistory() {
+  const { tradeHistory, clearTradeHistory } = useAppStore();
+  const [showAll, setShowAll] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  if (tradeHistory.length === 0) return null;
+
+  const displayedTrades = showAll ? tradeHistory : tradeHistory.slice(0, 10);
+
+  return (
+    <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-gray-700/30 mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <ArrowRightLeft size={18} className="text-purple-400" />
+          Trade-Historie
+          <span className="text-xs text-gray-500 font-normal">({tradeHistory.length})</span>
+        </h2>
+        <div className="flex items-center gap-2">
+          {confirmClear ? (
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-red-400">Alles löschen?</span>
+              <button
+                onClick={() => { clearTradeHistory(); setConfirmClear(false); }}
+                className="p-1 text-red-400 hover:bg-red-500/20 rounded"
+              >
+                <Check size={14} />
+              </button>
+              <button
+                onClick={() => setConfirmClear(false)}
+                className="p-1 text-gray-400 hover:bg-gray-500/20 rounded"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmClear(true)}
+              className="text-xs text-gray-500 hover:text-red-400 px-2 py-1 rounded hover:bg-red-500/10"
+              title="Historie löschen"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-gray-400 border-b border-gray-700/50">
+              <th className="text-left py-2 px-2 font-medium">Datum</th>
+              <th className="text-center py-2 px-2 font-medium">Typ</th>
+              <th className="text-left py-2 px-2 font-medium">Symbol</th>
+              <th className="text-right py-2 px-2 font-medium">Stück</th>
+              <th className="text-right py-2 px-2 font-medium">Preis</th>
+              <th className="text-right py-2 px-2 font-medium">Gesamt</th>
+              <th className="text-right py-2 px-2 font-medium">Gebühren</th>
+              <th className="text-center py-2 px-2 font-medium">Quelle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayedTrades.map(trade => (
+              <tr key={trade.id} className="border-b border-gray-800/30 hover:bg-gray-800/20">
+                <td className="py-2 px-2 text-gray-300 text-xs">
+                  {new Date(trade.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </td>
+                <td className="text-center py-2 px-2">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                    trade.type === 'buy' 
+                      ? 'bg-green-500/10 text-green-400' 
+                      : 'bg-red-500/10 text-red-400'
+                  }`}>
+                    {trade.type === 'buy' ? '↑ Kauf' : '↓ Verkauf'}
+                  </span>
+                </td>
+                <td className="py-2 px-2">
+                  <span className="text-white font-medium">{trade.symbol}</span>
+                  {trade.name !== trade.symbol && (
+                    <span className="text-gray-500 text-xs block">{trade.name}</span>
+                  )}
+                </td>
+                <td className="text-right py-2 px-2 text-gray-300">{trade.quantity}</td>
+                <td className="text-right py-2 px-2 text-gray-300">
+                  {trade.price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                </td>
+                <td className="text-right py-2 px-2">
+                  <span className={trade.type === 'buy' ? 'text-red-300' : 'text-green-300'}>
+                    {trade.type === 'buy' ? '-' : '+'}{trade.totalAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                  </span>
+                </td>
+                <td className="text-right py-2 px-2 text-gray-500 text-xs">
+                  {trade.fees > 0 ? `-${trade.fees.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : '–'}
+                </td>
+                <td className="text-center py-2 px-2">
+                  <span className={`text-xs ${trade.source === 'order' ? 'text-blue-400' : 'text-gray-500'}`}>
+                    {trade.source === 'order' ? 'Order' : 'Manuell'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {tradeHistory.length > 10 && (
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="w-full mt-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800/30 rounded-lg transition"
+        >
+          {showAll ? 'Weniger anzeigen' : `Alle ${tradeHistory.length} Trades anzeigen`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Portfolio() {
   const { 
     settings, 
@@ -148,12 +265,50 @@ export function Portfolio() {
       const avgBuyPrice = (position.buyPrice * position.quantity + price * quantity) / newTotalQty;
       updateUserPosition(positionId, { quantity: newTotalQty, buyPrice: avgBuyPrice, currentPrice: price });
       setCashBalance(currentCash - totalCost - fee);
+
+      // Trade-History erfassen (Kauf)
+      useAppStore.getState().addTradeHistory({
+        id: crypto.randomUUID(),
+        type: 'buy',
+        symbol: position.symbol,
+        name: position.name,
+        quantity,
+        price,
+        totalAmount: totalCost,
+        fees: fee,
+        date: new Date().toISOString(),
+        source: 'manual',
+      });
     } else {
       const { reservedShares, availableShares } = getAvailableShares(position.symbol, position.quantity);
       if (quantity > availableShares) {
         setError(`Nicht genügend verfügbare Aktien. Gesamt: ${position.quantity}${reservedShares > 0 ? `, davon ${reservedShares} reserviert durch aktive Sell-Orders` : ''}, verfügbar: ${availableShares}`);
         return;
       }
+
+      // Steuer-Transaktion erfassen (Verkauf)
+      const sellDate = new Date();
+      const gainLoss = (price - position.buyPrice) * quantity - fee;
+      // Haltedauer: Approximation - Position hat kein explizites Kaufdatum,
+      // verwende das aktuelle Datum minus eine geschätzte Haltedauer
+      // Für manuelle Trades: Haltedauer unbekannt, User kann im Steuer-Tab korrigieren
+      const holdingDays = 0; // Unbekannt bei manuellen Positionen
+      const taxFree = holdingDays >= 183;
+      useAppStore.getState().addTaxTransaction({
+        id: crypto.randomUUID(),
+        symbol: position.symbol,
+        name: position.name,
+        quantity,
+        buyPrice: position.buyPrice,
+        sellPrice: price,
+        buyDate: sellDate.toISOString(), // Kaufdatum unbekannt, wird als Verkaufsdatum gesetzt
+        sellDate: sellDate.toISOString(),
+        gainLoss,
+        fees: fee,
+        holdingDays,
+        taxFree,
+      });
+
       const newQty = position.quantity - quantity;
       if (newQty <= 0) {
         // Position komplett verkaufen
@@ -162,6 +317,20 @@ export function Portfolio() {
         updateUserPosition(positionId, { quantity: newQty, currentPrice: price });
       }
       setCashBalance(currentCash + totalCost - fee);
+
+      // Trade-History erfassen (Verkauf)
+      useAppStore.getState().addTradeHistory({
+        id: crypto.randomUUID(),
+        type: 'sell',
+        symbol: position.symbol,
+        name: position.name,
+        quantity,
+        price,
+        totalAmount: totalCost,
+        fees: fee,
+        date: new Date().toISOString(),
+        source: 'manual',
+      });
     }
     setTradeAction(null);
     setTradeQuantity('');
@@ -2405,6 +2574,9 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       {/* CSV Import Modal */}
       <CSVImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} />
+
+      {/* Trade-Historie */}
+      <TradeHistory />
 
       {/* AI Analysis Result */}
       {analysisResult && (

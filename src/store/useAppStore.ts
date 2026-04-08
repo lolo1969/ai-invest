@@ -12,7 +12,9 @@ import type {
   OrderSettings,
   AutopilotSettings,
   AutopilotLogEntry,
-  AutopilotState
+  AutopilotState,
+  TaxTransaction,
+  TradeHistoryEntry
 } from '../types';
 
 // Migration: Alte Daten von "ai-invest-storage" zu "vestia-storage" übernehmen
@@ -119,6 +121,17 @@ interface AppState {
   clearAutopilotLog: () => void;
   updateAutopilotState: (state: Partial<AutopilotState>) => void;
   resetAutopilotState: () => void;
+
+  // Tax Transactions (realisierte Gewinne/Verluste)
+  taxTransactions: TaxTransaction[];
+  addTaxTransaction: (tx: TaxTransaction) => void;
+  removeTaxTransaction: (id: string) => void;
+  clearTaxTransactions: () => void;
+
+  // Trade History (direkte Portfolio-Käufe/Verkäufe)
+  tradeHistory: TradeHistoryEntry[];
+  addTradeHistory: (entry: TradeHistoryEntry) => void;
+  clearTradeHistory: () => void;
 }
 
 const defaultSettings: UserSettings = {
@@ -343,6 +356,30 @@ export const useAppStore = create<AppState>()(
               };
             }
             newCashBalance += totalCost - fee;
+
+            // Steuer-Transaktion erfassen
+            const buyDate = new Date(order.createdAt);
+            const sellDate = new Date();
+            // Verwende Kauf-Datum der Position (approximiert über Order-Erstellungsdatum)
+            // Für genauere Haltedauer: Kaufdatum der Position wäre optimal
+            const holdingDays = Math.floor((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24));
+            const gainLoss = (executedPrice - existingPos.buyPrice) * order.quantity - fee;
+            const taxFree = holdingDays >= 183; // ~6 Monate
+            const taxTx: TaxTransaction = {
+              id: crypto.randomUUID(),
+              symbol: order.symbol,
+              name: order.name,
+              quantity: order.quantity,
+              buyPrice: existingPos.buyPrice,
+              sellPrice: executedPrice,
+              buyDate: buyDate.toISOString(),
+              sellDate: sellDate.toISOString(),
+              gainLoss,
+              fees: fee,
+              holdingDays,
+              taxFree,
+            };
+
             const newQty = existingPos.quantity - order.quantity;
             if (newQty <= 0) {
               newPositions = newPositions.filter((p) => p.symbol !== order.symbol);
@@ -353,6 +390,29 @@ export const useAppStore = create<AppState>()(
                   : p
               );
             }
+
+            return {
+              orders: state.orders.map((o) =>
+                o.id === id
+                  ? { ...o, status: 'executed' as const, executedAt: new Date(), executedPrice }
+                  : o
+              ),
+              cashBalance: Math.round(newCashBalance * 100) / 100,
+              userPositions: newPositions,
+              taxTransactions: [taxTx, ...state.taxTransactions],
+              tradeHistory: [{
+                id: crypto.randomUUID(),
+                type: 'sell' as const,
+                symbol: order.symbol,
+                name: order.name,
+                quantity: order.quantity,
+                price: executedPrice,
+                totalAmount: totalCost,
+                fees: fee,
+                date: new Date().toISOString(),
+                source: 'order' as const,
+              }, ...state.tradeHistory].slice(0, 500),
+            };
           }
 
           return {
@@ -363,6 +423,18 @@ export const useAppStore = create<AppState>()(
             ),
             cashBalance: Math.round(newCashBalance * 100) / 100,
             userPositions: newPositions,
+            tradeHistory: [{
+              id: crypto.randomUUID(),
+              type: 'buy' as const,
+              symbol: order.symbol,
+              name: order.name,
+              quantity: order.quantity,
+              price: executedPrice,
+              totalAmount: totalCost,
+              fees: fee,
+              date: new Date().toISOString(),
+              source: 'order' as const,
+            }, ...state.tradeHistory].slice(0, 500),
           };
         }),
       updateOrderPrice: (id, currentPrice) =>
@@ -456,6 +528,26 @@ export const useAppStore = create<AppState>()(
             totalOrdersExecuted: 0,
           },
         }),
+
+      // Tax Transactions
+      taxTransactions: [],
+      addTaxTransaction: (tx) =>
+        set((state) => ({
+          taxTransactions: [tx, ...state.taxTransactions],
+        })),
+      removeTaxTransaction: (id) =>
+        set((state) => ({
+          taxTransactions: state.taxTransactions.filter((t) => t.id !== id),
+        })),
+      clearTaxTransactions: () => set({ taxTransactions: [] }),
+
+      // Trade History
+      tradeHistory: [],
+      addTradeHistory: (entry) =>
+        set((state) => ({
+          tradeHistory: [entry, ...state.tradeHistory].slice(0, 500), // Max 500 Einträge
+        })),
+      clearTradeHistory: () => set({ tradeHistory: [] }),
     }),
     {
       name: 'vestia-storage',
@@ -481,6 +573,8 @@ export const useAppStore = create<AppState>()(
         autopilotSettings: state.autopilotSettings,
         autopilotLog: state.autopilotLog,
         autopilotState: state.autopilotState,
+        taxTransactions: state.taxTransactions,
+        tradeHistory: state.tradeHistory,
       }),
     }
   )
@@ -565,6 +659,8 @@ function saveAutoBackup() {
         autopilotSettings: state.autopilotSettings,
         autopilotLog: state.autopilotLog,
         autopilotState: state.autopilotState,
+        taxTransactions: state.taxTransactions,
+        tradeHistory: state.tradeHistory,
       },
     };
     // Nur speichern wenn echte Daten vorhanden (nicht leerer Default-State)
@@ -619,6 +715,102 @@ setTimeout(() => {
     console.warn('[Vestia] Order-Bereinigung fehlgeschlagen:', e);
   }
 }, 3000);
+
+// Einmalige Migration: Bereits ausgeführte Sell-Orders als Steuertransaktionen nachimportieren
+setTimeout(() => {
+  try {
+    const state = useAppStore.getState();
+    if (state.taxTransactions.length > 0) return; // Bereits migriert oder manuell erfasst
+
+    const executedSells = state.orders.filter(
+      o => o.status === 'executed' 
+        && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss')
+        && o.executedPrice != null
+        && o.executedAt != null
+    );
+
+    if (executedSells.length === 0) return;
+
+    const newTaxTxs: TaxTransaction[] = executedSells.map(o => {
+      const sellDate = new Date(o.executedAt!);
+      const buyDate = new Date(o.createdAt);
+      const holdingDays = Math.floor((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24));
+      // Versuche Kaufpreis aus Order-Kontext zu ermitteln (triggerPrice als Annäherung für Sell-Orders ist nicht ideal)
+      // Nutze executedPrice als Verkaufspreis, triggerPrice als Näherung
+      const fee = (state.orderSettings.transactionFeeFlat || 0) + (o.executedPrice! * o.quantity) * (state.orderSettings.transactionFeePercent || 0) / 100;
+      const gainLoss = (o.executedPrice! - o.triggerPrice) * o.quantity - fee;
+      const taxFree = holdingDays >= 183;
+
+      return {
+        id: crypto.randomUUID(),
+        symbol: o.symbol,
+        name: o.name,
+        quantity: o.quantity,
+        buyPrice: o.triggerPrice, // Trigger-Preis als Näherung (User kann im Steuer-Tab korrigieren)
+        sellPrice: o.executedPrice!,
+        buyDate: buyDate.toISOString(),
+        sellDate: sellDate.toISOString(),
+        gainLoss,
+        fees: fee,
+        holdingDays,
+        taxFree,
+      };
+    });
+
+    if (newTaxTxs.length > 0) {
+      useAppStore.setState((s) => ({
+        taxTransactions: [...newTaxTxs, ...s.taxTransactions],
+      }));
+      console.log(`[Vestia] ${newTaxTxs.length} historische Sell-Order(s) als Steuertransaktionen importiert`);
+    }
+  } catch (e) {
+    console.warn('[Vestia] Steuer-Migration fehlgeschlagen:', e);
+  }
+}, 4000);
+
+// Einmalige Migration: Bereits ausgeführte Orders als Trade-History nachimportieren
+setTimeout(() => {
+  try {
+    const state = useAppStore.getState();
+    if (state.tradeHistory.length > 0) return; // Bereits migriert
+
+    const executedOrders = state.orders.filter(
+      o => o.status === 'executed' && o.executedPrice != null && o.executedAt != null
+    );
+
+    if (executedOrders.length === 0) return;
+
+    const newTrades: TradeHistoryEntry[] = executedOrders.map(o => {
+      const isBuy = o.orderType === 'limit-buy' || o.orderType === 'stop-buy';
+      const totalCost = o.executedPrice! * o.quantity;
+      const fee = (state.orderSettings.transactionFeeFlat || 0) + totalCost * (state.orderSettings.transactionFeePercent || 0) / 100;
+
+      return {
+        id: crypto.randomUUID(),
+        type: isBuy ? 'buy' as const : 'sell' as const,
+        symbol: o.symbol,
+        name: o.name,
+        quantity: o.quantity,
+        price: o.executedPrice!,
+        totalAmount: totalCost,
+        fees: fee,
+        date: new Date(o.executedAt!).toISOString(),
+        source: 'order' as const,
+      };
+    });
+
+    if (newTrades.length > 0) {
+      // Sortiere nach Datum (neueste zuerst)
+      newTrades.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      useAppStore.setState((s) => ({
+        tradeHistory: [...newTrades, ...s.tradeHistory].slice(0, 500),
+      }));
+      console.log(`[Vestia] ${newTrades.length} historische Order(s) als Trade-History importiert`);
+    }
+  } catch (e) {
+    console.warn('[Vestia] Trade-History-Migration fehlgeschlagen:', e);
+  }
+}, 4500);
 
 // Backup beim Start und dann alle 60s
 setTimeout(saveAutoBackup, 5000); // 5s nach Start (damit Daten geladen sind)
