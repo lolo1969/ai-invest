@@ -12,7 +12,8 @@ import {
   BellRing,
   ShoppingCart,
   Bot,
-  Server
+  Server,
+  Landmark
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { isServerAvailable } from '../services/syncService';
@@ -35,6 +36,7 @@ const navItems: NavItem[] = [
   { id: 'portfolio', label: 'Portfolio', icon: <Briefcase size={20} /> },
   { id: 'watchlist', label: 'Watchlist', icon: <Search size={20} /> },
   { id: 'orders', label: 'Orders', icon: <ShoppingCart size={20} /> },
+  { id: 'taxes', label: 'Steuern', icon: <Landmark size={20} /> },
   { id: 'price-alerts', label: 'Preisalarme', icon: <BellRing size={20} /> },
   { id: 'notifications', label: 'Alerts', icon: <Bell size={20} /> },
   { id: 'settings', label: 'Einstellungen', icon: <Settings size={20} /> },

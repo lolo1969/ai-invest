@@ -278,3 +278,35 @@ export interface AutopilotState {
   totalOrdersExecuted: number;
 }
 
+// Tax Types (Luxembourg)
+export interface TaxTransaction {
+  id: string;
+  symbol: string;
+  name: string;
+  quantity: number;
+  buyPrice: number;
+  sellPrice: number;
+  buyDate: string;       // ISO string
+  sellDate: string;      // ISO string
+  gainLoss: number;      // Gewinn/Verlust in EUR
+  fees: number;          // Transaktionsgebühren
+  holdingDays: number;   // Haltedauer in Tagen
+  taxFree: boolean;      // true wenn Haltedauer >= 6 Monate
+}
+
+// Trade History (direkte Portfolio-Käufe/Verkäufe)
+export type TradeType = 'buy' | 'sell';
+
+export interface TradeHistoryEntry {
+  id: string;
+  type: TradeType;
+  symbol: string;
+  name: string;
+  quantity: number;
+  price: number;          // Kauf-/Verkaufspreis pro Stück
+  totalAmount: number;    // Gesamtwert (Preis × Stück)
+  fees: number;           // Gebühren
+  date: string;           // ISO string
+  source: 'manual' | 'order';  // Herkunft: manuell (Portfolio) oder Order-Ausführung
+}
+

@@ -16,6 +16,7 @@ const Notifications = lazy(() => import('./components/Notifications').then(m => 
 const PriceAlerts = lazy(() => import('./components/PriceAlerts').then(m => ({ default: m.PriceAlerts })));
 const Orders = lazy(() => import('./components/Orders').then(m => ({ default: m.Orders })));
 const Autopilot = lazy(() => import('./components/Autopilot').then(m => ({ default: m.Autopilot })));
+const Taxes = lazy(() => import('./components/Taxes').then(m => ({ default: m.Taxes })));
 
 // Loading Spinner Komponente
 const LoadingSpinner = () => (
@@ -24,7 +25,7 @@ const LoadingSpinner = () => (
   </div>
 );
 
-const VALID_VIEWS = ['dashboard', 'settings', 'signals', 'watchlist', 'portfolio', 'notifications', 'price-alerts', 'orders', 'autopilot'];
+const VALID_VIEWS = ['dashboard', 'settings', 'signals', 'watchlist', 'portfolio', 'notifications', 'price-alerts', 'orders', 'autopilot', 'taxes'];
 
 function getInitialView(): string {
   const hash = window.location.hash.replace('#', '');
@@ -93,6 +94,8 @@ function App() {
         return <Orders />;
       case 'autopilot':
         return <Autopilot />;
+      case 'taxes':
+        return <Taxes />;
       default:
         return <Dashboard />;
     }
