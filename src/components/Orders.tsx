@@ -18,10 +18,7 @@ import {
 import { useAppStore, checkDuplicateOrder } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
 import type { OrderType, OrderStatus } from '../types';
-
-function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().split('.')[0];
-}
+import { findCompatibleSymbolMatch, symbolsReferToSameInstrument, sumByEquivalentSymbol } from '../utils/symbolMatching';
 
 function buildSymbolCandidates(symbols: string[]): string[] {
   const expanded = new Set<string>();
@@ -34,17 +31,6 @@ function buildSymbolCandidates(symbols: string[]): string[] {
     }
   }
   return [...expanded];
-}
-
-function findBestQuoteForOrder(orderSymbol: string, quotes: Array<{ symbol: string; price: number }>) {
-  const normalizedOrder = normalizeSymbol(orderSymbol);
-
-  return quotes.find((q) => {
-    const qSymbol = (q.symbol || '').toUpperCase();
-    if (!qSymbol) return false;
-    if (qSymbol === orderSymbol.toUpperCase()) return true;
-    return normalizeSymbol(qSymbol) === normalizedOrder;
-  });
 }
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
@@ -172,7 +158,7 @@ export function Orders() {
   const selectSymbol = async (symbol: string, name: string) => {
     // Bei Sell-Orders automatisch die max. verfügbare Menge eintragen
     const isSell = formData.orderType === 'limit-sell' || formData.orderType === 'stop-loss';
-    const position = userPositions.find((p) => p.symbol === symbol);
+    const position = userPositions.find((p) => symbolsReferToSameInstrument(p.symbol, symbol));
     const autoQuantity = isSell && position ? position.quantity.toString() : '';
     
     setFormData((prev) => ({ ...prev, symbol, name, ...(autoQuantity ? { quantity: autoQuantity } : {}) }));
@@ -233,11 +219,14 @@ export function Orders() {
 
     // Validierung: Genug Stück für Verkauf-Orders? (inkl. reservierte Stücke durch aktive Sell-Orders)
     if (formData.orderType === 'limit-sell' || formData.orderType === 'stop-loss') {
-      const position = userPositions.find((p) => p.symbol === formData.symbol);
+      const position = userPositions.find((p) => symbolsReferToSameInstrument(p.symbol, formData.symbol));
       // Bereits durch aktive/pendende Verkaufs-Orders reservierte Stücke
-      const reservedQuantity = orders
-        .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss') && o.symbol === formData.symbol)
-        .reduce((sum, o) => sum + o.quantity, 0);
+      const reservedQuantity = sumByEquivalentSymbol(
+        formData.symbol,
+        orders.filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss')),
+        (item) => item.symbol,
+        (item) => item.quantity
+      );
       const availableQuantity = (position?.quantity ?? 0) - reservedQuantity;
       if (!position || availableQuantity < quantity) {
         alert(`Nicht genug Aktien! Verfügbar: ${availableQuantity} (${reservedQuantity > 0 ? `${reservedQuantity} reserviert durch aktive Orders` : 'gesamt: ' + (position?.quantity ?? 0)})`);
@@ -310,7 +299,7 @@ export function Orders() {
       let missing = 0;
 
       for (const order of activeOrders) {
-        const quote = findBestQuoteForOrder(order.symbol, quotes);
+        const quote = findCompatibleSymbolMatch(order.symbol, quotes, (item) => item.symbol);
         if (!quote) {
           missing++;
           continue;
@@ -353,7 +342,7 @@ export function Orders() {
   // Max. verkaufbare Menge für aktuelles Symbol
   const maxSellQuantity = useMemo(() => {
     if (!formData.symbol) return 0;
-    const position = userPositions.find((p) => p.symbol === formData.symbol);
+    const position = userPositions.find((p) => symbolsReferToSameInstrument(p.symbol, formData.symbol));
     return position?.quantity ?? 0;
   }, [formData.symbol, userPositions]);
 

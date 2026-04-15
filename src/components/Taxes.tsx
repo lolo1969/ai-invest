@@ -11,7 +11,9 @@ import {
   Calendar,
   Edit3,
   Check,
-  X
+  X,
+  Coins,
+  Percent
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 
@@ -36,7 +38,9 @@ export function Taxes() {
   // Auto-Fix: Kaufdaten aus Buy-Orders nachschlagen für Transaktionen mit holdingDays === 0
   useEffect(() => {
     const store = useAppStore.getState();
-    const unknownDateTxs = store.taxTransactions.filter(tx => tx.holdingDays === 0);
+    const unknownDateTxs = store.taxTransactions.filter(
+      tx => (!tx.transactionType || tx.transactionType === 'capital-gain') && tx.holdingDays === 0
+    );
     if (unknownDateTxs.length === 0) return;
 
     let fixed = 0;
@@ -111,9 +115,14 @@ export function Taxes() {
     availableYears.unshift(new Date().getFullYear());
   }
 
+  // Aufgeteilt nach Transaktionsart
+  const capitalGainTransactions = yearTransactions.filter(tx => !tx.transactionType || tx.transactionType === 'capital-gain');
+  const dividendTransactions = yearTransactions.filter(tx => tx.transactionType === 'dividend');
+  const interestTransactions = yearTransactions.filter(tx => tx.transactionType === 'interest');
+
   // Berechnungen nach Luxemburger Steuerrecht
-  const taxableTransactions = yearTransactions.filter(tx => !tx.taxFree); // < 6 Monate Haltedauer
-  const taxFreeTransactions = yearTransactions.filter(tx => tx.taxFree);  // >= 6 Monate
+  const taxableTransactions = capitalGainTransactions.filter(tx => !tx.taxFree); // < 6 Monate Haltedauer
+  const taxFreeTransactions = capitalGainTransactions.filter(tx => tx.taxFree);  // >= 6 Monate
 
   const shortTermGains = taxableTransactions
     .filter(tx => tx.gainLoss > 0)
@@ -140,6 +149,12 @@ export function Taxes() {
   // Gesamtgewinn/-verlust
   const totalGainLoss = yearTransactions.reduce((sum, tx) => sum + tx.gainLoss, 0);
   const totalFees = yearTransactions.reduce((sum, tx) => sum + tx.fees, 0);
+
+  // Dividenden & Zinsen
+  const dividendIncome = dividendTransactions.reduce((sum, tx) => sum + tx.gainLoss, 0);
+  const dividendWithholdingTax = dividendTransactions.reduce((sum, tx) => sum + (tx.withholdingTax || 0), 0);
+  const interestIncome = interestTransactions.reduce((sum, tx) => sum + tx.gainLoss, 0);
+  const interestWithholdingTax = interestTransactions.reduce((sum, tx) => sum + (tx.withholdingTax || 0), 0);
 
   // Unrealisierte Gewinne (offene Positionen)
   const unrealizedGains = userPositions.reduce((sum, p) => sum + (p.currentPrice - p.buyPrice) * p.quantity, 0);
@@ -317,6 +332,38 @@ export function Taxes() {
         </div>
       </div>
 
+      {/* Dividenden & Zinsen Cards */}
+      {(dividendTransactions.length > 0 || interestTransactions.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          {dividendTransactions.length > 0 && (
+            <div className="bg-[#1a1a3e] rounded-xl p-4 border border-purple-500/20">
+              <div className="flex items-center gap-2 mb-2">
+                <Coins className="w-5 h-5 text-purple-400" />
+                <span className="text-sm text-gray-400">Dividendenerträge</span>
+              </div>
+              <div className="text-2xl font-bold text-purple-400">{formatCurrency(dividendIncome)} €</div>
+              <p className="text-xs text-gray-500 mt-1">
+                {dividendTransactions.length} Zahlung(en)
+                {dividendWithholdingTax > 0 && ` · ${formatCurrency(dividendWithholdingTax)} € Quellensteuer einbehalten`}
+              </p>
+            </div>
+          )}
+          {interestTransactions.length > 0 && (
+            <div className="bg-[#1a1a3e] rounded-xl p-4 border border-cyan-500/20">
+              <div className="flex items-center gap-2 mb-2">
+                <Percent className="w-5 h-5 text-cyan-400" />
+                <span className="text-sm text-gray-400">Zinserträge</span>
+              </div>
+              <div className="text-2xl font-bold text-cyan-400">{formatCurrency(interestIncome)} €</div>
+              <p className="text-xs text-gray-500 mt-1">
+                {interestTransactions.length} Zahlung(en)
+                {interestWithholdingTax > 0 && ` · ${formatCurrency(interestWithholdingTax)} € Quellensteuer einbehalten`}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Zusammenfassung */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         {/* Steuerberechnung Detail */}
@@ -419,16 +466,16 @@ export function Taxes() {
         </div>
       </div>
 
-      {/* Transaktions-Tabelle */}
-      <div className="bg-[#1a1a3e] rounded-xl p-5 border border-gray-700/50">
+      {/* Kapitalgewinne Tabelle */}
+      <div className="bg-[#1a1a3e] rounded-xl p-5 border border-gray-700/50 mb-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-400" />
-            Transaktionen {selectedYear}
+            Veräußerungen {selectedYear}
           </h3>
           {yearTransactions.length > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">{yearTransactions.length} Transaktionen</span>
+              <span className="text-xs text-gray-500">{capitalGainTransactions.length} Transaktion(en)</span>
               {confirmClear ? (
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-red-400">Alle löschen?</span>
@@ -457,10 +504,10 @@ export function Taxes() {
           )}
         </div>
 
-        {yearTransactions.length === 0 ? (
+        {capitalGainTransactions.length === 0 ? (
           <div className="text-center py-10 text-gray-500">
             <Landmark className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p>Keine Transaktionen in {selectedYear}</p>
+            <p>Keine Veräußerungen in {selectedYear}</p>
             <p className="text-xs mt-1">Verkäufe werden automatisch erfasst oder können manuell hinzugefügt werden.</p>
           </div>
         ) : (
@@ -481,7 +528,7 @@ export function Taxes() {
                 </tr>
               </thead>
               <tbody>
-                {yearTransactions
+                {capitalGainTransactions
                   .sort((a, b) => new Date(b.sellDate).getTime() - new Date(a.sellDate).getTime())
                   .map(tx => (
                   <tr key={tx.id} className="border-b border-gray-800/30 hover:bg-gray-800/20">
@@ -591,6 +638,86 @@ export function Taxes() {
           </div>
         )}
       </div>
+
+      {/* Dividenden & Zinsen Tabelle */}
+      {(dividendTransactions.length > 0 || interestTransactions.length > 0) && (
+        <div className="bg-[#1a1a3e] rounded-xl p-5 border border-gray-700/50 mb-4">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
+            <Coins className="w-5 h-5 text-purple-400" />
+            Dividenden &amp; Zinsen {selectedYear}
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-700/50">
+                  <th className="text-left py-2 px-2 font-medium">Art</th>
+                  <th className="text-left py-2 px-2 font-medium">Gesellschaft</th>
+                  <th className="text-right py-2 px-2 font-medium">Stück</th>
+                  <th className="text-center py-2 px-2 font-medium">Datum</th>
+                  <th className="text-right py-2 px-2 font-medium">Brutto</th>
+                  <th className="text-right py-2 px-2 font-medium">Quellensteuer</th>
+                  <th className="text-center py-2 px-2 font-medium">Status</th>
+                  <th className="text-center py-2 px-2 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...dividendTransactions, ...interestTransactions]
+                  .sort((a, b) => new Date(b.sellDate).getTime() - new Date(a.sellDate).getTime())
+                  .map(tx => (
+                  <tr key={tx.id} className="border-b border-gray-800/30 hover:bg-gray-800/20">
+                    <td className="py-2.5 px-2">
+                      {tx.transactionType === 'dividend' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 text-xs">
+                          <Coins size={10} /> Dividende
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-xs">
+                          <Percent size={10} /> Zinsen
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-2">
+                      <span className="text-white font-medium">{tx.name}</span>
+                      {tx.symbol && tx.symbol !== 'ZINSEN' && tx.symbol !== tx.name && (
+                        <span className="text-gray-500 text-xs block">{tx.symbol}</span>
+                      )}
+                    </td>
+                    <td className="text-right py-2.5 px-2 text-gray-300">
+                      {tx.quantity > 0 && tx.transactionType === 'dividend' ? tx.quantity : '–'}
+                    </td>
+                    <td className="text-center py-2.5 px-2 text-gray-300">{formatDate(tx.sellDate)}</td>
+                    <td className="text-right py-2.5 px-2">
+                      <span className="font-medium text-green-400">+{formatCurrency(tx.gainLoss)} €</span>
+                    </td>
+                    <td className="text-right py-2.5 px-2">
+                      {(tx.withholdingTax || 0) > 0 ? (
+                        <span className="text-orange-400">-{formatCurrency(tx.withholdingTax || 0)} €</span>
+                      ) : (
+                        <span className="text-gray-600">–</span>
+                      )}
+                    </td>
+                    <td className="text-center py-2.5 px-2">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 text-xs">
+                        <ShieldAlert size={12} />
+                        Pflichtig
+                      </span>
+                    </td>
+                    <td className="text-center py-2.5 px-2">
+                      <button
+                        onClick={() => removeTaxTransaction(tx.id)}
+                        className="p-1 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded"
+                        title="Transaktion löschen"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Manuelle Transaktion hinzufügen Modal */}
       {showAddForm && (

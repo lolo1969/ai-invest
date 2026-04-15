@@ -13,6 +13,7 @@ import { useStocksWithRange, useAIAnalysis } from '../hooks/useMarketData';
 import { marketDataService } from '../services/marketData';
 import { notificationService } from '../services/notifications';
 import type { InvestmentSignal } from '../types';
+import { findCompatibleSymbolMatch, symbolsReferToSameInstrument } from '../utils/symbolMatching';
 
 export function Dashboard() {
   const {
@@ -346,21 +347,23 @@ VERBINDLICH:
         for (const suggested of response.suggestedOrders) {
           // Storniere bestehende aktive KI-Orders für dieses Symbol/Typ (manuelle bleiben)
           const existingOrders = orders.filter(
-            o => o.status === 'active' && o.symbol === suggested.symbol && o.orderType === suggested.orderType && o.note?.startsWith('🤖 KI:')
+            o => o.status === 'active' && symbolsReferToSameInstrument(o.symbol, suggested.symbol) && o.orderType === suggested.orderType && o.note?.startsWith('🤖 KI:')
           );
           for (const existing of existingOrders) {
             cancelOrder(existing.id);
           }
 
+          const stockMatch = findCompatibleSymbolMatch(suggested.symbol, stocks, (item) => item.symbol);
+
           // Duplikat-Check: Erstelle nur wenn keine ähnliche Order existiert
           const newOrder = {
             id: crypto.randomUUID(),
             symbol: suggested.symbol,
-            name: (stocks.find(s => s.symbol === suggested.symbol))?.name || suggested.symbol,
+            name: stockMatch?.name || suggested.symbol,
             orderType: suggested.orderType,
             quantity: suggested.quantity,
             triggerPrice: suggested.triggerPrice,
-            currentPrice: (stocks.find(s => s.symbol === suggested.symbol))?.price || suggested.triggerPrice,
+            currentPrice: stockMatch?.price || suggested.triggerPrice,
             status: 'active' as const,
             createdAt: new Date(),
             note: `🤖 KI: ${suggested.reasoning}`,

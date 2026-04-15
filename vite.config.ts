@@ -2,20 +2,42 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import https from 'node:https'
+
+const yahooAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 25,
+  timeout: 30_000,
+})
+
+function createYahooProxy(stripPrefix?: RegExp) {
+  return {
+    target: 'https://query1.finance.yahoo.com',
+    changeOrigin: true,
+    secure: true,
+    agent: yahooAgent,
+    timeout: 30_000,
+    proxyTimeout: 30_000,
+    rewrite: stripPrefix ? (path: string) => path.replace(stripPrefix, '') : undefined,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'application/json,text/plain,*/*',
+      'Connection': 'keep-alive',
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
   server: {
     port: 5174,
     proxy: {
-      '/yahoo-api': {
-        target: 'https://query1.finance.yahoo.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/yahoo-api/, ''),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      },
+      // Canonical local prefix used in the app
+      '/yahoo-api': createYahooProxy(/^\/yahoo-api/),
+      // Compatibility routes: some stale clients/requesters may still hit these directly
+      '/v8': createYahooProxy(),
+      '/v7': createYahooProxy(),
+      '/v1': createYahooProxy(),
       '/google-news': {
         target: 'https://news.google.com',
         changeOrigin: true,

@@ -1,6 +1,7 @@
 import { useAppStore, checkDuplicateOrder } from '../store/useAppStore';
 import { marketDataService } from './marketData';
 import { getAIService } from './aiService';
+import { findCompatibleSymbolMatch, symbolsReferToSameInstrument, sumByEquivalentSymbol } from '../utils/symbolMatching';
 import type { 
   AutopilotLogEntry, 
   AISuggestedOrder, 
@@ -125,25 +126,28 @@ export async function runAutopilotCycle(): Promise<void> {
       log(createLogEntry('info', `🧹 ${expiredOrders.length} abgelaufene Order(s) storniert`));
     }
 
-    // 0b. Doppelte Sell-Orders bereinigen (gleiche Richtung + ähnlicher Preis ±5%)
+    // 0b. Doppelte Sell-Orders bereinigen (gleiche Richtung + ähnlicher Preis ±5% oder Alias-Symbol)
     const activeOrders = useAppStore.getState().orders.filter(
       o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss')
     );
-    // Gruppiere nach Symbol
-    const sellsBySymbol = new Map<string, typeof activeOrders>();
+    // Gruppiere nach kanonischem Symbol (alias-aware: ENR und ENR.DE landen in der gleichen Gruppe)
+    const sellGroups: (typeof activeOrders)[] = [];
     for (const o of activeOrders) {
-      const list = sellsBySymbol.get(o.symbol) || [];
-      list.push(o);
-      sellsBySymbol.set(o.symbol, list);
+      const existingGroup = sellGroups.find(g => symbolsReferToSameInstrument(g[0].symbol, o.symbol));
+      if (existingGroup) {
+        existingGroup.push(o);
+      } else {
+        sellGroups.push([o]);
+      }
     }
     let duplicatesCancelled = 0;
-    for (const [symbol, sellOrders] of sellsBySymbol) {
+    for (const sellOrders of sellGroups) {
       if (sellOrders.length <= 1) continue;
       // Sortiere nach Erstellungsdatum – älteste zuerst (die behalten wir)
       sellOrders.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       const kept: typeof activeOrders = [];
       for (const order of sellOrders) {
-        // Prüfe ob bereits eine behaltene Order bei ähnlichem Preis existiert
+        // Duplikat wenn: gleiche Gruppe und Preis ±5% einer bereits behaltenen Order
         const isDuplicate = kept.some(k => {
           const priceDiff = Math.abs(k.triggerPrice - order.triggerPrice) / k.triggerPrice;
           return priceDiff <= 0.05; // ±5%
@@ -152,8 +156,8 @@ export async function runAutopilotCycle(): Promise<void> {
           cancelOrder(order.id);
           duplicatesCancelled++;
           log(createLogEntry('info',
-            `🧹 Doppelte Sell-Order storniert: ${order.orderType.toUpperCase()} ${order.quantity}x ${symbol} @ ${order.triggerPrice.toFixed(2)}€`,
-            undefined, symbol, order.id
+            `🧹 Doppelte Sell-Order storniert: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ ${order.triggerPrice.toFixed(2)}€`,
+            undefined, order.symbol, order.id
           ));
         } else {
           kept.push(order);
@@ -330,7 +334,7 @@ export async function runAutopilotCycle(): Promise<void> {
       if (order.quantity === 0) {
         const isSell = order.orderType === 'limit-sell' || order.orderType === 'stop-loss';
         if (isSell) {
-          const position = userPositions.find(p => p.symbol === order.symbol);
+          const position = findCompatibleSymbolMatch(order.symbol, userPositions, (item) => item.symbol);
           if (position) {
             order.quantity = position.quantity;
           }
@@ -369,7 +373,7 @@ export async function runAutopilotCycle(): Promise<void> {
             if (isSellOrder) {
               const existingSells = orders.filter(
                 o => (o.status === 'active' || o.status === 'pending') 
-                  && o.symbol === suggested.symbol 
+                  && symbolsReferToSameInstrument(o.symbol, suggested.symbol)
                   && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss')
               );
               const similarSell = existingSells.find(o => {
@@ -385,8 +389,8 @@ export async function runAutopilotCycle(): Promise<void> {
               }
 
               // Prüfe ob Gesamtverkaufsvolumen die Position übersteigen würde
-              const position = userPositions.find(p => p.symbol === suggested.symbol);
-              const totalExistingSellQty = existingSells.reduce((sum, o) => sum + o.quantity, 0);
+              const position = findCompatibleSymbolMatch(suggested.symbol, userPositions, (item) => item.symbol);
+              const totalExistingSellQty = sumByEquivalentSymbol(suggested.symbol, existingSells, (item) => item.symbol, (item) => item.quantity);
               if (position && (totalExistingSellQty + suggested.quantity) > position.quantity) {
                 log(createLogEntry('skipped',
                   `⏭️ ${suggested.symbol}: Sell-Order übersprungen – bestehende Sells (${totalExistingSellQty}) + neue (${suggested.quantity}) > Position (${position.quantity})`,
@@ -399,7 +403,7 @@ export async function runAutopilotCycle(): Promise<void> {
             // Bestehende gleiche Autopilot-Orders stornieren (nur Autopilot-generierte, keine manuellen)
             const existingAutopilotOrders = orders.filter(
               o => (o.status === 'active' || o.status === 'pending') 
-                && o.symbol === suggested.symbol 
+                && symbolsReferToSameInstrument(o.symbol, suggested.symbol)
                 && o.orderType === suggested.orderType
                 && o.note?.startsWith('🤖 Autopilot:')
             );
@@ -408,7 +412,7 @@ export async function runAutopilotCycle(): Promise<void> {
               log(createLogEntry('info', `🔄 Bestehende Autopilot-Order storniert: ${existing.orderType} ${existing.symbol}`, undefined, existing.symbol, existing.id));
             }
 
-            const stockData = stocks.find(s => s.symbol === suggested.symbol);
+            const stockData = findCompatibleSymbolMatch(suggested.symbol, stocks, (item) => item.symbol);
             const orderStatus = settings.mode === 'confirm-each' ? 'pending' : 'active';
             // Autopilot-Orders laufen standardmäßig nach 7 Tagen ab
             const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -532,7 +536,7 @@ function applySafetyRules(
 
     // Neue Positionen erlaubt?
     if (isBuy && !settings.allowNewPositions) {
-      const existingPosition = userPositions.find(p => p.symbol === order.symbol);
+      const existingPosition = findCompatibleSymbolMatch(order.symbol, userPositions, (item) => item.symbol);
       if (!existingPosition) {
         log(createLogEntry('skipped', `⏭️ ${order.symbol}: Neue Positionen nicht erlaubt`, undefined, order.symbol));
         continue;
@@ -541,8 +545,8 @@ function applySafetyRules(
 
     // Nur Watchlist?
     if (settings.watchlistOnly) {
-      const inWatchlist = store.watchlist.some(s => s.symbol === order.symbol);
-      const inPortfolio = userPositions.some(p => p.symbol === order.symbol);
+      const inWatchlist = store.watchlist.some(s => symbolsReferToSameInstrument(s.symbol, order.symbol));
+      const inPortfolio = userPositions.some(p => symbolsReferToSameInstrument(p.symbol, order.symbol));
       if (!inWatchlist && !inPortfolio) {
         log(createLogEntry('skipped', `⏭️ ${order.symbol}: Nicht in Watchlist/Portfolio`, undefined, order.symbol));
         continue;
@@ -553,7 +557,7 @@ function applySafetyRules(
     if (isBuy && totalPortfolioValue > 0) {
       const orderValue = order.triggerPrice * order.quantity;
       const existingValue = userPositions
-        .filter(p => p.symbol === order.symbol)
+        .filter(p => symbolsReferToSameInstrument(p.symbol, order.symbol))
         .reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
       const totalPositionValue = existingValue + orderValue;
       const positionPercent = (totalPositionValue / totalPortfolioValue) * 100;
@@ -598,8 +602,10 @@ function applySafetyRules(
 
     // Genug Stücke für Verkauf? (abzgl. bereits reservierte durch andere Sell-Orders)
     if (isSell) {
-      const position = userPositions.find(p => p.symbol === order.symbol);
-      const reserved = reservedSharesBySymbol.get(order.symbol) || 0;
+      const position = findCompatibleSymbolMatch(order.symbol, userPositions, (item) => item.symbol);
+      const reserved = Array.from(reservedSharesBySymbol.entries())
+        .filter(([symbol]) => symbolsReferToSameInstrument(symbol, order.symbol))
+        .reduce((sum, [, qty]) => sum + qty, 0);
       const availableShares = (position?.quantity ?? 0) - reserved;
       if (!position || availableShares < order.quantity) {
         log(createLogEntry('skipped',
@@ -610,7 +616,7 @@ function applySafetyRules(
       }
 
       // Stücke für diesen genehmigten Verkauf reservieren
-      reservedSharesBySymbol.set(order.symbol, reserved + order.quantity);
+      reservedSharesBySymbol.set(position?.symbol || order.symbol, reserved + order.quantity);
     }
 
     // Alles OK

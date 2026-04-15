@@ -283,15 +283,17 @@ export interface TaxTransaction {
   id: string;
   symbol: string;
   name: string;
+  transactionType?: 'capital-gain' | 'dividend' | 'interest'; // Transaktionsart (Standard: capital-gain)
   quantity: number;
   buyPrice: number;
   sellPrice: number;
   buyDate: string;       // ISO string
   sellDate: string;      // ISO string
-  gainLoss: number;      // Gewinn/Verlust in EUR
+  gainLoss: number;      // Gewinn/Verlust in EUR (bei Dividenden/Zinsen: erhaltener Betrag)
   fees: number;          // Transaktionsgebühren
   holdingDays: number;   // Haltedauer in Tagen
   taxFree: boolean;      // true wenn Haltedauer >= 6 Monate
+  withholdingTax?: number; // Quellensteuer (bereits von TR einbehalten, z.B. bei Dividenden)
 }
 
 // Trade History (direkte Portfolio-Käufe/Verkäufe)

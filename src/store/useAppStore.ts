@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getStorageKey } from '../utils/session';
+import { findCompatibleSymbolMatch, symbolsReferToSameInstrument, sumByEquivalentSymbol } from '../utils/symbolMatching';
 import type { 
   UserSettings, 
   InvestmentSignal, 
@@ -62,6 +63,7 @@ interface AppState {
   addUserPosition: (position: UserPosition) => void;
   updateUserPosition: (id: string, updates: Partial<UserPosition>) => void;
   removeUserPosition: (id: string) => void;
+    clearUserPositions: () => void;
   
   // Cash Balance
   cashBalance: number;
@@ -288,6 +290,7 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           userPositions: state.userPositions.filter((p) => p.id !== id),
         })),
+      clearUserPositions: () => set({ userPositions: [] }),
 
       // Cash Balance
       cashBalance: 0,
@@ -401,12 +404,12 @@ export const useAppStore = create<AppState>()(
             }
             // Kauf: Cash reduzieren (inkl. Gebühren), Position hinzufügen/erweitern
             newCashBalance -= totalCost + fee;
-            const existingPos = newPositions.find((p) => p.symbol === order.symbol);
+            const existingPos = findCompatibleSymbolMatch(order.symbol, newPositions, (item) => item.symbol);
             if (existingPos) {
               const totalQty = existingPos.quantity + order.quantity;
               const avgPrice = (existingPos.buyPrice * existingPos.quantity + executedPrice * order.quantity) / totalQty;
               newPositions = newPositions.map((p) =>
-                p.symbol === order.symbol
+                p.id === existingPos.id
                   ? { ...p, quantity: totalQty, buyPrice: avgPrice, currentPrice: executedPrice }
                   : p
               );
@@ -424,7 +427,7 @@ export const useAppStore = create<AppState>()(
             }
           } else {
             // Verkauf: Cash erhöhen (abzgl. Gebühren), Position reduzieren/entfernen
-            const existingPos = newPositions.find((p) => p.symbol === order.symbol);
+            const existingPos = findCompatibleSymbolMatch(order.symbol, newPositions, (item) => item.symbol);
             // Guard: Genug Aktien für Verkauf?
             if (!existingPos || existingPos.quantity < order.quantity) {
               console.warn(`[executeOrder] Nicht genug Aktien für ${order.symbol}: Benötigt ${order.quantity}, Verfügbar ${existingPos?.quantity ?? 0}`);
@@ -444,7 +447,7 @@ export const useAppStore = create<AppState>()(
             const executedBuyOrders = state.orders
               .filter(o => o.status === 'executed'
                 && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy')
-                && o.symbol === order.symbol
+                && symbolsReferToSameInstrument(o.symbol, order.symbol)
                 && o.executedAt != null)
               .sort((a, b) => new Date(a.executedAt!).getTime() - new Date(b.executedAt!).getTime());
             
@@ -455,7 +458,7 @@ export const useAppStore = create<AppState>()(
             // Fallback: Trade-History
             if (!buyDate) {
               const buyTrade = state.tradeHistory
-                ?.filter(t => t.type === 'buy' && t.symbol === order.symbol)
+                ?.filter(t => t.type === 'buy' && symbolsReferToSameInstrument(t.symbol, order.symbol))
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
               if (buyTrade && buyTrade.length > 0) {
                 buyDate = new Date(buyTrade[0].date);
@@ -487,10 +490,10 @@ export const useAppStore = create<AppState>()(
 
             const newQty = existingPos.quantity - order.quantity;
             if (newQty <= 0) {
-              newPositions = newPositions.filter((p) => p.symbol !== order.symbol);
+              newPositions = newPositions.filter((p) => p.id !== existingPos.id);
             } else {
               newPositions = newPositions.map((p) =>
-                p.symbol === order.symbol
+                p.id === existingPos.id
                   ? { ...p, quantity: newQty, currentPrice: executedPrice }
                   : p
               );
@@ -663,17 +666,15 @@ export const useAppStore = create<AppState>()(
         }
         if (!state) return;
 
-        const persistedApiKeys = state.settings?.apiKeys;
+        // Falls sessionStorage noch Keys hat (Migration von alter Variante), bevorzuge diese
         const sessionApiKeys = readApiKeysFromSessionStorage();
-
-        if (!hasAnyApiKey(sessionApiKeys) && hasAnyApiKey(persistedApiKeys)) {
-          writeApiKeysToSessionStorage(persistedApiKeys);
+        if (hasAnyApiKey(sessionApiKeys)) {
+          state.updateSettings({ apiKeys: sessionApiKeys });
         }
-
-        state.updateSettings({ apiKeys: readApiKeysFromSessionStorage() });
+        // Ansonsten bleiben die aus localStorage rehydrierten Keys direkt erhalten
       },
       partialize: (state) => ({
-        settings: getSettingsWithoutApiKeys(state.settings),
+        settings: state.settings,
         portfolios: state.portfolios,
         activePortfolioId: state.activePortfolioId,
         userPositions: state.userPositions,
@@ -713,7 +714,7 @@ export function checkDuplicateOrder(order: Order): { ok: boolean; reason?: strin
 
   const sameDirectionOrders = state.orders.filter(
     o => (o.status === 'active' || o.status === 'pending')
-      && o.symbol === order.symbol
+      && symbolsReferToSameInstrument(o.symbol, order.symbol)
       && (
         (isBuy && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
         || (isSell && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss'))
@@ -735,8 +736,8 @@ export function checkDuplicateOrder(order: Order): { ok: boolean; reason?: strin
   }
 
   if (isSell) {
-    const position = state.userPositions.find(p => p.symbol === order.symbol);
-    const totalExistingSellQty = sameDirectionOrders.reduce((sum, o) => sum + o.quantity, 0);
+    const position = findCompatibleSymbolMatch(order.symbol, state.userPositions, (item) => item.symbol);
+    const totalExistingSellQty = sumByEquivalentSymbol(order.symbol, sameDirectionOrders, (item) => item.symbol, (item) => item.quantity);
     if (position && (totalExistingSellQty + order.quantity) > position.quantity) {
       return {
         ok: false,
@@ -757,7 +758,7 @@ function saveAutoBackup() {
     const state = useAppStore.getState();
     const backup = {
       timestamp: new Date().toISOString(),
-      version: '1.10.1',
+      version: '1.10.2',
       data: {
         settings: getSettingsWithoutApiKeys(state.settings),
         portfolios: state.portfolios,

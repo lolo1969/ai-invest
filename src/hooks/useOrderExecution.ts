@@ -1,11 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
-import type { Stock } from '../types';
-
-function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().split('.')[0];
-}
+import { findCompatibleSymbolMatch } from '../utils/symbolMatching';
 
 function buildSymbolCandidates(symbols: string[]): string[] {
   const expanded = new Set<string>();
@@ -19,17 +15,6 @@ function buildSymbolCandidates(symbols: string[]): string[] {
     }
   }
   return [...expanded];
-}
-
-function findBestQuoteForOrder(orderSymbol: string, quotes: Stock[]) {
-  const normalizedOrder = normalizeSymbol(orderSymbol);
-
-  return quotes.find((q) => {
-    const qSymbol = (q.symbol || '').toUpperCase();
-    if (!qSymbol) return false;
-    if (qSymbol === orderSymbol.toUpperCase()) return true;
-    return normalizeSymbol(qSymbol) === normalizedOrder;
-  });
 }
 
 /**
@@ -59,7 +44,7 @@ export function useOrderExecution() {
       const quotes = await marketDataService.getQuotes(symbols);
       
       for (const order of activeOrders) {
-        const quote = findBestQuoteForOrder(order.symbol, quotes);
+        const quote = findCompatibleSymbolMatch(order.symbol, quotes, (item) => item.symbol);
         if (!quote) {
           console.warn(`[OrderExecution] Kein Live-Quote für ${order.symbol} gefunden.`);
           continue;

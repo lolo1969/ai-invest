@@ -13,7 +13,8 @@ import {
   Edit3,
   Check,
   ShoppingCart,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Upload
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -1710,16 +1711,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             <Plus size={16} />
             <span className="hidden sm:inline">Position</span> hinzufügen
           </button>
-          {/* CSV Import - temporär deaktiviert
           <button
             onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 
-                     text-white rounded-lg transition-colors"
+            className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 bg-purple-600 hover:bg-purple-700 
+                     text-white rounded-lg transition-colors text-sm md:text-base"
           >
-            <Upload size={18} />
+            <Upload size={16} />
             CSV Import
           </button>
-          */}
           <button
             onClick={analyzePortfolio}
             disabled={analyzing || (userPositions.length === 0 && watchlist.length === 0)}
