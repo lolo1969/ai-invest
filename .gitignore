@@ -31,3 +31,9 @@ server-php/data/api.pid
 server-php/data/worker.pid
 server-php/data/cron.lock
 server-php/data/cron.log
+
+# Sensible persönliche Dateien
+*.pdf
+Kontoauszug*
+portfolio_import.csv
+Transaktionsexport*
