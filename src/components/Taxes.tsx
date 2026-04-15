@@ -533,9 +533,9 @@ export function Taxes() {
                   .map(tx => (
                   <tr key={tx.id} className="border-b border-gray-800/30 hover:bg-gray-800/20">
                     <td className="py-2.5 px-2">
-                      <span className="text-white font-medium">{tx.symbol}</span>
-                      {tx.name !== tx.symbol && (
-                        <span className="text-gray-500 text-xs block">{tx.name}</span>
+                      <span className="text-white font-medium">{tx.name}</span>
+                      {tx.symbol && tx.symbol !== tx.name && (
+                        <span className="text-gray-500 text-xs block">{tx.symbol}</span>
                       )}
                     </td>
                     <td className="text-right py-2.5 px-2 text-gray-300">{tx.quantity}</td>

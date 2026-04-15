@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Briefcase, 
   TrendingUp,
@@ -29,6 +29,7 @@ import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
 import emailjs from '@emailjs/browser';
 import type { UserPosition, AnalysisHistoryEntry } from '../types';
+import { symbolsReferToSameInstrument } from '../utils/symbolMatching';
 
 interface SymbolSuggestion {
   symbol: string;
@@ -127,9 +128,9 @@ function TradeHistory() {
                   </span>
                 </td>
                 <td className="py-2 px-2">
-                  <span className="text-white font-medium">{trade.symbol}</span>
-                  {trade.name !== trade.symbol && (
-                    <span className="text-gray-500 text-xs block">{trade.name}</span>
+                  <span className="text-white font-medium">{trade.name}</span>
+                  {trade.symbol && trade.symbol !== trade.name && (
+                    <span className="text-gray-500 text-xs block">{trade.symbol}</span>
                   )}
                 </td>
                 <td className="text-right py-2 px-2 text-gray-300">{trade.quantity}</td>
@@ -178,7 +179,8 @@ export function Portfolio() {
     cashBalance,
     setCashBalance,
     setError,
-    orderSettings
+    orderSettings,
+    tradeHistory
   } = useAppStore();
   
   const [showAddForm, setShowAddForm] = useState(false);
@@ -1688,6 +1690,85 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
     }
   };
 
+  // FIFO-Haltefrist-Analyse pro Position (Luxemburg: 183 Tage = steuerfrei)
+  const LUX_SPECULATION_DAYS = 183;
+
+  const normalizeInstrumentName = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const formatQuantity = (qty: number) =>
+    qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(4).replace(/\.?0+$/, '');
+
+  const fifoBreakdownByPositionId = useMemo(() => {
+    const today = new Date();
+    const result: Record<string, { shortTerm: number; taxFree: number }> = {};
+
+    for (const position of userPositions) {
+      const matchingBuys = tradeHistory
+        .filter(t => {
+          if (t.type !== 'buy') return false;
+          if (symbolsReferToSameInstrument(t.symbol, position.symbol)) return true;
+          if (position.isin && t.symbol === position.isin) return true;
+          if (normalizeInstrumentName(t.name) === normalizeInstrumentName(position.name)) return true;
+          return false;
+        })
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      if (matchingBuys.length === 0) {
+        result[position.id] = { shortTerm: -1, taxFree: -1 }; // -1 = keine Historie
+        continue;
+      }
+
+      // FIFO-Lots aufbauen
+      const lots = matchingBuys.map(t => ({ qty: t.quantity, date: new Date(t.date) }));
+
+      // Verkäufe davon abziehen
+      const sells = tradeHistory
+        .filter(t => {
+          if (t.type !== 'sell') return false;
+          if (symbolsReferToSameInstrument(t.symbol, position.symbol)) return true;
+          if (position.isin && t.symbol === position.isin) return true;
+          if (normalizeInstrumentName(t.name) === normalizeInstrumentName(position.name)) return true;
+          return false;
+        })
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      for (const sell of sells) {
+        let remaining = sell.quantity;
+        for (const lot of lots) {
+          if (remaining <= 0) break;
+          const consumed = Math.min(lot.qty, remaining);
+          lot.qty -= consumed;
+          remaining -= consumed;
+        }
+      }
+
+      // Verbleibende Lots nach Haltefrist splitten
+      let shortTerm = 0;
+      let taxFree = 0;
+      for (const lot of lots) {
+        if (lot.qty <= 0) continue;
+        const holdingDays = Math.floor((today.getTime() - lot.date.getTime()) / 86400000);
+        if (holdingDays >= LUX_SPECULATION_DAYS) {
+          taxFree += lot.qty;
+        } else {
+          shortTerm += lot.qty;
+        }
+      }
+
+      // Rounding-Drift anpassen
+      const totalFifo = shortTerm + taxFree;
+      if (totalFifo > 0 && Math.abs(totalFifo - position.quantity) / position.quantity < 0.02) {
+        const scale = position.quantity / totalFifo;
+        shortTerm *= scale;
+        taxFree *= scale;
+      }
+
+      result[position.id] = { shortTerm, taxFree };
+    }
+    return result;
+  }, [userPositions, tradeHistory]);
+
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
@@ -2284,6 +2365,20 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                       <td className="px-6 py-4 text-gray-300">{position.name}</td>
                       <td className="px-6 py-4 text-right">
                         <span className="text-white">{position.quantity}</span>
+                        {(() => {
+                          const fifo = fifoBreakdownByPositionId[position.id];
+                          if (!fifo) return null;
+                          if (fifo.shortTerm === -1) return (
+                            <span className="text-gray-600 text-xs block">FIFO: keine Historie</span>
+                          );
+                          return (
+                            <span className="text-xs block">
+                              <span className="text-orange-400">&lt;6M: {formatQuantity(fifo.shortTerm)}</span>
+                              <span className="text-gray-600"> | </span>
+                              <span className="text-green-400">Frei: {formatQuantity(fifo.taxFree)}</span>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4 text-right">
                         {editingBuyPrice === position.id ? (
