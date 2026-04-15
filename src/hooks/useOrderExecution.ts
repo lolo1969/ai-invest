@@ -1,6 +1,36 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
+import type { Stock } from '../types';
+
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().split('.')[0];
+}
+
+function buildSymbolCandidates(symbols: string[]): string[] {
+  const expanded = new Set<string>();
+  for (const raw of symbols) {
+    const symbol = raw.trim().toUpperCase();
+    if (!symbol) continue;
+    expanded.add(symbol);
+    if (!symbol.includes('.')) {
+      // Viele EU-ETFs werden bei Yahoo nur mit Exchange-Suffix geliefert (z.B. EUNA.DE).
+      expanded.add(`${symbol}.DE`);
+    }
+  }
+  return [...expanded];
+}
+
+function findBestQuoteForOrder(orderSymbol: string, quotes: Stock[]) {
+  const normalizedOrder = normalizeSymbol(orderSymbol);
+
+  return quotes.find((q) => {
+    const qSymbol = (q.symbol || '').toUpperCase();
+    if (!qSymbol) return false;
+    if (qSymbol === orderSymbol.toUpperCase()) return true;
+    return normalizeSymbol(qSymbol) === normalizedOrder;
+  });
+}
 
 /**
  * Hook für die automatische Ausführung von aktiven Orders.
@@ -22,15 +52,18 @@ export function useOrderExecution() {
     const activeOrders = orders.filter((o) => o.status === 'active');
     if (activeOrders.length === 0) return;
 
-    // Sammle alle einzigartigen Symbole
-    const symbols = [...new Set(activeOrders.map((o) => o.symbol))];
+    // Sammle alle einzigartigen Symbole inkl. Exchange-Varianten.
+    const symbols = buildSymbolCandidates(activeOrders.map((o) => o.symbol));
     
     try {
       const quotes = await marketDataService.getQuotes(symbols);
       
       for (const order of activeOrders) {
-        const quote = quotes.find((q) => q.symbol === order.symbol);
-        if (!quote) continue;
+        const quote = findBestQuoteForOrder(order.symbol, quotes);
+        if (!quote) {
+          console.warn(`[OrderExecution] Kein Live-Quote für ${order.symbol} gefunden.`);
+          continue;
+        }
 
         const currentPrice = quote.price;
 

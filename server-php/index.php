@@ -13,7 +13,6 @@
  *   POST /api/trigger-cycle  – Autopilot-Zyklus manuell auslösen
  *   POST /api/check-orders   – Order-Check manuell auslösen
  *   GET  /api/logs           – Autopilot-Logs
- *   GET  /api/sessions       – Aktive Sessions
  */
 
 require_once __DIR__ . '/stateManager.php';
@@ -22,9 +21,11 @@ require_once __DIR__ . '/autopilotRunner.php';
 require_once __DIR__ . '/orderExecutor.php';
 
 // ─── CORS Headers ────────────────────────────────────
-header('Access-Control-Allow-Origin: *');
+// In Produktion: Auf die eigene Domain einschränken
+$allowedOrigin = getenv('CORS_ORIGIN') ?: '*';
+header("Access-Control-Allow-Origin: {$allowedOrigin}");
 header('Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Content-Type: application/json');
 
 // Preflight
@@ -76,8 +77,20 @@ if (!empty($_SERVER['PATH_INFO'])) {
 }
 if (empty($path)) $path = '/';
 
-// Session-ID aus Query-Parameter
-$sessionId = $_GET['session'] ?? 'default';
+// Session-ID aus Authorization-Header (bevorzugt) oder Query-Fallback (für sendBeacon)
+$sessionId = null;
+$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+if (preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
+    $sessionId = $matches[1];
+} else {
+    // Fallback für sendBeacon (kann keine Custom-Headers setzen)
+    $sessionId = $_GET['session'] ?? null;
+}
+
+// Session MUSS vorhanden sein – kein Fallback auf 'default'
+if (!$sessionId || !isValidSessionId($sessionId)) {
+    sendError('Missing or invalid session ID. Provide Authorization: Bearer <sessionId> header.', 401);
+}
 
 try {
     // ─── GET /api/status ─────────────
@@ -97,7 +110,6 @@ try {
             'totalOrdersExecuted' => $state['autopilotState']['totalOrdersExecuted'] ?? 0,
             'activeOrders' => count($activeOrders),
             'orderAutoExecute' => $state['orderSettings']['autoExecute'] ?? false,
-            'stateFile' => getStateFilePath($sessionId),
         ]);
     }
 
@@ -166,11 +178,6 @@ try {
         $state = loadState($sessionId);
         $limit = min(max((int)($_GET['limit'] ?? 50), 1), 200);
         sendJSON(['logs' => array_slice($state['autopilotLog'], 0, $limit)]);
-    }
-
-    // ─── GET /api/sessions ───────────
-    if ($path === '/api/sessions' && $method === 'GET') {
-        sendJSON(['sessions' => listSessions()]);
     }
 
     // ─── 404 ─────────────────────────

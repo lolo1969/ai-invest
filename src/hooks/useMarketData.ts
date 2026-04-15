@@ -70,7 +70,7 @@ export function useSearchStocks(query: string, enabled = true) {
 }
 
 // Hook: AI Analysis mutation
-export function useAIAnalysis(apiKey: string, provider: AIProvider = 'claude', claudeModel: ClaudeModel = 'claude-opus-4-6', openaiModel: OpenAIModel = 'gpt-5.2', geminiModel: GeminiModel = 'gemini-2.5-flash') {
+export function useAIAnalysis(apiKey: string, provider: AIProvider = 'claude', claudeModel: ClaudeModel = 'claude-opus-4-6', openaiModel: OpenAIModel = 'gpt-5.4', geminiModel: GeminiModel = 'gemini-2.5-flash') {
   const queryClient = useQueryClient();
 
   return useMutation({

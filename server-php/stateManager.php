@@ -13,10 +13,15 @@ if (!is_dir(DATA_DIR)) {
     mkdir(DATA_DIR, 0755, true);
 }
 
-// Session-ID Validierung: Nur alphanumerisch + Bindestrich, max 64 Zeichen
+// Session-ID Validierung: Alphanumerisch + Bindestrich, max 64 Zeichen
+// Akzeptiert sowohl alte 12-Zeichen IDs als auch volle UUIDs
+function isValidSessionId(string $sessionId): bool {
+    return !empty($sessionId) && preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $sessionId);
+}
+
 function validateSessionId(string $sessionId): string {
-    if (empty($sessionId) || !preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $sessionId)) {
-        return 'default';
+    if (!isValidSessionId($sessionId)) {
+        throw new \InvalidArgumentException("Ungültige Session-ID: {$sessionId}");
     }
     return $sessionId;
 }
@@ -26,13 +31,8 @@ function getStateFilePath(string $sessionId): string {
     return DATA_DIR . "/state-{$safeId}.json";
 }
 
-// Migration: Alte state.json → state-default.json
-$legacyStateFile = DATA_DIR . '/state.json';
-$defaultStateFile = getStateFilePath('default');
-if (file_exists($legacyStateFile) && !file_exists($defaultStateFile)) {
-    rename($legacyStateFile, $defaultStateFile);
-    error_log('[StateManager] Migriert: state.json → state-default.json');
-}
+// Keine Migration mehr zu 'default' – die default-Session wird nicht mehr verwendet.
+// state-default.json verbleibt als tote Datei und wird von listSessions() ignoriert.
 
 function getDefaultState(): array {
     return [
@@ -98,7 +98,7 @@ function getDefaultState(): array {
 $sessionCache = [];
 $CACHE_TTL = 1; // 1 second
 
-function getStateVersion(string $sessionId = 'default'): int {
+function getStateVersion(string $sessionId): int {
     global $sessionCache;
     $safeId = validateSessionId($sessionId);
     return $sessionCache[$safeId]['version'] ?? 0;
@@ -109,17 +109,19 @@ function getStateVersion(string $sessionId = 'default'): int {
  */
 function listSessions(): array {
     $files = glob(DATA_DIR . '/state-*.json');
-    if ($files === false) return ['default'];
+    if ($files === false) return [];
 
     $sessions = [];
     foreach ($files as $file) {
         $basename = basename($file);
         $id = preg_replace('/^state-(.+)\.json$/', '$1', $basename);
+        // 'default' Session überspringen – sie enthält keine eigenen User-Daten
+        if ($id === 'default') continue;
         if (preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $id)) {
             $sessions[] = $id;
         }
     }
-    return empty($sessions) ? ['default'] : $sessions;
+    return $sessions;
 }
 
 /**
@@ -141,7 +143,7 @@ function deepMerge(array $base, array $override): array {
 /**
  * State aus Datei laden (mit Cache), session-basiert
  */
-function loadState(string $sessionId = 'default'): array {
+function loadState(string $sessionId): array {
     global $sessionCache, $CACHE_TTL;
     $safeId = validateSessionId($sessionId);
     $now = microtime(true);
@@ -175,7 +177,7 @@ function loadState(string $sessionId = 'default'): array {
 /**
  * State atomar speichern (temp-file + rename)
  */
-function saveState(array $state, string $sessionId = 'default'): void {
+function saveState(array $state, string $sessionId): void {
     global $sessionCache;
     $safeId = validateSessionId($sessionId);
 
@@ -202,7 +204,7 @@ function saveState(array $state, string $sessionId = 'default'): void {
 /**
  * Cache invalidieren
  */
-function invalidateCache(string $sessionId = 'default'): void {
+function invalidateCache(string $sessionId): void {
     global $sessionCache;
     $safeId = validateSessionId($sessionId);
     unset($sessionCache[$safeId]);
@@ -211,7 +213,7 @@ function invalidateCache(string $sessionId = 'default'): void {
 /**
  * Intelligenter Merge: Client-State mit Server-State
  */
-function mergeClientState(array $clientState, int $clientVersion, string $sessionId = 'default'): array {
+function mergeClientState(array $clientState, int $clientVersion, string $sessionId): array {
     $safeId = validateSessionId($sessionId);
     $current = loadState($safeId);
     $currentVersion = getStateVersion($safeId);
@@ -358,7 +360,7 @@ function smartMerge(array $server, array $client): array {
 /**
  * State partiell updaten
  */
-function updateState(array $partial, string $sessionId = 'default'): array {
+function updateState(array $partial, string $sessionId): array {
     $current = loadState($sessionId);
     $updated = array_merge($current, $partial);
     saveState($updated, $sessionId);
@@ -368,7 +370,7 @@ function updateState(array $partial, string $sessionId = 'default'): array {
 /**
  * Order hinzufügen (mit Duplikat-Check)
  */
-function addOrder(array $order, string $sessionId = 'default'): void {
+function addOrder(array $order, string $sessionId): void {
     $s = loadState($sessionId);
 
     $isBuy = in_array($order['orderType'], ['limit-buy', 'stop-buy']);
@@ -398,7 +400,7 @@ function addOrder(array $order, string $sessionId = 'default'): void {
 /**
  * Order stornieren
  */
-function cancelOrder(string $orderId, string $sessionId = 'default'): void {
+function cancelOrder(string $orderId, string $sessionId): void {
     $s = loadState($sessionId);
     foreach ($s['orders'] as &$o) {
         if ($o['id'] === $orderId) {
@@ -412,7 +414,7 @@ function cancelOrder(string $orderId, string $sessionId = 'default'): void {
 /**
  * Order ausführen
  */
-function executeOrder(string $orderId, float $executedPrice, string $sessionId = 'default'): void {
+function executeOrder(string $orderId, float $executedPrice, string $sessionId): void {
     $s = loadState($sessionId);
     $orderIdx = null;
     foreach ($s['orders'] as $i => $o) {

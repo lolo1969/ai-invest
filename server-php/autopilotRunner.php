@@ -490,7 +490,7 @@ function applySafetyRules(array $suggestedOrders, array $currentState, array &$l
 
 // ─── Haupt-Zyklus ────────────────────────────────────
 
-function runAutopilotCycle(string $sessionId = 'default'): void {
+function runAutopilotCycle(string $sessionId): void {
     $currentState = loadState($sessionId);
     $settings = $currentState['autopilotSettings'];
     $logEntries = [];

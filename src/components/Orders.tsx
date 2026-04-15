@@ -19,6 +19,34 @@ import { useAppStore, checkDuplicateOrder } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
 import type { OrderType, OrderStatus } from '../types';
 
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().split('.')[0];
+}
+
+function buildSymbolCandidates(symbols: string[]): string[] {
+  const expanded = new Set<string>();
+  for (const raw of symbols) {
+    const symbol = raw.trim().toUpperCase();
+    if (!symbol) continue;
+    expanded.add(symbol);
+    if (!symbol.includes('.')) {
+      expanded.add(`${symbol}.DE`);
+    }
+  }
+  return [...expanded];
+}
+
+function findBestQuoteForOrder(orderSymbol: string, quotes: Array<{ symbol: string; price: number }>) {
+  const normalizedOrder = normalizeSymbol(orderSymbol);
+
+  return quotes.find((q) => {
+    const qSymbol = (q.symbol || '').toUpperCase();
+    if (!qSymbol) return false;
+    if (qSymbol === orderSymbol.toUpperCase()) return true;
+    return normalizeSymbol(qSymbol) === normalizedOrder;
+  });
+}
+
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   'limit-buy': 'Limit Buy',
   'limit-sell': 'Limit Sell',
@@ -77,6 +105,8 @@ export function Orders() {
   const [searchingSymbol, setSearchingSymbol] = useState(false);
   const [symbolSuggestions, setSymbolSuggestions] = useState<{ symbol: string; name: string }[]>([]);
   const [manualExecuteId, setManualExecuteId] = useState<string | null>(null);
+  const [isCheckingNow, setIsCheckingNow] = useState(false);
+  const [checkNowFeedback, setCheckNowFeedback] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     symbol: '',
@@ -261,6 +291,43 @@ export function Orders() {
     setManualExecuteId(null);
   };
 
+  const handleCheckNow = async () => {
+    if (isCheckingNow) return;
+
+    const activeOrders = orders.filter(o => o.status === 'active');
+    if (activeOrders.length === 0) {
+      setCheckNowFeedback('Keine aktiven Orders zum Pruefen gefunden.');
+      return;
+    }
+
+    setIsCheckingNow(true);
+    setCheckNowFeedback('Pruefung laeuft...');
+
+    const symbols = buildSymbolCandidates(activeOrders.map(o => o.symbol));
+    try {
+      const quotes = await marketDataService.getQuotes(symbols);
+      let updated = 0;
+      let missing = 0;
+
+      for (const order of activeOrders) {
+        const quote = findBestQuoteForOrder(order.symbol, quotes);
+        if (!quote) {
+          missing++;
+          continue;
+        }
+        updateOrderPrice(order.id, quote.price);
+        updated++;
+      }
+
+      const now = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setCheckNowFeedback(`Geprueft um ${now}: ${updated} aktualisiert, ${missing} ohne Live-Quote.`);
+    } catch {
+      setCheckNowFeedback('Pruefung fehlgeschlagen: Kursdaten konnten nicht geladen werden.');
+    } finally {
+      setIsCheckingNow(false);
+    }
+  };
+
   // Kombinierte Schnellauswahl: Portfolio + Watchlist (dedupliziert)
   const quickSelectOptions = useMemo(() => {
     const portfolioSymbols = new Set(userPositions.map((p) => p.symbol));
@@ -431,25 +498,13 @@ export function Orders() {
                 </select>
               </div>
               <button
-                onClick={async () => {
-                  // Manueller Check: Aktive Orders gegen aktuelle Kurse prüfen
-                  const activeOrders = orders.filter(o => o.status === 'active');
-                  if (activeOrders.length === 0) return;
-                  const symbols = [...new Set(activeOrders.map(o => o.symbol))];
-                  try {
-                    const quotes = await marketDataService.getQuotes(symbols);
-                    for (const order of activeOrders) {
-                      const quote = quotes.find(q => q.symbol === order.symbol);
-                      if (!quote) continue;
-                      updateOrderPrice(order.id, quote.price);
-                    }
-                  } catch { /* ignore */ }
-                }}
+                onClick={handleCheckNow}
+                disabled={isCheckingNow}
                 className="flex items-center gap-1 text-xs text-gray-400 hover:text-white 
-                         bg-[#252542] px-2 py-1 rounded"
+                         bg-[#252542] px-2 py-1 rounded disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <RefreshCw size={12} />
-                Jetzt prüfen
+                <RefreshCw size={12} className={isCheckingNow ? 'animate-spin' : ''} />
+                {isCheckingNow ? 'Pruefe...' : 'Jetzt pruefen'}
               </button>
             </div>
           </div>
@@ -457,6 +512,9 @@ export function Orders() {
             ⚠️ Orders werden automatisch zum Marktpreis ausgeführt wenn der Trigger-Preis erreicht wird. 
             Cash und Positionen werden sofort angepasst.
           </p>
+          {checkNowFeedback && (
+            <p className="text-xs text-cyan-300 mt-2">{checkNowFeedback}</p>
+          )}
         </div>
       )}
 

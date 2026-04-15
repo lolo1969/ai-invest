@@ -797,6 +797,21 @@ export function Portfolio() {
 
     addUserPosition(newPosition);
     setCashBalance(currentCash - totalCost - fee);
+
+    // Trade-History erfassen (Kauf), damit beim Verkauf das Kaufdatum verfügbar ist
+    useAppStore.getState().addTradeHistory({
+      id: crypto.randomUUID(),
+      type: 'buy',
+      symbol: newPosition.symbol,
+      name: newPosition.name,
+      quantity,
+      price: buyPrice,
+      totalAmount: totalCost,
+      fees: fee,
+      date: new Date().toISOString(),
+      source: 'manual',
+    });
+
     setFormData({ symbol: '', isin: '', name: '', quantity: '', buyPrice: '', currentPrice: '', currency: 'EUR' });
     setShowAddForm(false);
   };

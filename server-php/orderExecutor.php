@@ -10,7 +10,7 @@ require_once __DIR__ . '/marketData.php';
 /**
  * Prüft alle aktiven Orders und führt sie aus wenn die Bedingungen erfüllt sind.
  */
-function checkAndExecuteOrders(string $sessionId = 'default'): void {
+function checkAndExecuteOrders(string $sessionId): void {
     $currentState = loadState($sessionId);
 
     if (empty($currentState['orderSettings']['autoExecute'])) return;

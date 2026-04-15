@@ -19,6 +19,12 @@ import {
   flushPendingState,
 } from '../services/syncService';
 
+function toTimestamp(value?: string | null): number {
+  if (!value) return 0;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
 export function useServerSync() {
   const [serverConnected, setServerConnected] = useState(false);
   const [serverInfo, setServerInfo] = useState<any>(null);
@@ -98,14 +104,38 @@ export function useServerSync() {
         ));
 
         if (serverHasData && serverData?.state) {
-          skipNextPushRef.current = true;
-          useAppStore.setState({
-            ...serverData.state,
-            isLoading: currentState.isLoading,
-            isAnalyzing: currentState.isAnalyzing,
-            error: currentState.error,
-          });
-          console.log('[ServerSync] Initialer State vom Server geladen (Server hat Vorrang) ✅');
+          const localAnalysisTs = toTimestamp(currentState.lastAnalysisDate);
+          const serverAnalysisTs = toTimestamp(serverData.state.lastAnalysisDate);
+          const shouldPreferLocal = localHasData && localAnalysisTs > serverAnalysisTs;
+
+          if (shouldPreferLocal) {
+            const pushResult = await pushState(extractSyncState(currentState));
+
+            if (pushResult.ok && pushResult.conflict && pushResult.mergedState) {
+              skipNextPushRef.current = true;
+              useAppStore.setState({
+                ...pushResult.mergedState,
+                isLoading: currentState.isLoading,
+                isAnalyzing: currentState.isAnalyzing,
+                error: currentState.error,
+              });
+              console.log('[ServerSync] Lokale Analyse war neuer – Konflikt-Merge übernommen ✅');
+            } else if (pushResult.ok) {
+              console.log('[ServerSync] Lokale Analyse war neuer – lokalen State auf Server gepusht ✅');
+            } else {
+              // Fallback: lokal beibehalten statt auf ältere Serverdaten zurückzufallen
+              console.warn('[ServerSync] Lokale Analyse war neuer, Push fehlgeschlagen – lokaler State bleibt aktiv');
+            }
+          } else {
+            skipNextPushRef.current = true;
+            useAppStore.setState({
+              ...serverData.state,
+              isLoading: currentState.isLoading,
+              isAnalyzing: currentState.isAnalyzing,
+              error: currentState.error,
+            });
+            console.log('[ServerSync] Initialer State vom Server geladen (Server hat Vorrang) ✅');
+          }
         } else if (localHasData) {
           // Server leer → lokalen State pushen
           const pushResult = await pushState(extractSyncState(currentState));

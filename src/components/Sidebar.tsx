@@ -13,7 +13,7 @@ import {
   ShoppingCart,
   Bot,
   Server,
-  Landmark
+  Landmark,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { isServerAvailable } from '../services/syncService';

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { getStorageKey } from '../utils/session';
 import type { 
   UserSettings, 
   InvestmentSignal, 
@@ -14,21 +15,26 @@ import type {
   AutopilotLogEntry,
   AutopilotState,
   TaxTransaction,
-  TradeHistoryEntry
+  TradeHistoryEntry,
 } from '../types';
 
-// Migration: Alte Daten von "ai-invest-storage" zu "vestia-storage" übernehmen
+// Migration: Alte Daten zu session-spezifischem Key übernehmen.
+// Reihenfolge: ai-invest-storage → vestia-storage → vestia-storage-{sessionId}
+// Die Session-Migration (vestia-storage → session-Key) läuft bereits in utils/session.ts
 // MUSS vor der Store-Erstellung laufen, sonst überschreibt Zustand mit Defaults!
 (() => {
   try {
     const oldKey = 'ai-invest-storage';
-    const newKey = 'vestia-storage';
+    const sessionKey = getStorageKey();
     const oldData = localStorage.getItem(oldKey);
-    if (oldData) {
-      // Alte Daten immer übernehmen (sie haben Vorrang vor leeren Defaults)
-      localStorage.setItem(newKey, oldData);
+    if (oldData && !localStorage.getItem(sessionKey)) {
+      // Uralte Daten direkt zum Session-Key migrieren
+      localStorage.setItem(sessionKey, oldData);
       localStorage.removeItem(oldKey);
-      console.log('[Vestia] Daten von ai-invest-storage migriert');
+      console.log('[Vestia] Daten von ai-invest-storage migriert → ' + sessionKey);
+    } else if (oldData) {
+      // Altes Key aufräumen wenn Session-Key schon existiert
+      localStorage.removeItem(oldKey);
     }
   } catch (e) {
     console.error('[Vestia] Migration fehlgeschlagen:', e);
@@ -161,20 +167,93 @@ const defaultSettings: UserSettings = {
   },
   aiProvider: 'gemini',
   claudeModel: 'claude-opus-4-6',
-  openaiModel: 'gpt-5.2',
+  openaiModel: 'gpt-5.4',
   geminiModel: 'gemini-2.5-flash',
   customPrompt: '',
 };
+
+const API_KEYS_SESSION_KEY = 'vestia-api-keys-session';
+
+function getEmptyApiKeys(): UserSettings['apiKeys'] {
+  return {
+    claude: '',
+    openai: '',
+    gemini: '',
+    marketData: '',
+  };
+}
+
+function normalizeApiKeys(apiKeys?: Partial<UserSettings['apiKeys']>): UserSettings['apiKeys'] {
+  const empty = getEmptyApiKeys();
+  return {
+    claude: typeof apiKeys?.claude === 'string' ? apiKeys.claude : empty.claude,
+    openai: typeof apiKeys?.openai === 'string' ? apiKeys.openai : empty.openai,
+    gemini: typeof apiKeys?.gemini === 'string' ? apiKeys.gemini : empty.gemini,
+    marketData: typeof apiKeys?.marketData === 'string' ? apiKeys.marketData : empty.marketData,
+  };
+}
+
+function hasAnyApiKey(apiKeys?: Partial<UserSettings['apiKeys']>): boolean {
+  if (!apiKeys) return false;
+  return Object.values(apiKeys).some((value) => typeof value === 'string' && value.trim().length > 0);
+}
+
+function readApiKeysFromSessionStorage(): UserSettings['apiKeys'] {
+  if (typeof window === 'undefined') return getEmptyApiKeys();
+  try {
+    const raw = sessionStorage.getItem(API_KEYS_SESSION_KEY);
+    if (!raw) return getEmptyApiKeys();
+    const parsed = JSON.parse(raw) as Partial<UserSettings['apiKeys']>;
+    return normalizeApiKeys(parsed);
+  } catch (e) {
+    console.warn('[Vestia] Session-API-Keys konnten nicht gelesen werden:', e);
+    return getEmptyApiKeys();
+  }
+}
+
+function writeApiKeysToSessionStorage(apiKeys: Partial<UserSettings['apiKeys']>) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(API_KEYS_SESSION_KEY, JSON.stringify(normalizeApiKeys(apiKeys)));
+  } catch (e) {
+    console.warn('[Vestia] Session-API-Keys konnten nicht gespeichert werden:', e);
+  }
+}
+
+function getSettingsWithoutApiKeys(settings: UserSettings): UserSettings {
+  return {
+    ...settings,
+    apiKeys: getEmptyApiKeys(),
+  };
+}
 
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       // Settings
-      settings: defaultSettings,
+      settings: {
+        ...defaultSettings,
+        apiKeys: readApiKeysFromSessionStorage(),
+      },
       updateSettings: (newSettings) =>
-        set((state) => ({
-          settings: { ...state.settings, ...newSettings },
-        })),
+        set((state) => {
+          const mergedApiKeys = newSettings.apiKeys
+            ? normalizeApiKeys({ ...state.settings.apiKeys, ...newSettings.apiKeys })
+            : state.settings.apiKeys;
+          const nextSettings: UserSettings = {
+            ...state.settings,
+            ...newSettings,
+            apiKeys: mergedApiKeys,
+          };
+
+          if (newSettings.apiKeys) {
+            writeApiKeysToSessionStorage(mergedApiKeys);
+          }
+
+          return {
+            settings: nextSettings,
+          };
+        }),
 
       // Signals
       signals: [],
@@ -576,9 +655,25 @@ export const useAppStore = create<AppState>()(
       clearTradeHistory: () => set({ tradeHistory: [] }),
     }),
     {
-      name: 'vestia-storage',
+      name: getStorageKey(),
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('[Vestia] Rehydrate fehlgeschlagen:', error);
+          return;
+        }
+        if (!state) return;
+
+        const persistedApiKeys = state.settings?.apiKeys;
+        const sessionApiKeys = readApiKeysFromSessionStorage();
+
+        if (!hasAnyApiKey(sessionApiKeys) && hasAnyApiKey(persistedApiKeys)) {
+          writeApiKeysToSessionStorage(persistedApiKeys);
+        }
+
+        state.updateSettings({ apiKeys: readApiKeysFromSessionStorage() });
+      },
       partialize: (state) => ({
-        settings: state.settings,
+        settings: getSettingsWithoutApiKeys(state.settings),
         portfolios: state.portfolios,
         activePortfolioId: state.activePortfolioId,
         userPositions: state.userPositions,
@@ -662,9 +757,9 @@ function saveAutoBackup() {
     const state = useAppStore.getState();
     const backup = {
       timestamp: new Date().toISOString(),
-      version: '1.5.6',
+      version: '1.10.1',
       data: {
-        settings: state.settings,
+        settings: getSettingsWithoutApiKeys(state.settings),
         portfolios: state.portfolios,
         activePortfolioId: state.activePortfolioId,
         userPositions: state.userPositions,

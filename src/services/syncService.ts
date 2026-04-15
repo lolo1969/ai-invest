@@ -1,16 +1,17 @@
 /**
  * Sync-Service: Synchronisiert den Frontend-State mit dem Backend-Server.
  * 
- * Jeder Browser bekommt automatisch eine eigene Session-ID.
+ * Jeder Browser bekommt automatisch eine eigene Session-ID (via utils/session.ts).
  * Damit sind die Portfolios zwischen verschiedenen Browsern komplett isoliert.
  * 
- * Session-ID wird im localStorage gespeichert und bei jedem API-Call mitgeschickt.
+ * Session-ID wird als Authorization-Header bei jedem API-Call mitgeschickt.
  */
+
+import { getSessionId } from '../utils/session';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || (import.meta.env.PROD ? '' : 'http://localhost:3141');
 const SYNC_INTERVAL = 15_000;
 const DEBOUNCE_PUSH = 3_000;
-const SESSION_KEY = 'vestia-session-id';
 
 let serverAvailable = false;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
@@ -22,30 +23,25 @@ let knownServerVersion = 0;
 // Letzter gepushter State für sendBeacon bei Unload
 let lastPendingState: any = null;
 
-/**
- * Session-ID generieren oder aus localStorage laden.
- * Jeder Browser bekommt eine einzigartige ID → komplett isolierter State.
- */
-function getSessionId(): string {
-  let sessionId = localStorage.getItem(SESSION_KEY);
-  if (!sessionId) {
-    sessionId = crypto.randomUUID().slice(0, 12);
-    localStorage.setItem(SESSION_KEY, sessionId);
-    console.log(`[Sync] Neue Session-ID generiert: ${sessionId}`);
-  }
-  return sessionId;
-}
-
 export function getCurrentSessionId(): string {
   return getSessionId();
 }
 
 /**
- * URL mit Session-ID-Parameter bauen
+ * Auth-Headers für alle API-Requests.
+ * Session-ID wird als Bearer-Token gesendet (nicht als URL-Parameter).
+ */
+function authHeaders(): Record<string, string> {
+  return {
+    'Authorization': `Bearer ${getSessionId()}`,
+  };
+}
+
+/**
+ * URL bauen (ohne Session-ID im Query-String)
  */
 function apiUrl(path: string): string {
-  const separator = path.includes('?') ? '&' : '?';
-  return `${SERVER_URL}${path}${separator}session=${getSessionId()}`;
+  return `${SERVER_URL}${path}`;
 }
 
 export function getKnownServerVersion(): number {
@@ -65,6 +61,7 @@ export async function checkServerStatus(): Promise<{
 }> {
   try {
     const response = await fetch(apiUrl('/api/status'), { 
+      headers: authHeaders(),
       signal: AbortSignal.timeout(3000) 
     });
     if (response.ok) {
@@ -87,6 +84,7 @@ export async function pullState(): Promise<{ state: any; stateVersion: number } 
   
   try {
     const response = await fetch(apiUrl('/api/state'), {
+      headers: authHeaders(),
       signal: AbortSignal.timeout(5000),
     });
     if (response.ok) {
@@ -117,7 +115,7 @@ export async function pushState(state: any): Promise<{
   try {
     const response = await fetch(apiUrl('/api/state'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ state, stateVersion: knownServerVersion }),
       signal: AbortSignal.timeout(5000),
     });
@@ -174,7 +172,9 @@ export function debouncedPushState(state: any): void {
 export function flushPendingState(): void {
   if (!lastPendingState || !serverAvailable) return;
   
-  const url = apiUrl('/api/state');
+  // sendBeacon kann keine Custom-Headers setzen → Session-ID als URL-Fallback
+  const separator = '/api/state'.includes('?') ? '&' : '?';
+  const url = `${apiUrl('/api/state')}${separator}session=${getSessionId()}`;
   const body = JSON.stringify({ state: lastPendingState, stateVersion: knownServerVersion });
   
   // sendBeacon ist für genau diesen Zweck gedacht: Daten beim Unload senden
@@ -194,6 +194,7 @@ export async function triggerServerCycle(): Promise<boolean> {
   try {
     const response = await fetch(apiUrl('/api/trigger-cycle'), {
       method: 'POST',
+      headers: authHeaders(),
       signal: AbortSignal.timeout(5000),
     });
     return response.ok;
@@ -211,6 +212,7 @@ export async function triggerServerOrderCheck(): Promise<boolean> {
   try {
     const response = await fetch(apiUrl('/api/check-orders'), {
       method: 'POST',
+      headers: authHeaders(),
       signal: AbortSignal.timeout(5000),
     });
     return response.ok;

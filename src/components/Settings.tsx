@@ -49,7 +49,7 @@ export function Settings() {
   // Export all data as JSON
   const handleExport = () => {
     const exportData = {
-      version: '1.5.6',
+      version: '1.10.1',
       exportDate: new Date().toISOString(),
       // Alle Einstellungen (Strategie, Risiko, KI-Anbieter, Modelle, API-Keys, Benachrichtigungen, Custom Prompt)
       settings,
@@ -518,7 +518,7 @@ export function Settings() {
             <div className="flex gap-3 flex-wrap">
               {([
                 { value: 'claude-opus-4-6' as ClaudeModel, label: '🔮 Claude Opus 4.6', desc: 'Beste Qualität (neuestes Modell)' },
-                { value: 'claude-sonnet-4-5-20250929' as ClaudeModel, label: '🟣 Claude Sonnet 4.5', desc: 'Schnell & intelligent' },
+                { value: 'claude-sonnet-4-6' as ClaudeModel, label: '🟣 Claude Sonnet 4.6', desc: 'Schnell & intelligent' },
                 { value: 'claude-haiku-4-5-20251001' as ClaudeModel, label: '⚡ Claude Haiku 4.5', desc: 'Am schnellsten' },
               ]).map((model) => (
                 <button
@@ -540,6 +540,7 @@ export function Settings() {
               {([
                 { value: 'gemini-2.5-flash' as GeminiModel, label: '⚡ Gemini 2.5 Flash', desc: 'Schnell & kostenlos' },
                 { value: 'gemini-2.5-pro' as GeminiModel, label: '🔵 Gemini 2.5 Pro', desc: 'Leistungsstärkstes Modell' },
+                { value: 'gemini-2.5-flash-lite' as GeminiModel, label: '💨 Gemini 2.5 Flash-Lite', desc: 'Am günstigsten & schnellsten' },
               ]).map((model) => (
                 <button
                   key={model.value}
@@ -558,15 +559,15 @@ export function Settings() {
           ) : (
             <div className="flex gap-3 flex-wrap">
               {([
-                { value: 'gpt-5.2' as OpenAIModel, label: '🟢 GPT-5.2', desc: 'Beste Qualität (neuestes Modell)' },
-                { value: 'gpt-5-mini' as OpenAIModel, label: '🟡 GPT-5 Mini', desc: 'Schnell & günstig' },
-                { value: 'gpt-4o' as OpenAIModel, label: '⚪ GPT-4o', desc: 'Bewährt & zuverlässig' },
+                { value: 'gpt-5.4' as OpenAIModel, label: '🟢 GPT-5.4', desc: 'Beste Qualität (neuestes Modell)' },
+                { value: 'gpt-5.4-mini' as OpenAIModel, label: '🟡 GPT-5.4 Mini', desc: 'Schnell & günstig' },
+                { value: 'gpt-5.4-nano' as OpenAIModel, label: '⚪ GPT-5.4 Nano', desc: 'Am günstigsten' },
               ]).map((model) => (
                 <button
                   key={model.value}
                   onClick={() => updateSettings({ openaiModel: model.value })}
                   className={`flex-1 min-w-[140px] px-4 py-3 rounded-lg border transition-colors text-left ${
-                    (settings.openaiModel || 'gpt-5.2') === model.value
+                    (settings.openaiModel || 'gpt-5.4') === model.value
                       ? 'bg-green-600 border-green-500 text-white'
                       : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-green-500'
                   }`}
