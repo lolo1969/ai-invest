@@ -4,7 +4,7 @@ import { useAppStore } from './store/useAppStore';
 import { useAutopilot } from './hooks/useAutopilot';
 import { useOrderExecution } from './hooks/useOrderExecution';
 import { useServerSync } from './hooks/useServerSync';
-import { AlertCircle, X, Loader2 } from 'lucide-react';
+import { AlertCircle, X, Loader2, RefreshCw, Brain } from 'lucide-react';
 
 // Lazy-loaded components für Code-Splitting
 const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -34,7 +34,7 @@ function getInitialView(): string {
 
 function App() {
   const [activeView, setActiveViewState] = useState(getInitialView);
-  const { error, setError, isAnalyzing } = useAppStore();
+  const { error, setError, isAnalyzing, analysisProgress } = useAppStore();
 
   // Navigation mit Hash-Sync
   const setActiveView = useCallback((view: string) => {
@@ -106,6 +106,31 @@ function App() {
       <Sidebar activeView={activeView} onNavigate={setActiveView} />
       
       <main className="flex-1 lg:ml-0 overflow-auto pb-20 lg:pb-0">
+        {isAnalyzing && (
+          <div className="sticky top-0 z-40 px-4 pt-3">
+            <div className="mx-auto max-w-4xl bg-[#14142a]/95 backdrop-blur border border-cyan-400/40 rounded-xl p-3 shadow-lg shadow-cyan-900/25">
+              <div className="flex items-center gap-2 text-cyan-200 mb-2">
+                <Brain size={16} className="text-cyan-300" />
+                <RefreshCw size={14} className="animate-spin" />
+                <span className="text-sm font-semibold">
+                  {analysisProgress?.step ? `Analyse läuft: ${analysisProgress.step}` : 'Portfolio-Analyse läuft im Hintergrund'}
+                </span>
+              </div>
+              {analysisProgress && (
+                <>
+                  <div className="w-full bg-[#252542] rounded-full h-2 overflow-hidden mb-1.5">
+                    <div
+                      className="bg-gradient-to-r from-cyan-500 to-indigo-500 h-2 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${analysisProgress.percent}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-200">{analysisProgress.detail}</p>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Error Toast */}
         {error && (
           <div className="fixed top-4 right-4 z-50 max-w-md bg-red-500/90 text-white 

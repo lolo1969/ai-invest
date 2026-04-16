@@ -98,9 +98,12 @@ interface AppState {
   // Portfolio Analysis
   lastAnalysis: string | null;
   lastAnalysisDate: string | null;
+  lastAnalysisDurationMs: number | null;
   isAnalyzing: boolean;
-  setLastAnalysis: (analysis: string | null) => void;
+  analysisProgress: { step: string; detail: string; percent: number } | null;
+  setLastAnalysis: (analysis: string | null, durationMs?: number | null) => void;
   setAnalyzing: (analyzing: boolean) => void;
+  setAnalysisProgress: (progress: { step: string; detail: string; percent: number } | null) => void;
 
   // Dashboard Analysis (separat vom Portfolio-Analyse-Text)
   dashboardAnalysisSummary: string | null;
@@ -559,12 +562,16 @@ export const useAppStore = create<AppState>()(
       // Portfolio Analysis
       lastAnalysis: null,
       lastAnalysisDate: null,
+      lastAnalysisDurationMs: null,
       isAnalyzing: false,
-      setLastAnalysis: (analysis) => set({ 
-        lastAnalysis: analysis, 
-        lastAnalysisDate: analysis ? new Date().toISOString() : null 
+      analysisProgress: null,
+      setLastAnalysis: (analysis, durationMs = null) => set({ 
+        lastAnalysis: analysis,
+        lastAnalysisDate: analysis ? new Date().toISOString() : null,
+        lastAnalysisDurationMs: analysis ? durationMs : null,
       }),
       setAnalyzing: (analyzing) => set({ isAnalyzing: analyzing }),
+      setAnalysisProgress: (progress) => set({ analysisProgress: progress }),
       dashboardAnalysisSummary: null,
       dashboardAnalysisDate: null,
       isDashboardAnalyzing: false,
@@ -688,6 +695,7 @@ export const useAppStore = create<AppState>()(
         orderSettings: state.orderSettings,
         lastAnalysis: state.lastAnalysis,
         lastAnalysisDate: state.lastAnalysisDate,
+        lastAnalysisDurationMs: state.lastAnalysisDurationMs,
         dashboardAnalysisSummary: state.dashboardAnalysisSummary,
         dashboardAnalysisDate: state.dashboardAnalysisDate,
         isDashboardAnalyzing: state.isDashboardAnalyzing,
@@ -758,7 +766,7 @@ function saveAutoBackup() {
     const state = useAppStore.getState();
     const backup = {
       timestamp: new Date().toISOString(),
-      version: '1.10.2',
+      version: '1.10.3',
       data: {
         settings: getSettingsWithoutApiKeys(state.settings),
         portfolios: state.portfolios,
@@ -774,6 +782,7 @@ function saveAutoBackup() {
         orderSettings: state.orderSettings,
         lastAnalysis: state.lastAnalysis,
         lastAnalysisDate: state.lastAnalysisDate,
+        lastAnalysisDurationMs: state.lastAnalysisDurationMs,
         dashboardAnalysisSummary: state.dashboardAnalysisSummary,
         dashboardAnalysisDate: state.dashboardAnalysisDate,
         isDashboardAnalyzing: state.isDashboardAnalyzing,

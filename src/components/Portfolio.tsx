@@ -180,11 +180,13 @@ export function Portfolio() {
     setCashBalance,
     setError,
     orderSettings,
-    tradeHistory
+    tradeHistory,
+    analysisProgress,
+    setAnalysisProgress
   } = useAppStore();
   
   const [showAddForm, setShowAddForm] = useState(false);
-  const { lastAnalysis: analysisResult, lastAnalysisDate, setLastAnalysis: setAnalysisResult, addAnalysisHistory, isAnalyzing: analyzing, setAnalyzing } = useAppStore();
+  const { lastAnalysis: analysisResult, lastAnalysisDate, lastAnalysisDurationMs, setLastAnalysis: setAnalysisResult, addAnalysisHistory, isAnalyzing: analyzing, setAnalyzing } = useAppStore();
   const [editingCash, setEditingCash] = useState(false);
   const [cashInput, setCashInput] = useState('');
   const [editingPosition, setEditingPosition] = useState<string | null>(null);
@@ -194,7 +196,6 @@ export function Portfolio() {
 
   const [editingBuyPrice, setEditingBuyPrice] = useState<string | null>(null);
   const [editBuyPriceValue, setEditBuyPriceValue] = useState('');
-  const [analysisProgress, setAnalysisProgress] = useState<{ step: string; detail: string; percent: number } | null>(null);
   const [tradeAction, setTradeAction] = useState<{ positionId: string; type: 'buy' | 'sell' } | null>(null);
   const [tradeQuantity, setTradeQuantity] = useState('');
   const [tradePrice, setTradePrice] = useState('');
@@ -830,6 +831,7 @@ export function Portfolio() {
 
   // AI Portfolio Analysis
   const analyzePortfolio = async () => {
+    const analysisStartedAt = Date.now();
     const activeApiKey = settings.aiProvider === 'openai' 
       ? settings.apiKeys.openai 
       : settings.aiProvider === 'gemini'
@@ -871,6 +873,56 @@ export function Portfolio() {
         const pl = getProfitLoss(p);
         const identifier = p.isin ? `${p.name} (ISIN: ${p.isin})` : `${p.symbol} (${p.name})`;
         let info = `${identifier}: ${p.quantity} Stück, Kaufpreis: ${p.buyPrice.toFixed(2)} ${p.currency}, Aktuell: ${p.currentPrice.toFixed(2)} ${p.currency}, P/L: ${pl.percent >= 0 ? '+' : ''}${pl.percent.toFixed(2)}% (${pl.absolute >= 0 ? '+' : ''}${pl.absolute.toFixed(2)} ${p.currency})`;
+        
+        // FIFO-Haltefrist für Luxemburg-Steuer (183 Tage)
+        const today = new Date();
+        const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+        const matchingBuys = tradeHistory
+          .filter(t => {
+            if (t.type !== 'buy') return false;
+            if (symbolsReferToSameInstrument(t.symbol, p.symbol)) return true;
+            if (p.isin && t.symbol === p.isin) return true;
+            if (normName(t.name) === normName(p.name)) return true;
+            return false;
+          })
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        if (matchingBuys.length > 0) {
+          const earliestBuy = matchingBuys[0];
+          const latestBuy = matchingBuys[matchingBuys.length - 1];
+          const earliestDays = Math.floor((today.getTime() - new Date(earliestBuy.date).getTime()) / 86400000);
+          const latestDays = Math.floor((today.getTime() - new Date(latestBuy.date).getTime()) / 86400000);
+
+          // FIFO-Lots aufbauen und Verkäufe abziehen
+          const lots = matchingBuys.map(t => ({ qty: t.quantity, date: new Date(t.date), days: Math.floor((today.getTime() - new Date(t.date).getTime()) / 86400000) }));
+          const sells = tradeHistory.filter(t => {
+            if (t.type !== 'sell') return false;
+            if (symbolsReferToSameInstrument(t.symbol, p.symbol)) return true;
+            if (p.isin && t.symbol === p.isin) return true;
+            if (normName(t.name) === normName(p.name)) return true;
+            return false;
+          }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          for (const sell of sells) {
+            let rem = sell.quantity;
+            for (const lot of lots) { if (rem <= 0) break; const c = Math.min(lot.qty, rem); lot.qty -= c; rem -= c; }
+          }
+          const shortTerm = lots.filter(l => l.qty > 0 && l.days < 183).reduce((s, l) => s + l.qty, 0);
+          const taxFreeQty = lots.filter(l => l.qty > 0 && l.days >= 183).reduce((s, l) => s + l.qty, 0);
+
+          if (matchingBuys.length === 1) {
+            info += ` | Kaufdatum: ${new Date(earliestBuy.date).toLocaleDateString('de-DE')} (vor ${earliestDays} Tagen${earliestDays >= 183 ? ', ✅ STEUERFREI' : `, ⚠️ noch ${183 - earliestDays} Tage bis steuerfrei`})`;
+          } else {
+            info += ` | Käufe von ${new Date(earliestBuy.date).toLocaleDateString('de-DE')} (${earliestDays}d) bis ${new Date(latestBuy.date).toLocaleDateString('de-DE')} (${latestDays}d)`;
+          }
+          info += ` | FIFO-Haltefrist (Lux 183d): steuerpflichtig <6M: ${shortTerm.toFixed(4).replace(/\.?0+$/, '')} Stück, steuerfrei ≥183d: ${taxFreeQty.toFixed(4).replace(/\.?0+$/, '')} Stück`;
+          if (shortTerm > 0) {
+            const soonestFreeLot = lots.filter(l => l.qty > 0 && l.days < 183).sort((a, b) => b.days - a.days)[0];
+            if (soonestFreeLot) {
+              const daysLeft = 183 - soonestFreeLot.days;
+              info += ` | Nächste Steuerfreiheit: in ${daysLeft} Tagen (${new Date(soonestFreeLot.date.getTime() + 183 * 86400000).toLocaleDateString('de-DE')})`;
+            }
+          }
+        }
         
         // 52-Wochen-Daten hinzufügen (ohne wertende Labels — die KI soll selbst bewerten)
         const stockData = stocksWithRange.find(s => s.symbol === p.symbol);
@@ -1319,6 +1371,39 @@ WICHTIG: Empfehle KEINE Orders die bereits oben aufgelistet sind!
 `;
 })()}
 ${memoryContext}
+${(() => {
+  const currentYear = new Date().getFullYear();
+  const LUX_EXEMPTION = 500;
+  const allTax = useAppStore.getState().taxTransactions;
+  const yearTx = allTax.filter(tx => (tx.transactionType === 'capital-gain' || !tx.transactionType) && new Date(tx.sellDate).getFullYear() === currentYear);
+  if (yearTx.length === 0) return '';
+
+  const shortTermTx = yearTx.filter(tx => !tx.taxFree);
+  const gains = shortTermTx.filter(tx => tx.gainLoss > 0).reduce((s, tx) => s + tx.gainLoss, 0);
+  const losses = shortTermTx.filter(tx => tx.gainLoss < 0).reduce((s, tx) => s + tx.gainLoss, 0);
+  const net = gains + losses;
+  const taxable = Math.max(0, net - LUX_EXEMPTION);
+  const headroom = net < 0 ? Math.abs(net) + LUX_EXEMPTION : (net <= LUX_EXEMPTION ? LUX_EXEMPTION - net : 0);
+
+  return `
+═══════════════════════════════════════
+💶 STEUERSTAND ${currentYear} (Luxemburg – Spekulationsgeschäfte <6 Monate):
+═══════════════════════════════════════
+Realisierte Gewinne:    +${gains.toFixed(2)} €
+Realisierte Verluste:   ${losses.toFixed(2)} €
+Netto-Ergebnis:         ${net >= 0 ? '+' : ''}${net.toFixed(2)} €
+Freibetrag:             ${LUX_EXEMPTION} €
+Zu versteuern:          ${taxable.toFixed(2)} € ${taxable === 0 ? '✅ (aktuell keine Steuer)' : '⚠️'}
+${headroom > 0 && taxable === 0 ? `Noch steuerneutraler Spielraum: ~${headroom.toFixed(2)} € Gewinn möglich vor Steuerpflicht` : ''}
+Transaktionen <6M: ${shortTermTx.length} (${shortTermTx.filter(tx => tx.gainLoss > 0).length} Gewinne, ${shortTermTx.filter(tx => tx.gainLoss < 0).length} Verluste)
+
+WICHTIG FÜR DEINE EMPFEHLUNGEN:
+- Berücksichtige bei Verkaufsempfehlungen ob die Position steuerpflichtig wäre (<6 Monate Haltedauer)
+- ${taxable === 0 ? `Aktuell sind noch ~${headroom.toFixed(2)} € Gewinn steuerneutral realisierbar (Verlustpuffer + Freibetrag)` : `Es wurden bereits ${taxable.toFixed(2)} € steuerpflichtige Gewinne über dem Freibetrag realisiert`}
+- Wenn Verluste vorhanden: Taktisches Tax-Loss-Harvesting könnte sinnvoll sein
+- Steuerfreie Gewinne (≥6 Monate Haltedauer) haben keine Auswirkung auf diese Berechnung
+`;
+})()}
 ${autopilotSignalsContext}
 ═══════════════════════════════════════
 AUFGABE:
@@ -1541,7 +1626,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       }
 
       setAnalysisProgress({ step: 'Speichern', detail: 'Analyse speichern & Benachrichtigungen senden...', percent: 95 });
-      setAnalysisResult(content);
+      setAnalysisResult(content, Date.now() - analysisStartedAt);
 
       // Save analysis to history for AI memory
       const historyEntry: AnalysisHistoryEntry = {
@@ -1699,9 +1784,19 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
   const formatQuantity = (qty: number) =>
     qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(4).replace(/\.?0+$/, '');
 
+  const formatAnalysisDuration = (durationMs: number | null) => {
+    if (!durationMs || durationMs <= 0) return null;
+    const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes === 0) return `${totalSeconds} Sek.`;
+    if (seconds === 0) return `${minutes} Min.`;
+    return `${minutes} Min. ${seconds} Sek.`;
+  };
+
   const fifoBreakdownByPositionId = useMemo(() => {
     const today = new Date();
-    const result: Record<string, { shortTerm: number; taxFree: number }> = {};
+    const result: Record<string, { shortTerm: number; taxFree: number; nextFreeDays: number | null; lastFreeDays: number | null; shortTermValue: number; taxFreeValue: number; pendingLots: { qty: number; daysLeft: number }[] }> = {};
 
     for (const position of userPositions) {
       const matchingBuys = tradeHistory
@@ -1715,7 +1810,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
       if (matchingBuys.length === 0) {
-        result[position.id] = { shortTerm: -1, taxFree: -1 }; // -1 = keine Historie
+        result[position.id] = { shortTerm: -1, taxFree: -1, nextFreeDays: null, lastFreeDays: null, shortTermValue: 0, taxFreeValue: 0, pendingLots: [] }; // -1 = keine Historie
         continue;
       }
 
@@ -1746,13 +1841,21 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       // Verbleibende Lots nach Haltefrist splitten
       let shortTerm = 0;
       let taxFree = 0;
+      let minDaysRemaining: number | null = null;
+      let maxDaysRemaining: number | null = null;
+      const currentPrice = position.currentPrice ?? position.buyPrice ?? 0;
+      const pendingLotsMap = new Map<number, number>(); // daysLeft -> qty
       for (const lot of lots) {
-        if (lot.qty <= 0) continue;
+        if (lot.qty < 0.0001) continue;
         const holdingDays = Math.floor((today.getTime() - lot.date.getTime()) / 86400000);
         if (holdingDays >= LUX_SPECULATION_DAYS) {
           taxFree += lot.qty;
         } else {
+          const daysLeft = LUX_SPECULATION_DAYS - holdingDays;
+          if (minDaysRemaining === null || daysLeft < minDaysRemaining) minDaysRemaining = daysLeft;
+          if (maxDaysRemaining === null || daysLeft > maxDaysRemaining) maxDaysRemaining = daysLeft;
           shortTerm += lot.qty;
+          pendingLotsMap.set(daysLeft, (pendingLotsMap.get(daysLeft) ?? 0) + lot.qty);
         }
       }
 
@@ -1764,7 +1867,20 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         taxFree *= scale;
       }
 
-      result[position.id] = { shortTerm, taxFree };
+      const pendingLots = Array.from(pendingLotsMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([daysLeft, qty]) => ({ daysLeft, qty }))
+        .filter(l => l.qty >= 0.0001);
+
+      result[position.id] = {
+        shortTerm,
+        taxFree,
+        nextFreeDays: minDaysRemaining,
+        lastFreeDays: maxDaysRemaining,
+        shortTermValue: shortTerm * currentPrice,
+        taxFreeValue: taxFree * currentPrice,
+        pendingLots,
+      };
     }
     return result;
   }, [userPositions, tradeHistory]);
@@ -2372,10 +2488,21 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                             <span className="text-gray-600 text-xs block">FIFO: keine Historie</span>
                           );
                           return (
-                            <span className="text-xs block">
-                              <span className="text-orange-400">&lt;6M: {formatQuantity(fifo.shortTerm)}</span>
-                              <span className="text-gray-600"> | </span>
-                              <span className="text-green-400">Frei: {formatQuantity(fifo.taxFree)}</span>
+                            <span className="text-xs block space-y-0.5 mt-0.5">
+                              {fifo.pendingLots.map((lot, i) => (
+                                <span key={i} className="flex items-center justify-end gap-1.5 block">
+                                  <span className="font-bold text-white">{formatQuantity(lot.qty)}</span>
+                                  <span className="text-gray-400">in</span>
+                                  <span className="text-amber-400 font-semibold">{lot.daysLeft} Tage</span>
+                                  <span className="text-gray-500">frei</span>
+                                </span>
+                              ))}
+                              {fifo.taxFree > 0 && (
+                                <span className="flex items-center justify-end gap-1.5 block">
+                                  <span className="font-bold text-white">{formatQuantity(fifo.taxFree)}</span>
+                                  <span className="text-emerald-400 font-semibold">✓ frei</span>
+                                </span>
+                              )}
                             </span>
                           );
                         })()}
@@ -2687,29 +2814,6 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         )}
       </div>
 
-      {/* AI Analysis Loading */}
-      {analyzing && (
-        <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-indigo-500/30">
-          <div className="flex items-center gap-3 mb-3">
-            <RefreshCw className="animate-spin text-indigo-400" size={20} />
-            <span className="text-indigo-300 font-medium">
-              {analysisProgress?.step ? `${analysisProgress.step}` : 'KI-Analyse läuft...'}
-            </span>
-          </div>
-          {analysisProgress && (
-            <>
-              <div className="w-full bg-[#252542] rounded-full h-2 mb-2">
-                <div 
-                  className="bg-indigo-500 h-2 rounded-full transition-all duration-500 ease-out"
-                  style={{ width: `${analysisProgress.percent}%` }}
-                />
-              </div>
-              <p className="text-sm text-gray-400">{analysisProgress.detail}</p>
-            </>
-          )}
-        </div>
-      )}
-
       {/* CSV Import Modal */}
       <CSVImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} />
 
@@ -2719,22 +2823,31 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       {/* AI Analysis Result */}
       {analysisResult && (
         <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-indigo-500/30">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-start justify-between gap-3 mb-4">
             <h2 className="text-xl font-semibold text-white flex items-center gap-2">
               <Brain size={20} className="text-indigo-500" />
               Portfolio-Vollanalyse
             </h2>
-            {lastAnalysisDate && (
-              <span className="text-xs text-gray-500">
-                {new Date(lastAnalysisDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
-            <button
-              onClick={() => setAnalysisResult(null)}
-              className="p-1 hover:bg-[#252542] rounded"
-            >
-              <X size={20} className="text-gray-400" />
-            </button>
+            <div className="flex items-start gap-3">
+              {(lastAnalysisDate || lastAnalysisDurationMs) && (
+                <div className="text-right text-xs text-gray-500 space-y-1">
+                  {lastAnalysisDate && (
+                    <div>
+                      {new Date(lastAnalysisDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  )}
+                  {formatAnalysisDuration(lastAnalysisDurationMs) && (
+                    <div className="text-cyan-300">Dauer: {formatAnalysisDuration(lastAnalysisDurationMs)}</div>
+                  )}
+                </div>
+              )}
+              <button
+                onClick={() => setAnalysisResult(null)}
+                className="p-1 hover:bg-[#252542] rounded"
+              >
+                <X size={20} className="text-gray-400" />
+              </button>
+            </div>
           </div>
           <div className="prose prose-invert max-w-none">
             <div className="text-gray-300 whitespace-pre-wrap leading-relaxed">
