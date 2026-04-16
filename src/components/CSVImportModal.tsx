@@ -17,6 +17,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     tradeHistory,
     addTaxTransaction,
     taxTransactions,
+    orderSettings,
   } = useAppStore();
     const { clearUserPositions, clearTradeHistory, clearTaxTransactions } = useAppStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -59,7 +60,10 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
 
   const processCSV = useCallback((content: string) => {
     setCsvContent(content);
-    const result = parseCSV(content);
+    const result = parseCSV(content, {
+      transactionFeeFlat: orderSettings?.transactionFeeFlat,
+      transactionFeePercent: orderSettings?.transactionFeePercent,
+    });
     setImportResult(result);
     // Select all positions by default
     setSelectedPositions(new Set(result.positions.map((_, i) => i)));

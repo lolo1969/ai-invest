@@ -766,7 +766,7 @@ function saveAutoBackup() {
     const state = useAppStore.getState();
     const backup = {
       timestamp: new Date().toISOString(),
-      version: '1.10.3',
+      version: '1.10.5',
       data: {
         settings: getSettingsWithoutApiKeys(state.settings),
         portfolios: state.portfolios,

@@ -124,6 +124,38 @@ export function Orders() {
     return filtered;
   }, [orders, statusFilter, typeFilter]);
 
+  // Filter-Counts kontextbezogen anzeigen:
+  // - Status-Counts berücksichtigen den aktuell gewählten Typ
+  // - Typ-Counts berücksichtigen den aktuell gewählten Status
+  const statusCounts = useMemo(() => {
+    const base = typeFilter === 'all'
+      ? orders
+      : orders.filter((o) => o.orderType === typeFilter);
+
+    return {
+      all: base.length,
+      pending: base.filter((o) => o.status === 'pending').length,
+      active: base.filter((o) => o.status === 'active').length,
+      executed: base.filter((o) => o.status === 'executed').length,
+      cancelled: base.filter((o) => o.status === 'cancelled').length,
+      expired: base.filter((o) => o.status === 'expired').length,
+    };
+  }, [orders, typeFilter]);
+
+  const typeCounts = useMemo(() => {
+    const base = statusFilter === 'all'
+      ? orders
+      : orders.filter((o) => o.status === statusFilter);
+
+    return {
+      all: base.length,
+      'limit-buy': base.filter((o) => o.orderType === 'limit-buy').length,
+      'limit-sell': base.filter((o) => o.orderType === 'limit-sell').length,
+      'stop-loss': base.filter((o) => o.orderType === 'stop-loss').length,
+      'stop-buy': base.filter((o) => o.orderType === 'stop-buy').length,
+    };
+  }, [orders, statusFilter]);
+
   // Statistiken
   const stats = useMemo(() => {
     const pending = orders.filter((o) => o.status === 'pending').length;
@@ -768,7 +800,7 @@ export function Orders() {
             >
               {status === 'all' ? 'Alle' : STATUS_LABELS[status]}
               {status !== 'all' && (
-                <span className="ml-1">({orders.filter((o) => o.status === status).length})</span>
+                <span className="ml-1">({statusCounts[status]})</span>
               )}
             </button>
           ))}
@@ -788,7 +820,7 @@ export function Orders() {
             >
               {type === 'all' ? 'Alle' : ORDER_TYPE_LABELS[type]}
               {type !== 'all' && (
-                <span className="ml-1">({orders.filter((o) => o.orderType === type).length})</span>
+                <span className="ml-1">({typeCounts[type]})</span>
               )}
             </button>
           ))}

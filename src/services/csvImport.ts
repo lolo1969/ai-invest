@@ -339,24 +339,33 @@ function buildTaxTransactions(transactions: ParsedTransaction[], warnings: strin
   return taxTransactions.sort((a, b) => new Date(b.sellDate).getTime() - new Date(a.sellDate).getTime());
 }
 
+interface PositionAccumulator {
+  isin?: string;
+  symbol?: string;
+  name: string;
+  currency: string;
+  transactions: ParsedTransaction[];
+  lots: PositionLot[];
+}
+
 function aggregateTransactionsToPositions(transactions: ParsedTransaction[], warnings: string[]): AggregatedPosition[] {
-  const positionMap = new Map<string, AggregatedPosition>();
+  const positionMap = new Map<string, PositionAccumulator>();
 
-  for (const tx of transactions) {
-    if (tx.type !== 'buy' && tx.type !== 'sell') continue;
-    if (tx.quantity <= 0 || tx.price <= 0) continue;
+  // Sort chronologically so FIFO works correctly
+  const ordered = [...transactions]
+    .filter((tx) => (tx.type === 'buy' || tx.type === 'sell') && tx.quantity > 0)
+    .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
 
+  for (const tx of ordered) {
     const key = getTransactionKey(tx) || tx.name;
     if (!positionMap.has(key)) {
       positionMap.set(key, {
         isin: tx.isin,
         symbol: tx.symbol,
         name: tx.name,
-        quantity: 0,
-        averageBuyPrice: 0,
-        totalInvested: 0,
         currency: tx.currency,
         transactions: [],
+        lots: [],
       });
     }
 
@@ -364,29 +373,71 @@ function aggregateTransactionsToPositions(transactions: ParsedTransaction[], war
     pos.transactions.push(tx);
 
     if (tx.type === 'buy') {
-      const newQty = pos.quantity + tx.quantity;
-      pos.averageBuyPrice = newQty > 0
-        ? (pos.averageBuyPrice * pos.quantity + tx.price * tx.quantity) / newQty
-        : 0;
-      pos.quantity = newQty;
-      pos.totalInvested += tx.totalAmount;
+      // Include fees in the per-share cost basis (matches Trade Republic FIFO method)
+      const priceWithFees = tx.quantity > 0 ? (tx.totalAmount + tx.fees) / tx.quantity : tx.price;
+      pos.lots.push({ quantity: tx.quantity, buyPrice: priceWithFees });
     } else {
-      pos.quantity -= tx.quantity;
-      if (pos.quantity < 0) pos.quantity = 0;
+      // FIFO: consume oldest lots first
+      let remaining = tx.quantity;
+      while (remaining > 0.0000001 && pos.lots.length > 0) {
+        const lot = pos.lots[0];
+        const matched = Math.min(lot.quantity, remaining);
+        lot.quantity -= matched;
+        remaining -= matched;
+        if (lot.quantity <= 0.0000001) {
+          pos.lots.shift();
+        }
+      }
     }
   }
 
-  const positions = Array.from(positionMap.values()).filter((p) => p.quantity > 0.0000001);
-  const soldOut = Array.from(positionMap.values()).filter((p) => p.quantity <= 0.0000001);
-  if (soldOut.length > 0) {
-    warnings.push(`${soldOut.length} komplett verkaufte Position(en) werden nicht ins aktuelle Portfolio übernommen.`);
+  const results: AggregatedPosition[] = [];
+  const soldOutCount = Array.from(positionMap.values()).filter(
+    (p) => p.lots.reduce((s, l) => s + l.quantity, 0) <= 0.0000001,
+  ).length;
+
+  for (const pos of positionMap.values()) {
+    const totalQty = pos.lots.reduce((s, l) => s + l.quantity, 0);
+    if (totalQty <= 0.0000001) continue;
+
+    const totalCost = pos.lots.reduce((s, l) => s + l.quantity * l.buyPrice, 0);
+    const averageBuyPrice = totalQty > 0 ? totalCost / totalQty : 0;
+
+    results.push({
+      isin: pos.isin,
+      symbol: pos.symbol,
+      name: pos.name,
+      quantity: Math.round(totalQty * 10000) / 10000,
+      averageBuyPrice: Math.round(averageBuyPrice * 100) / 100,
+      totalInvested: Math.round(totalCost * 100) / 100,
+      currency: pos.currency,
+      transactions: pos.transactions,
+    });
   }
 
-  return positions;
+  if (soldOutCount > 0) {
+    warnings.push(`${soldOutCount} komplett verkaufte Position(en) werden nicht ins aktuelle Portfolio übernommen.`);
+  }
+
+  return results;
+}
+
+export interface FeeOptions {
+  transactionFeeFlat?: number;
+  transactionFeePercent?: number;
+}
+
+// Compute effective fee for a trade: prefer CSV fee if present, otherwise use settings
+function effectiveFee(csvFee: number, tradeValue: number, feeOptions?: FeeOptions): number {
+  if (csvFee > 0) return csvFee;
+  if (!feeOptions) return 0;
+  const flat = feeOptions.transactionFeeFlat ?? 0;
+  const percent = feeOptions.transactionFeePercent ?? 0;
+  return flat + tradeValue * percent / 100;
 }
 
 // Main CSV parser
-export function parseCSV(content: string): ImportResult {
+export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult {
   const warnings: string[] = [];
   const separator = detectSeparator(content);
   const { headers, rows } = parseCSVRows(content, separator);
@@ -528,6 +579,15 @@ export function parseCSV(content: string): ImportResult {
       totalBuyTransactions: 0,
       totalSellTransactions: 0,
     };
+  }
+
+  // Apply settings-based fee fallback to all trade transactions
+  if (feeOptions && (feeOptions.transactionFeeFlat || feeOptions.transactionFeePercent)) {
+    for (const tx of transactions) {
+      if ((tx.type === 'buy' || tx.type === 'sell') && tx.fees === 0) {
+        tx.fees = effectiveFee(0, tx.totalAmount, feeOptions);
+      }
+    }
   }
 
   const tradeTransactions = transactions.filter((tx) => tx.type === 'buy' || tx.type === 'sell');

@@ -339,13 +339,15 @@ export class MarketDataService {
 
       const timestamps = result.timestamp || [];
       const quote = result.indicators?.quote?.[0] || {};
+      const originalCurrency = (result.meta?.currency || 'USD').toUpperCase();
+      const fxRate = originalCurrency === 'EUR' ? 1 : await this.getFxRateToEur(originalCurrency);
 
       return timestamps.map((ts: number, i: number) => ({
         date: new Date(ts * 1000),
-        open: quote.open?.[i] || 0,
-        high: quote.high?.[i] || 0,
-        low: quote.low?.[i] || 0,
-        close: quote.close?.[i] || 0,
+        open: (quote.open?.[i] || 0) * fxRate,
+        high: (quote.high?.[i] || 0) * fxRate,
+        low: (quote.low?.[i] || 0) * fxRate,
+        close: (quote.close?.[i] || 0) * fxRate,
         volume: quote.volume?.[i] || 0,
       }));
     } catch (error) {

@@ -179,6 +179,8 @@ export function Portfolio() {
     cashBalance,
     setCashBalance,
     setError,
+    orders,
+    taxTransactions,
     orderSettings,
     tradeHistory,
     analysisProgress,
@@ -601,13 +603,63 @@ export function Portfolio() {
     };
 
     const allBuckets = new Map<string, number>();
-    const symbolSeries = userPositions.map((position) => {
+    const quantityBySymbol = new Map<string, number>();
+    const positionMetaBySymbol = new Map<string, { isins: Set<string>; names: Set<string> }>();
+    const fallbackPriceBySymbol = new Map<string, number>();
+    const fallbackQtyBySymbol = new Map<string, number>();
+    userPositions.forEach((position) => {
       const symbol = position.symbol.trim();
+      if (!symbol) return;
+      quantityBySymbol.set(symbol, (quantityBySymbol.get(symbol) ?? 0) + position.quantity);
+
+      const meta = positionMetaBySymbol.get(symbol) ?? { isins: new Set<string>(), names: new Set<string>() };
+      if (position.isin) {
+        meta.isins.add(position.isin.trim().toUpperCase());
+      }
+      if (position.name) {
+        meta.names.add(position.name.trim().toUpperCase());
+      }
+      positionMetaBySymbol.set(symbol, meta);
+
+      // Fallback: Falls Historical Data für ein Symbol fehlt, nutze den aktuellen Positionspreis.
+      const prevPrice = fallbackPriceBySymbol.get(symbol) ?? 0;
+      const prevQty = fallbackQtyBySymbol.get(symbol) ?? 0;
+      const nextQty = prevQty + position.quantity;
+      if (nextQty > 0) {
+        const weighted = ((prevPrice * prevQty) + (position.currentPrice * position.quantity)) / nextQty;
+        fallbackPriceBySymbol.set(symbol, weighted);
+        fallbackQtyBySymbol.set(symbol, nextQty);
+      }
+    });
+
+    const symbolSeries = [...quantityBySymbol.entries()].map(([symbol, quantity]) => {
+      const meta = positionMetaBySymbol.get(symbol) ?? { isins: new Set<string>(), names: new Set<string>() };
       const cacheKey = `${portfolioChartRange}:${symbol}`;
       const history = historicalDataCacheRef.current[cacheKey]?.data ?? [];
       const pointByKey = new Map<string, number>();
 
+      const matchesTradeToSymbol = (trade: { symbol: string; name: string }) => {
+        const tradeSymbol = trade.symbol.trim().toUpperCase();
+        const tradeName = trade.name.trim().toUpperCase();
+        return (
+          symbolsReferToSameInstrument(trade.symbol.trim(), symbol)
+          || meta.isins.has(tradeSymbol)
+          || meta.names.has(tradeName)
+        );
+      };
+
+      const matchesOrderToSymbol = (order: { symbol: string; name: string }) => {
+        const orderSymbol = order.symbol.trim().toUpperCase();
+        const orderName = order.name.trim().toUpperCase();
+        return (
+          symbolsReferToSameInstrument(order.symbol.trim(), symbol)
+          || meta.isins.has(orderSymbol)
+          || meta.names.has(orderName)
+        );
+      };
+
       let firstKnownPrice = 0;
+      let firstPriceTimestamp: number | null = null;
       history
         .filter((point) => point.close > 0)
         .forEach((point) => {
@@ -621,15 +673,62 @@ export function Portfolio() {
           if (!pointByKey.has(key)) {
             pointByKey.set(key, point.close);
           }
-          if (firstKnownPrice === 0) {
+          if (firstPriceTimestamp === null || ts < firstPriceTimestamp) {
+            firstPriceTimestamp = ts;
             firstKnownPrice = point.close;
           }
         });
 
+      const symbolTrades = tradeHistory
+        .filter((trade) => matchesTradeToSymbol(trade))
+        .map((trade) => ({
+          timestamp: new Date(trade.date).getTime(),
+          delta: trade.type === 'buy' ? trade.quantity : -trade.quantity,
+        }))
+        .filter((event) => Number.isFinite(event.timestamp) && Number.isFinite(event.delta))
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+      const earliestBuyTradeTimestamp = tradeHistory
+        .filter((trade) => trade.type === 'buy' && matchesTradeToSymbol(trade))
+        .map((trade) => new Date(trade.date).getTime())
+        .filter((ts) => Number.isFinite(ts))
+        .sort((a, b) => a - b)[0];
+
+      const earliestExecutedBuyOrderTimestamp = orders
+        .filter((order) =>
+          (order.orderType === 'limit-buy' || order.orderType === 'stop-buy')
+          && order.status === 'executed'
+          && order.executedAt
+          && matchesOrderToSymbol(order)
+        )
+        .map((order) => new Date(order.executedAt as Date).getTime())
+        .filter((ts) => Number.isFinite(ts))
+        .sort((a, b) => a - b)[0];
+
+      const earliestBuyOrderCreatedTimestamp = orders
+        .filter((order) =>
+          (order.orderType === 'limit-buy' || order.orderType === 'stop-buy')
+          && matchesOrderToSymbol(order)
+        )
+        .map((order) => new Date(order.createdAt as Date).getTime())
+        .filter((ts) => Number.isFinite(ts))
+        .sort((a, b) => a - b)[0];
+
+      const acquisitionCandidates = [earliestBuyTradeTimestamp, earliestExecutedBuyOrderTimestamp, earliestBuyOrderCreatedTimestamp]
+        .filter((ts): ts is number => typeof ts === 'number' && Number.isFinite(ts));
+      const firstAcquisitionTimestamp = acquisitionCandidates.length > 0
+        ? Math.min(...acquisitionCandidates)
+        : null;
+
       return {
-        quantity: position.quantity,
-        lastKnownPrice: firstKnownPrice > 0 ? firstKnownPrice : position.currentPrice,
+        symbol,
+        currentQuantity: quantity,
+        trades: symbolTrades,
         pointByKey,
+        firstKnownPrice,
+        firstPriceTimestamp,
+        firstAcquisitionTimestamp,
+        fallbackPrice: fallbackPriceBySymbol.get(symbol) ?? 0,
       };
     });
 
@@ -650,15 +749,141 @@ export function Portfolio() {
       return;
     }
 
+    const rangeStartTimestamp = sortedBuckets[0].timestamp;
+    const rangeEndTimestamp = sortedBuckets[sortedBuckets.length - 1].timestamp;
+    const hasHistoricalTimeline =
+      tradeHistory.some((trade) => trade.type === 'buy')
+      || taxTransactions.length > 0
+      || orders.some((order) => order.orderType === 'limit-buy' || order.orderType === 'stop-buy');
+
+    const normalizedSymbolSeries = symbolSeries.map((series) => {
+      let trades = series.trades.filter(
+        (event) => event.timestamp >= rangeStartTimestamp && event.timestamp <= rangeEndTimestamp
+      );
+
+      const netInRange = trades.reduce((sum, event) => sum + event.delta, 0);
+      let baseQuantity = series.currentQuantity - netInRange;
+
+      // Falls die Historie inkonsistent ist (z. B. unvollständige alte Imports),
+      // auf stabile Darstellung mit aktueller Menge ohne Trade-Deltas zurückfallen.
+      const inconsistentHistory = baseQuantity < -0.000001 || baseQuantity > (series.currentQuantity * 5 + 0.000001);
+      if (inconsistentHistory) {
+        trades = [];
+        baseQuantity = series.currentQuantity;
+      }
+
+      if (Math.abs(baseQuantity) < 0.000001) {
+        baseQuantity = 0;
+      }
+
+      if (hasHistoricalTimeline && series.firstAcquisitionTimestamp === null && trades.length === 0) {
+        // Bei aktivem Timeline-Modus unbekannte Legacy-Bestände nicht rückwirkend einblenden.
+        baseQuantity = 0;
+      }
+
+      return {
+        ...series,
+        trades,
+        baseQuantity: Math.max(0, baseQuantity),
+        firstAcquisitionTimestamp: series.firstAcquisitionTimestamp,
+        tradeIndex: 0,
+        runningTradeQuantity: 0,
+        lastKnownPrice: series.firstKnownPrice,
+        hasPrice: series.firstKnownPrice > 0,
+      };
+    });
+
+    const earliestHoldingTimestamp = normalizedSymbolSeries
+      .map((series) => {
+        if (series.firstAcquisitionTimestamp !== null) {
+          return series.firstAcquisitionTimestamp;
+        }
+        if (series.baseQuantity > 0) {
+          return series.firstPriceTimestamp ?? null;
+        }
+        const firstBuy = series.trades.find((event) => event.delta > 0);
+        return firstBuy?.timestamp ?? null;
+      })
+      .filter((ts): ts is number => ts !== null);
+
+    const globalHistoryStartCandidates: number[] = [];
+
+    tradeHistory.forEach((trade) => {
+      if (trade.type !== 'buy') return;
+      const ts = new Date(trade.date).getTime();
+      if (Number.isFinite(ts)) {
+        globalHistoryStartCandidates.push(ts);
+      }
+    });
+
+    taxTransactions.forEach((tx) => {
+      const ts = new Date(tx.buyDate).getTime();
+      if (Number.isFinite(ts)) {
+        globalHistoryStartCandidates.push(ts);
+      }
+    });
+
+    orders.forEach((order) => {
+      if (!(order.orderType === 'limit-buy' || order.orderType === 'stop-buy')) return;
+
+      const createdTs = new Date(order.createdAt as Date).getTime();
+      if (Number.isFinite(createdTs)) {
+        globalHistoryStartCandidates.push(createdTs);
+      }
+
+      if (order.executedAt) {
+        const executedTs = new Date(order.executedAt as Date).getTime();
+        if (Number.isFinite(executedTs)) {
+          globalHistoryStartCandidates.push(executedTs);
+        }
+      }
+    });
+
+    const globalPortfolioStartTimestamp = globalHistoryStartCandidates.length > 0
+      ? Math.min(...globalHistoryStartCandidates)
+      : null;
+
+    const portfolioStartTimestamp = hasHistoricalTimeline
+      ? (globalPortfolioStartTimestamp
+        ?? (earliestHoldingTimestamp.length > 0 ? Math.min(...earliestHoldingTimestamp) : null))
+      : null;
+
     const chartPointsRaw: Omit<PortfolioHistoryPoint, 'changePercent'>[] = sortedBuckets.map((bucket) => {
+      if (portfolioStartTimestamp !== null && bucket.timestamp < portfolioStartTimestamp) {
+        return {
+          timestamp: bucket.timestamp,
+          label: formatLabel(new Date(bucket.timestamp)),
+          value: 0,
+        };
+      }
+
       let totalValue = 0;
 
-      symbolSeries.forEach((series) => {
+      normalizedSymbolSeries.forEach((series) => {
+        while (series.tradeIndex < series.trades.length && series.trades[series.tradeIndex].timestamp <= bucket.timestamp) {
+          series.runningTradeQuantity += series.trades[series.tradeIndex].delta;
+          series.tradeIndex += 1;
+        }
+
+        const quantityAtBucket =
+          hasHistoricalTimeline && series.firstAcquisitionTimestamp !== null && bucket.timestamp < series.firstAcquisitionTimestamp
+            ? 0
+            : Math.max(0, series.baseQuantity + series.runningTradeQuantity);
         const pointValue = series.pointByKey.get(bucket.key);
         if (typeof pointValue === 'number') {
           series.lastKnownPrice = pointValue;
+          series.hasPrice = true;
+        } else if (!series.hasPrice && series.fallbackPrice > 0 && quantityAtBucket > 0) {
+          // Kein History-Punkt an diesem Tag: stabilen Fallback-Preis verwenden statt 0.
+          series.lastKnownPrice = series.fallbackPrice;
+          series.hasPrice = true;
         }
-        totalValue += (series.lastKnownPrice || 0) * series.quantity;
+
+        if (!series.hasPrice || quantityAtBucket <= 0) {
+          return;
+        }
+
+        totalValue += series.lastKnownPrice * quantityAtBucket;
       });
 
       return {
@@ -668,15 +893,24 @@ export function Portfolio() {
       };
     });
 
-    const baseValue = chartPointsRaw[0]?.value ?? 0;
+    const currentPortfolioValue = userPositions.reduce((sum, p) => sum + (p.currentPrice * p.quantity), 0);
+    if (chartPointsRaw.length > 0) {
+      chartPointsRaw[chartPointsRaw.length - 1] = {
+        ...chartPointsRaw[chartPointsRaw.length - 1],
+        value: Math.max(0, currentPortfolioValue),
+      };
+    }
+
+    const firstNonZero = chartPointsRaw.find((p) => p.value > 0);
+    const baseValue = firstNonZero?.value ?? 0;
     const chartPoints: PortfolioHistoryPoint[] = chartPointsRaw.map((point) => ({
       ...point,
       changePercent: baseValue > 0 ? ((point.value - baseValue) / baseValue) * 100 : 0,
     }));
     setPortfolioHistory(chartPoints);
-  }, [portfolioChartRange, portfolioSymbolSignature, portfolioQuantitySignature, portfolioHistoryCacheVersion, userPositions]);
+  }, [orders, portfolioChartRange, portfolioSymbolSignature, portfolioQuantitySignature, portfolioHistoryCacheVersion, taxTransactions, tradeHistory, userPositions]);
 
-  const portfolioHistoryStart = portfolioHistory.length > 0 ? portfolioHistory[0].value : 0;
+  const portfolioHistoryStart = portfolioHistory.length > 0 ? (portfolioHistory.find((p) => p.value > 0)?.value ?? 0) : 0;
   const portfolioHistoryEnd = portfolioHistory.length > 0 ? portfolioHistory[portfolioHistory.length - 1].value : 0;
   const portfolioHistoryDiff = portfolioHistoryEnd - portfolioHistoryStart;
   const portfolioHistoryDiffPercent = portfolioHistoryStart > 0 ? (portfolioHistoryDiff / portfolioHistoryStart) * 100 : 0;
