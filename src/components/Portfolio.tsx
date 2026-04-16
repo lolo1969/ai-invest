@@ -206,6 +206,8 @@ export function Portfolio() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const symbolSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historicalDataCacheRef = useRef<Record<string, { data: Array<{ date: Date; close: number }>; fetchedAt: number }>>({});
+  const analysisResultRef = useRef<HTMLDivElement | null>(null);
+  const wasAnalyzingRef = useRef(false);
   const [portfolioChartRange, setPortfolioChartRange] = useState<PortfolioChartRange>('1mo');
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioHistoryPoint[]>([]);
   const [loadingPortfolioHistory, setLoadingPortfolioHistory] = useState(false);
@@ -1794,6 +1796,15 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
     return `${minutes} Min. ${seconds} Sek.`;
   };
 
+  useEffect(() => {
+    if (wasAnalyzingRef.current && !analyzing && analysisResult && analysisResultRef.current) {
+      analysisResultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      analysisResultRef.current.focus({ preventScroll: true });
+    }
+
+    wasAnalyzingRef.current = analyzing;
+  }, [analyzing, analysisResult]);
+
   const fifoBreakdownByPositionId = useMemo(() => {
     const today = new Date();
     const result: Record<string, { shortTerm: number; taxFree: number; nextFreeDays: number | null; lastFreeDays: number | null; shortTermValue: number; taxFreeValue: number; pendingLots: { qty: number; daysLeft: number }[] }> = {};
@@ -2822,7 +2833,11 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       {/* AI Analysis Result */}
       {analysisResult && (
-        <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-indigo-500/30">
+        <div
+          ref={analysisResultRef}
+          tabIndex={-1}
+          className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-indigo-500/30 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+        >
           <div className="flex items-start justify-between gap-3 mb-4">
             <h2 className="text-xl font-semibold text-white flex items-center gap-2">
               <Brain size={20} className="text-indigo-500" />
