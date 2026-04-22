@@ -51,7 +51,7 @@ interface PortfolioHistoryPoint {
 const HISTORY_CACHE_TTL_MS = 10 * 60 * 1000;
 const PORTFOLIO_CHART_RANGES: PortfolioChartRange[] = ['1d', '5d', '1mo', '1y'];
 
-// Trade-Historie Subkomponente
+// Trade History Component
 function TradeHistory() {
   const { tradeHistory, clearTradeHistory } = useAppStore();
   const [showAll, setShowAll] = useState(false);
@@ -59,20 +59,21 @@ function TradeHistory() {
 
   if (tradeHistory.length === 0) return null;
 
-  const displayedTrades = showAll ? tradeHistory : tradeHistory.slice(0, 10);
+  const sortedTrades = [...tradeHistory].sort((a, b) => b.timestamp - a.timestamp);
+  const displayedTrades = showAll ? sortedTrades : sortedTrades.slice(0, 10);
 
   return (
     <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-gray-700/30 mt-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
           <ArrowRightLeft size={18} className="text-purple-400" />
-          Trade-Historie
+          Trade History
           <span className="text-xs text-gray-500 font-normal">({tradeHistory.length})</span>
         </h2>
         <div className="flex items-center gap-2">
           {confirmClear ? (
             <div className="flex items-center gap-1 text-xs">
-              <span className="text-red-400">Alles löschen?</span>
+              <span className="text-red-400">Clear all?</span>
               <button
                 onClick={() => { clearTradeHistory(); setConfirmClear(false); }}
                 className="p-1 text-red-400 hover:bg-red-500/20 rounded"
@@ -90,7 +91,7 @@ function TradeHistory() {
             <button
               onClick={() => setConfirmClear(true)}
               className="text-xs text-gray-500 hover:text-red-400 px-2 py-1 rounded hover:bg-red-500/10"
-              title="Historie löschen"
+              title="Delete history"
             >
               <X size={14} />
             </button>
@@ -102,21 +103,21 @@ function TradeHistory() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-gray-400 border-b border-gray-700/50">
-              <th className="text-left py-2 px-2 font-medium">Datum</th>
-              <th className="text-center py-2 px-2 font-medium">Typ</th>
+              <th className="text-left py-2 px-2 font-medium">Date</th>
+              <th className="text-center py-2 px-2 font-medium">Type</th>
               <th className="text-left py-2 px-2 font-medium">Symbol</th>
-              <th className="text-right py-2 px-2 font-medium">Stück</th>
-              <th className="text-right py-2 px-2 font-medium">Preis</th>
-              <th className="text-right py-2 px-2 font-medium">Gesamt</th>
-              <th className="text-right py-2 px-2 font-medium">Gebühren</th>
-              <th className="text-center py-2 px-2 font-medium">Quelle</th>
+              <th className="text-right py-2 px-2 font-medium">Qty</th>
+              <th className="text-right py-2 px-2 font-medium">Price</th>
+              <th className="text-right py-2 px-2 font-medium">Total</th>
+              <th className="text-right py-2 px-2 font-medium">Fees</th>
+              <th className="text-center py-2 px-2 font-medium">Source</th>
             </tr>
           </thead>
           <tbody>
             {displayedTrades.map(trade => (
               <tr key={trade.id} className="border-b border-gray-800/30 hover:bg-gray-800/20">
                 <td className="py-2 px-2 text-gray-300 text-xs">
-                  {new Date(trade.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {new Date(trade.date).toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </td>
                 <td className="text-center py-2 px-2">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -124,7 +125,7 @@ function TradeHistory() {
                       ? 'bg-green-500/10 text-green-400' 
                       : 'bg-red-500/10 text-red-400'
                   }`}>
-                    {trade.type === 'buy' ? '↑ Kauf' : '↓ Verkauf'}
+                    {trade.type === 'buy' ? '↑ Buy' : '↓ Sell'}
                   </span>
                 </td>
                 <td className="py-2 px-2">
@@ -135,19 +136,19 @@ function TradeHistory() {
                 </td>
                 <td className="text-right py-2 px-2 text-gray-300">{trade.quantity}</td>
                 <td className="text-right py-2 px-2 text-gray-300">
-                  {trade.price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                  {trade.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                 </td>
                 <td className="text-right py-2 px-2">
                   <span className={trade.type === 'buy' ? 'text-red-300' : 'text-green-300'}>
-                    {trade.type === 'buy' ? '-' : '+'}{trade.totalAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                    {trade.type === 'buy' ? '-' : '+'}{trade.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                   </span>
                 </td>
                 <td className="text-right py-2 px-2 text-gray-500 text-xs">
-                  {trade.fees > 0 ? `-${trade.fees.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : '–'}
+                  {trade.fees > 0 ? `-${trade.fees.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : '–'}
                 </td>
                 <td className="text-center py-2 px-2">
                   <span className={`text-xs ${trade.source === 'order' ? 'text-blue-400' : 'text-gray-500'}`}>
-                    {trade.source === 'order' ? 'Order' : 'Manuell'}
+                    {trade.source === 'order' ? 'Order' : 'Manual'}
                   </span>
                 </td>
               </tr>
@@ -161,7 +162,7 @@ function TradeHistory() {
           onClick={() => setShowAll(!showAll)}
           className="w-full mt-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800/30 rounded-lg transition"
         >
-          {showAll ? 'Weniger anzeigen' : `Alle ${tradeHistory.length} Trades anzeigen`}
+          {showAll ? 'Show less' : `Show all ${tradeHistory.length} trades`}
         </button>
       )}
     </div>
@@ -226,7 +227,7 @@ export function Portfolio() {
     currency: 'EUR'
   });
 
-  // Berechne verfügbares Cash (abzgl. reserviertes Cash durch aktive/pendende Kauf-Orders)
+  // Calculate available cash (minus reserved cash from active/pending buy orders)
   const getAvailableCash = () => {
     const store = useAppStore.getState();
     const currentCash = store.cashBalance;
@@ -240,7 +241,7 @@ export function Portfolio() {
     return { currentCash, reservedCash, availableCash: currentCash - reservedCash };
   };
 
-  // Berechne verfügbare Stücke (abzgl. reservierter Stücke durch aktive/pendende Sell-Orders)
+  // Calculate available shares (minus reserved shares from active/pending sell orders)
   const getAvailableShares = (symbol: string, totalQuantity: number) => {
     const store = useAppStore.getState();
     const reservedShares = store.orders
@@ -257,24 +258,24 @@ export function Portfolio() {
     const price = customPrice ?? yahooPrices[positionId] ?? position.currentPrice;
     const totalCost = price * quantity;
     
-    // Transaktionsgebühren berechnen
+    // Calculate transaction fees
     const fee = (orderSettings.transactionFeeFlat || 0) + totalCost * (orderSettings.transactionFeePercent || 0) / 100;
 
-    // WICHTIG: Immer den aktuellen Cash-Wert aus dem Store lesen (nicht aus der Closure!)
+    // IMPORTANT: Always read the current cash value from the store (not from the closure!)
     const { currentCash, reservedCash, availableCash } = getAvailableCash();
 
     if (type === 'buy') {
       if (totalCost + fee > availableCash) {
-        setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${availableCash.toFixed(2)} €${reservedCash > 0 ? ` (${reservedCash.toFixed(2)} € reserviert durch aktive Orders)` : ''}`);
+        setError(`Insufficient cash. Required: ${(totalCost + fee).toFixed(2)} € (incl. ${fee.toFixed(2)} € fees), Available: ${availableCash.toFixed(2)} €${reservedCash > 0 ? ` (${reservedCash.toFixed(2)} € reserved by active orders)` : ''}`);
         return;
       }
-      // Nachkaufen: Durchschnittspreis berechnen
+      // Add purchase: calculate average price
       const newTotalQty = position.quantity + quantity;
       const avgBuyPrice = (position.buyPrice * position.quantity + price * quantity) / newTotalQty;
       updateUserPosition(positionId, { quantity: newTotalQty, buyPrice: avgBuyPrice, currentPrice: price });
       setCashBalance(currentCash - totalCost - fee);
 
-      // Trade-History erfassen (Kauf)
+      // Record trade history (Buy)
       useAppStore.getState().addTradeHistory({
         id: crypto.randomUUID(),
         type: 'buy',
@@ -290,19 +291,19 @@ export function Portfolio() {
     } else {
       const { reservedShares, availableShares } = getAvailableShares(position.symbol, position.quantity);
       if (quantity > availableShares) {
-        setError(`Nicht genügend verfügbare Aktien. Gesamt: ${position.quantity}${reservedShares > 0 ? `, davon ${reservedShares} reserviert durch aktive Sell-Orders` : ''}, verfügbar: ${availableShares}`);
+        setError(`Insufficient shares available. Total: ${position.quantity}${reservedShares > 0 ? `, of which ${reservedShares} reserved by active sell orders` : ''}, available: ${availableShares}`);
         return;
       }
 
-      // Steuer-Transaktion erfassen (Verkauf)
+      // Record tax transaction (sale)
       const sellDate = new Date();
       const gainLoss = (price - position.buyPrice) * quantity - fee;
       
-      // Kaufdatum ermitteln: Aus ausgeführten Buy-Orders oder Trade-History nachschlagen
+      // Determine purchase date: From executed buy orders or look up in trade history
       const store = useAppStore.getState();
       let buyDate: Date | null = null;
       
-      // 1. Versuche über ausgeführte Buy-Orders (am genauesten)
+      // 1. Try via executed buy orders (most accurate)
       const executedBuyOrders = store.orders
         .filter(o => o.status === 'executed' 
           && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy')
@@ -311,11 +312,11 @@ export function Portfolio() {
         .sort((a, b) => new Date(a.executedAt!).getTime() - new Date(b.executedAt!).getTime());
       
       if (executedBuyOrders.length > 0) {
-        // Älteste Buy-Order als Kaufdatum (FIFO-Prinzip)
+        // Oldest buy order as purchase date (FIFO principle)
         buyDate = new Date(executedBuyOrders[0].executedAt!);
       }
       
-      // 2. Fallback: Trade-History nach Käufen durchsuchen
+      // 2. Fallback: Search trade history for purchases
       if (!buyDate) {
         const buyTrades = store.tradeHistory
           .filter(t => t.type === 'buy' && t.symbol === position.symbol)
@@ -348,14 +349,14 @@ export function Portfolio() {
 
       const newQty = position.quantity - quantity;
       if (newQty <= 0) {
-        // Position komplett verkaufen
+        // Sell entire position
         removeUserPosition(positionId);
       } else {
         updateUserPosition(positionId, { quantity: newQty, currentPrice: price });
       }
       setCashBalance(currentCash + totalCost - fee);
 
-      // Trade-History erfassen (Verkauf)
+      // Record trade history (Sell)
       useAppStore.getState().addTradeHistory({
         id: crypto.randomUUID(),
         type: 'sell',
@@ -486,7 +487,7 @@ export function Portfolio() {
               const history = await marketDataService.getHistoricalData(symbol, portfolioChartRange);
               return { symbol, history };
             } catch (error) {
-              console.warn(`[Portfolio] Verlauf nicht verfügbar für ${symbol}:`, error);
+              console.warn(`[Portfolio] Price history not available for ${symbol}:`, error);
               return { symbol, history: [] as Array<{ date: Date; close: number }> };
             }
           })
@@ -529,7 +530,7 @@ export function Portfolio() {
     const prefetchRanges = PORTFOLIO_CHART_RANGES.filter((range) => range !== portfolioChartRange);
 
     const prefetchInBackground = async () => {
-      // Kleine Verzögerung, damit aktive UI-Requests Vorrang haben.
+      // Small delay to prioritize active UI requests.
       await new Promise((resolve) => setTimeout(resolve, 300));
       if (isCancelled) return;
 
@@ -591,15 +592,15 @@ export function Portfolio() {
 
     const formatLabel = (date: Date): string => {
       if (portfolioChartRange === '1d') {
-        return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+        return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       }
       if (portfolioChartRange === '5d') {
-        return date.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit' });
+        return date.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit' });
       }
       if (portfolioChartRange === '1mo') {
-        return date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
+        return date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
       }
-      return date.toLocaleDateString('de-DE', { month: 'short', year: '2-digit' });
+      return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
     };
 
     const allBuckets = new Map<string, number>();
@@ -621,7 +622,7 @@ export function Portfolio() {
       }
       positionMetaBySymbol.set(symbol, meta);
 
-      // Fallback: Falls Historical Data für ein Symbol fehlt, nutze den aktuellen Positionspreis.
+      // Fallback: If historical data is missing for a symbol, use current position price.
       const prevPrice = fallbackPriceBySymbol.get(symbol) ?? 0;
       const prevQty = fallbackQtyBySymbol.get(symbol) ?? 0;
       const nextQty = prevQty + position.quantity;
@@ -764,8 +765,8 @@ export function Portfolio() {
       const netInRange = trades.reduce((sum, event) => sum + event.delta, 0);
       let baseQuantity = series.currentQuantity - netInRange;
 
-      // Falls die Historie inkonsistent ist (z. B. unvollständige alte Imports),
-      // auf stabile Darstellung mit aktueller Menge ohne Trade-Deltas zurückfallen.
+      // If history is inconsistent (e.g., incomplete old imports),
+      // fall back to stable display with current quantity without trade deltas.
       const inconsistentHistory = baseQuantity < -0.000001 || baseQuantity > (series.currentQuantity * 5 + 0.000001);
       if (inconsistentHistory) {
         trades = [];
@@ -777,7 +778,7 @@ export function Portfolio() {
       }
 
       if (hasHistoricalTimeline && series.firstAcquisitionTimestamp === null && trades.length === 0) {
-        // Bei aktivem Timeline-Modus unbekannte Legacy-Bestände nicht rückwirkend einblenden.
+        // Don't retroactively display unknown legacy holdings in active timeline mode.
         baseQuantity = 0;
       }
 
@@ -874,7 +875,7 @@ export function Portfolio() {
           series.lastKnownPrice = pointValue;
           series.hasPrice = true;
         } else if (!series.hasPrice && series.fallbackPrice > 0 && quantityAtBucket > 0) {
-          // Kein History-Punkt an diesem Tag: stabilen Fallback-Preis verwenden statt 0.
+          // No history point on this day: use stable fallback price instead of 0.
           series.lastKnownPrice = series.fallbackPrice;
           series.hasPrice = true;
         }
@@ -988,7 +989,7 @@ export function Portfolio() {
     const quantity = parseFloat(formData.quantity);
     let buyPrice: number;
 
-    // Kaufpreis automatisch ermitteln, wenn nicht angegeben
+    // Automatically determine purchase price if not specified
     if (formData.buyPrice && parseFloat(formData.buyPrice) > 0) {
       buyPrice = parseFloat(formData.buyPrice);
     } else {
@@ -999,11 +1000,11 @@ export function Portfolio() {
         if (quote && quote.price > 0) {
           buyPrice = quote.price;
         } else {
-          // Fallback: aktuellen Preis aus dem Formular verwenden
+          // Fallback: use current price from form
           buyPrice = parseFloat(formData.currentPrice);
         }
       } catch {
-        // Fallback: aktuellen Preis aus dem Formular verwenden
+        // Fallback: use current price from the form
         buyPrice = parseFloat(formData.currentPrice);
       } finally {
         setAddingPosition(false);
@@ -1012,15 +1013,15 @@ export function Portfolio() {
 
     const totalCost = buyPrice * quantity;
     
-    // Transaktionsgebühren berechnen
+    // Calculate transaction fees
     const fee = (orderSettings.transactionFeeFlat || 0) + totalCost * (orderSettings.transactionFeePercent || 0) / 100;
 
-    // WICHTIG: Immer den aktuellen Cash-Wert aus dem Store lesen (nicht aus der Closure!)
+    // IMPORTANT: Always read the current cash value from the store (not from the closure!)
     const { currentCash, reservedCash, availableCash } = getAvailableCash();
 
-    // Cash-Prüfung (inkl. reserviertes Cash durch aktive Kauf-Orders)
+    // Cash check (incl. reserved cash from active buy orders)
     if (totalCost + fee > availableCash) {
-      setError(`Nicht genügend Cash. Benötigt: ${(totalCost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${availableCash.toFixed(2)} €${reservedCash > 0 ? ` (${reservedCash.toFixed(2)} € reserviert durch aktive Orders)` : ''}`);
+      setError(`Insufficient cash. Required: ${(totalCost + fee).toFixed(2)} € (incl. ${fee.toFixed(2)} € fees), Available: ${availableCash.toFixed(2)} €${reservedCash > 0 ? ` (${reservedCash.toFixed(2)} € reserved by active orders)` : ''}`);      
       return;
     }
 
@@ -1038,7 +1039,7 @@ export function Portfolio() {
     addUserPosition(newPosition);
     setCashBalance(currentCash - totalCost - fee);
 
-    // Trade-History erfassen (Kauf), damit beim Verkauf das Kaufdatum verfügbar ist
+    // Record trade history (buy) so purchase date is available when selling
     useAppStore.getState().addTradeHistory({
       id: crypto.randomUUID(),
       type: 'buy',
@@ -1076,23 +1077,23 @@ export function Portfolio() {
     const providerName = settings.aiProvider === 'openai' ? 'OpenAI' : settings.aiProvider === 'gemini' ? 'Google Gemini' : 'Claude';
     
     if (!activeApiKey) {
-      setError(`Bitte füge deinen ${providerName} API-Schlüssel in den Einstellungen hinzu.`);
+      setError(`Please add your ${providerName} API key in settings.`);
       return;
     }
 
     if (userPositions.length === 0 && watchlist.length === 0) {
-      setError('Füge zuerst Positionen zu deinem Portfolio oder Aktien zur Watchlist hinzu.');
+      setError('First add positions to your portfolio or stocks to your watchlist.');
       return;
     }
 
     setAnalyzing(true);
-    setAnalysisProgress({ step: 'Vorbereitung', detail: 'Starte Portfolio-Analyse...', percent: 0 });
-    // Alte Analyse NICHT löschen, damit sie während des Ladens sichtbar bleibt
-    // setAnalysisResult(null); — wird erst bei Erfolg überschrieben
+    setAnalysisProgress({ step: 'Preparation', detail: 'Starting portfolio analysis...', percent: 0 });
+    // Do NOT delete old analysis so it remains visible while loading
+    // setAnalysisResult(null); — will only be overwritten on success
 
     try {
-      // 52-Wochen-Daten laden (wie Autopilot) für konsistente Analyse
-      setAnalysisProgress({ step: 'Marktdaten', detail: '52-Wochen-Daten & technische Indikatoren laden...', percent: 5 });
+      // Load 52-week data (like Autopilot) for consistent analysis
+      setAnalysisProgress({ step: 'Market Data', detail: 'Loading 52-week data & technical indicators...', percent: 5 });
       const portfolioSymbols = userPositions.map(p => p.symbol);
       const watchlistSymbolsList = watchlist.map(s => s.symbol);
       const allSymbolsForQuotes = [...new Set([...portfolioSymbols, ...watchlistSymbolsList])];
@@ -1100,17 +1101,17 @@ export function Portfolio() {
       try {
         stocksWithRange = await marketDataService.getQuotesWithRange(allSymbolsForQuotes);
       } catch (e) {
-        console.warn('[Portfolio] Konnte 52W-Daten nicht laden, fahre ohne fort:', e);
+        console.warn('[Portfolio] Could not load 52W data, continuing without:', e);
       }
 
       // Build portfolio context with 52-week data and technical indicators (harmonized with Autopilot)
-      setAnalysisProgress({ step: 'Portfolio-Kontext', detail: `${userPositions.length} Positionen mit Kursen, P/L & Indikatoren aufbereiten...`, percent: 15 });
+      setAnalysisProgress({ step: 'Portfolio Context', detail: `Preparing ${userPositions.length} positions with prices, P/L & indicators...`, percent: 15 });
       const portfolioSummary = userPositions.length > 0 ? userPositions.map(p => {
         const pl = getProfitLoss(p);
         const identifier = p.isin ? `${p.name} (ISIN: ${p.isin})` : `${p.symbol} (${p.name})`;
-        let info = `${identifier}: ${p.quantity} Stück, Kaufpreis: ${p.buyPrice.toFixed(2)} ${p.currency}, Aktuell: ${p.currentPrice.toFixed(2)} ${p.currency}, P/L: ${pl.percent >= 0 ? '+' : ''}${pl.percent.toFixed(2)}% (${pl.absolute >= 0 ? '+' : ''}${pl.absolute.toFixed(2)} ${p.currency})`;
+        let info = `${identifier}: ${p.quantity} shares, Buy price: ${p.buyPrice.toFixed(2)} ${p.currency}, Current: ${p.currentPrice.toFixed(2)} ${p.currency}, P/L: ${pl.percent >= 0 ? '+' : ''}${pl.percent.toFixed(2)}% (${pl.absolute >= 0 ? '+' : ''}${pl.absolute.toFixed(2)} ${p.currency})`;
         
-        // FIFO-Haltefrist für Luxemburg-Steuer (183 Tage)
+        // FIFO holding period for Luxembourg tax (183 days)
         const today = new Date();
         const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
         const matchingBuys = tradeHistory
@@ -1129,7 +1130,7 @@ export function Portfolio() {
           const earliestDays = Math.floor((today.getTime() - new Date(earliestBuy.date).getTime()) / 86400000);
           const latestDays = Math.floor((today.getTime() - new Date(latestBuy.date).getTime()) / 86400000);
 
-          // FIFO-Lots aufbauen und Verkäufe abziehen
+          // Build FIFO lots and subtract sales
           const lots = matchingBuys.map(t => ({ qty: t.quantity, date: new Date(t.date), days: Math.floor((today.getTime() - new Date(t.date).getTime()) / 86400000) }));
           const sells = tradeHistory.filter(t => {
             if (t.type !== 'sell') return false;
@@ -1146,27 +1147,27 @@ export function Portfolio() {
           const taxFreeQty = lots.filter(l => l.qty > 0 && l.days >= 183).reduce((s, l) => s + l.qty, 0);
 
           if (matchingBuys.length === 1) {
-            info += ` | Kaufdatum: ${new Date(earliestBuy.date).toLocaleDateString('de-DE')} (vor ${earliestDays} Tagen${earliestDays >= 183 ? ', ✅ STEUERFREI' : `, ⚠️ noch ${183 - earliestDays} Tage bis steuerfrei`})`;
+            info += ` | Buy date: ${new Date(earliestBuy.date).toLocaleDateString('en-US')} (${earliestDays} days ago${earliestDays >= 183 ? ', ✅ TAX-FREE' : `, ⚠️ ${183 - earliestDays} days until tax-free`})`;
           } else {
-            info += ` | Käufe von ${new Date(earliestBuy.date).toLocaleDateString('de-DE')} (${earliestDays}d) bis ${new Date(latestBuy.date).toLocaleDateString('de-DE')} (${latestDays}d)`;
+            info += ` | Buys from ${new Date(earliestBuy.date).toLocaleDateString('en-US')} (${earliestDays}d) to ${new Date(latestBuy.date).toLocaleDateString('en-US')} (${latestDays}d)`;
           }
-          info += ` | FIFO-Haltefrist (Lux 183d): steuerpflichtig <6M: ${shortTerm.toFixed(4).replace(/\.?0+$/, '')} Stück, steuerfrei ≥183d: ${taxFreeQty.toFixed(4).replace(/\.?0+$/, '')} Stück`;
+          info += ` | FIFO holding period (Lux 183d): taxable <6M: ${shortTerm.toFixed(4).replace(/\.?0+$/, '')} shares, tax-free ≥183d: ${taxFreeQty.toFixed(4).replace(/\.?0+$/, '')} shares`;
           if (shortTerm > 0) {
             const soonestFreeLot = lots.filter(l => l.qty > 0 && l.days < 183).sort((a, b) => b.days - a.days)[0];
             if (soonestFreeLot) {
               const daysLeft = 183 - soonestFreeLot.days;
-              info += ` | Nächste Steuerfreiheit: in ${daysLeft} Tagen (${new Date(soonestFreeLot.date.getTime() + 183 * 86400000).toLocaleDateString('de-DE')})`;
+              info += ` | Next tax-free date: in ${daysLeft} days (${new Date(soonestFreeLot.date.getTime() + 183 * 86400000).toLocaleDateString('en-US')})`;
             }
           }
         }
         
-        // 52-Wochen-Daten hinzufügen (ohne wertende Labels — die KI soll selbst bewerten)
+        // Add 52-week data (without evaluative labels — the AI should assess itself)
         const stockData = stocksWithRange.find(s => s.symbol === p.symbol);
         if (stockData?.week52High && stockData?.week52Low) {
           const positionInRange = stockData.week52ChangePercent ?? 0;
-          info += ` | 52W: ${stockData.week52Low.toFixed(2)}-${stockData.week52High.toFixed(2)} (${positionInRange.toFixed(0)}% im Bereich)`;
+          info += ` | 52W: ${stockData.week52Low.toFixed(2)}-${stockData.week52High.toFixed(2)} (${positionInRange.toFixed(0)}% in range)`;
         }
-        // Technische Indikatoren hinzufügen (gleich wie aiService)
+        // Add technical indicators (same as aiService)
         if (stockData?.technicalIndicators) {
           const ti = stockData.technicalIndicators;
           const parts: string[] = [];
@@ -1177,7 +1178,7 @@ export function Portfolio() {
           if (parts.length > 0) info += ` | ${parts.join(', ')}`;
         }
         return info;
-      }).join('\n') : 'Noch keine Positionen im Portfolio.';
+      }).join('\n') : 'No positions in portfolio yet.';
 
       // Direct API call for portfolio analysis - use selected provider
       const isOpenAI = settings.aiProvider === 'openai';
@@ -1204,8 +1205,8 @@ export function Portfolio() {
           };
 
       // Build watchlist context (stocks NOT in portfolio, for new recommendations)
-      // Mit 52W-Daten und technischen Indikatoren angereichert (harmonisiert mit Autopilot/aiService)
-      setAnalysisProgress({ step: 'Watchlist', detail: `${watchlist.length} Watchlist-Aktien mit Kursdaten & Indikatoren aufbereiten...`, percent: 25 });
+      // Enriched with 52W data and technical indicators (harmonized with Autopilot/aiService)
+      setAnalysisProgress({ step: 'Watchlist', detail: `Preparing ${watchlist.length} watchlist stocks with price data & indicators...`, percent: 25 });
       const portfolioSymbolsUpper = userPositions.map(p => p.symbol.toUpperCase());
       const watchlistOnly = watchlist.filter(s => !portfolioSymbolsUpper.includes(s.symbol.toUpperCase()));
       const watchlistSummary = watchlistOnly.length > 0
@@ -1214,9 +1215,9 @@ export function Portfolio() {
             let info = `${s.symbol} (${s.name}): ${(stockData?.price ?? s.price)?.toFixed(2) ?? '?'} ${s.currency} (${(stockData?.changePercent ?? s.changePercent) != null ? ((stockData?.changePercent ?? s.changePercent!) >= 0 ? '+' : '') + (stockData?.changePercent ?? s.changePercent!).toFixed(2) + '%' : '?'})`;
             if (stockData?.week52High && stockData?.week52Low) {
               const posInRange = stockData.week52ChangePercent ?? 0;
-              info += ` | 52W: ${stockData.week52Low.toFixed(2)}-${stockData.week52High.toFixed(2)} (${posInRange.toFixed(0)}% im Bereich)`;
+              info += ` | 52W: ${stockData.week52Low.toFixed(2)}-${stockData.week52High.toFixed(2)} (${posInRange.toFixed(0)}% in range)`;
             }
-            // Technische Indikatoren hinzufügen
+            // Add technical indicators
             if (stockData?.technicalIndicators) {
               const ti = stockData.technicalIndicators;
               const parts: string[] = [];
@@ -1228,46 +1229,46 @@ export function Portfolio() {
             }
             return info;
           }).join('\n')
-        : 'Keine Watchlist-Aktien vorhanden.';
+        : 'No watchlist stocks available.';
 
-      // Live-News-Snapshot für aktuelle Makro-/Geopolitik-Lage einbinden
-      setAnalysisProgress({ step: 'Live-News', detail: 'Aktuelle Makro- und Geopolitik-Headlines laden...', percent: 30 });
+      // Include live news snapshot for current macro/geopolitical situation
+      setAnalysisProgress({ step: 'Live News', detail: 'Loading current macro and geopolitical headlines...', percent: 30 });
       let liveNewsContext = `
 ═══════════════════════════════════════
-🗞️ LIVE-NEWS-SNAPSHOT (Makro & Geopolitik):
+🗞️ LIVE-NEWS-SNAPSHOT (Macro & Geopolitics):
 ═══════════════════════════════════════
-Keine Live-News verfügbar.
+No live news available.
 
-STRIKT VERBOTEN:
-- Erfinde KEINE geopolitischen Ereignisse, Kriege, Konflikte oder Makro-Entwicklungen.
-- Behaupte NICHT, dass bestimmte Kriege andauern, Zentralbanken bestimmte Entscheidungen getroffen haben, oder geopolitische Spannungen bestehen – du hast KEINE aktuellen Informationen darüber.
-- Schreibe im marketSummary EXPLIZIT: "Hinweis: Keine aktuellen Nachrichten verfügbar. Die Analyse basiert ausschließlich auf technischen Indikatoren und Kursdaten. Geopolitische/makroökonomische Einschätzungen können nicht gegeben werden."
-- Beschränke die Analyse auf technische Indikatoren, Kursdaten und Chartmuster.
+STRICTLY PROHIBITED:
+- Do NOT invent geopolitical events, wars, conflicts, or macro developments.
+- Do NOT claim that certain wars are ongoing, central banks have made specific decisions, or geopolitical tensions exist – you have NO current information about these.
+- Explicitly write in the market summary: "Note: No current news available. Analysis is based solely on technical indicators and price data. Geopolitical/macroeconomic assessments cannot be provided."
+- Restrict analysis to technical indicators, price data, and chart patterns.
 `;
       try {
-        // News-Abruf: versucht Finnhub (mit Key) oder Yahoo Finance (ohne Key)
+        // News retrieval: tries Finnhub (with key) or Yahoo Finance (without key)
         marketDataService.setApiKey(settings.apiKeys.marketData || '');
         const rawNews = await marketDataService.getMarketNews();
 
           const toDateLabel = (item: any) => {
             const epoch = typeof item?.datetime === 'number' ? item.datetime * 1000 : NaN;
             const d = Number.isFinite(epoch) ? new Date(epoch) : new Date();
-            return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            return d.toLocaleString('en-US', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
           };
 
-          // Scoring: Boost für offensichtlich marktrelevante News, aber ALLE Headlines
-          // werden berücksichtigt – die KI entscheidet selbst was relevant ist.
-          const highRelevancePattern = /(krieg|war|conflict|sanktion|inflat|zins|rate|rezession|börse|stock|oil|öl|fed|ecb|ezb|gdp|bip|trade|zoll|tariff|crash|rally|default|schulden|debt|bank|energy|energie|nuclear|nuklear|attack|angriff|pandem|climate|klima)/i;
+          // Scoring: Boost for obviously market-relevant news, but ALL headlines
+          // are considered – the AI decides for itself what is relevant.
+          const highRelevancePattern = /(war|conflict|sanction|inflation|interest|rate|recession|stock|oil|fed|ecb|gdp|trade|tariff|crash|rally|default|debt|bank|energy|nuclear|attack|pandemic|climate)/i;
 
           const normalizedNews = (rawNews || [])
             .map((n: any) => {
               const headline = (n?.headline || n?.title || '').replace(/\s+/g, ' ').trim();
               const summary = (n?.summary || '').replace(/\s+/g, ' ').trim();
-              const source = (n?.source || 'Unbekannt').toString();
+              const source = (n?.source || 'Unknown').toString();
               const dateLabel = toDateLabel(n);
               const text = `${headline} ${summary}`.trim();
-              // Booste offensichtlich relevante News, aber schließe andere nicht aus
-              let score = 1; // Basis-Score: Jede Headline hat Chance
+              // Boost obviously relevant news, but don't exclude others
+              let score = 1; // Base score: Every headline has a chance
               if (highRelevancePattern.test(text)) score += 3;
               return { headline, source, dateLabel, text, score };
             })
@@ -1282,30 +1283,30 @@ STRIKT VERBOTEN:
 
             liveNewsContext = `
 ═══════════════════════════════════════
-🗞️ LIVE-NEWS-SNAPSHOT (Makro & Geopolitik):
+🗞️ LIVE-NEWS-SNAPSHOT (Macro & Geopolitics):
 ═══════════════════════════════════════
 ${newsLines}
 
-VERBINDLICHE REGELN FÜR DIE ANALYSE:
-- Nutze diese Headlines als primäre tagesaktuelle Ereignisbasis für Makro-/Geopolitik.
-- Nenne die 1-3 wichtigsten aktuellen Konflikte/Ereignisse EXPLIZIT beim Namen (nicht nur "geopolitische Spannungen").
-- Wenn ein Ereignis im Snapshot enthalten ist, das das Portfolio beeinflusst (z.B. Energie, Handel, Lieferketten, regionale Konflikte), MUSS es im Markt-/Makro-Abschnitt konkret erwähnt werden.
-- Erwähne NUR Geopolitik/Makro-Ereignisse die in den obigen Headlines belegt sind. Erfinde KEINE zusätzlichen Konflikte oder Entwicklungen!
-- Trenne bestätigte News-Fakten klar von Schlussfolgerungen für das Portfolio.
+BINDING RULES FOR ANALYSIS:
+- Use these headlines as the primary basis for current macro/geopolitical events.
+- Explicitly mention by name the 1-3 most important current conflicts/events (not just "geopolitical tensions").
+- If an event in the snapshot affects your portfolio (e.g., energy, trade, supply chains, regional conflicts), it MUST be explicitly mentioned in the market/macro section.
+- Only mention geopolitical/macro events that are documented in the above headlines. Do NOT invent additional conflicts or developments!
+- Clearly separate confirmed news facts from conclusions for your portfolio.
 `;
           }
       } catch (e) {
-        console.warn('[Portfolio] Live-News konnten nicht geladen werden, fahre ohne News-Snapshot fort:', e);
+        console.warn('[Portfolio] Live news could not be loaded, continuing without news snapshot:', e);
       }
 
       // Build AI memory context from previous analyses
-      setAnalysisProgress({ step: 'KI-Gedächtnis', detail: 'Vorherige Analysen & Änderungen seit letzter Analyse auswerten...', percent: 35 });
+      setAnalysisProgress({ step: 'AI Memory', detail: 'Evaluating previous analyses & changes since last analysis...', percent: 35 });
       const memoryContext = (() => {
         const history = useAppStore.getState().analysisHistory;
         if (history.length === 0) return '';
 
         const lastEntry = history[0];
-        const lastDate = new Date(lastEntry.date).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const lastDate = new Date(lastEntry.date).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         
         // Detect changes since last analysis
         const prevPositions = lastEntry.portfolioSnapshot.positions;
@@ -1330,27 +1331,27 @@ VERBINDLICHE REGELN FÜR DIE ANALYSE:
 
         let changes = '';
         if (newPositions.length > 0) {
-          changes += `\n✅ NEU GEKAUFT seit letzter Analyse:\n${newPositions.map(p => `  - ${p.name} (${p.symbol}): ${p.quantity} Stück zu ${p.buyPrice.toFixed(2)} ${p.currency}`).join('\n')}`;
+          changes += `\n✅ NEWLY BOUGHT since last analysis:\n${newPositions.map(p => `  - ${p.name} (${p.symbol}): ${p.quantity} shares at ${p.buyPrice.toFixed(2)} ${p.currency}`).join('\n')}`;
         }
         if (removedPositions.length > 0) {
-          changes += `\n❌ VERKAUFT seit letzter Analyse:\n${removedPositions.map(p => `  - ${p.name} (${p.symbol}): ${p.quantity} Stück (war zu ${p.buyPrice.toFixed(2)})`).join('\n')}`;
+          changes += `\n❌ SOLD since last analysis:\n${removedPositions.map(p => `  - ${p.name} (${p.symbol}): ${p.quantity} shares (was at ${p.buyPrice.toFixed(2)})`).join('\n')}`;
         }
         if (changedPositions.length > 0) {
-          changes += `\n🔄 POSITION GEÄNDERT seit letzter Analyse:\n${changedPositions.map(p => {
+          changes += `\n🔄 POSITION CHANGED since last analysis:\n${changedPositions.map(p => {
             const prev = prevPositions.find(pp => pp.symbol.toUpperCase() === p.symbol.toUpperCase())!;
-            const qtyChange = p.quantity !== prev.quantity ? ` Menge: ${prev.quantity} → ${p.quantity}` : '';
-            const priceChange = Math.abs(prev.buyPrice - p.buyPrice) > 0.01 ? ` Kaufpreis: ${prev.buyPrice.toFixed(2)} → ${p.buyPrice.toFixed(2)}` : '';
+            const qtyChange = p.quantity !== prev.quantity ? ` Quantity: ${prev.quantity} → ${p.quantity}` : '';
+            const priceChange = Math.abs(prev.buyPrice - p.buyPrice) > 0.01 ? ` Buy price: ${prev.buyPrice.toFixed(2)} → ${p.buyPrice.toFixed(2)}` : '';
             return `  - ${p.name} (${p.symbol}):${qtyChange}${priceChange}`;
           }).join('\n')}`;
         }
         if (cashChanged) {
-          changes += `\n💰 CASH GEÄNDERT: ${prevCash.toFixed(2)} EUR → ${cashBalance.toFixed(2)} EUR`;
+          changes += `\n💰 CASH CHANGED: ${prevCash.toFixed(2)} EUR → ${cashBalance.toFixed(2)} EUR`;
         }
         if (newWatchlistItems.length > 0) {
-          changes += `\n👀 NEU AUF WATCHLIST: ${newWatchlistItems.join(', ')}`;
+          changes += `\n👀 NEW ON WATCHLIST: ${newWatchlistItems.join(', ')}`;
         }
         if (removedWatchlistItems.length > 0) {
-          changes += `\n🗑️ VON WATCHLIST ENTFERNT: ${removedWatchlistItems.join(', ')}`;
+          changes += `\n🗑️ REMOVED FROM WATCHLIST: ${removedWatchlistItems.join(', ')}`;
         }
 
         const noChanges = !newPositions.length && !removedPositions.length && !changedPositions.length && !cashChanged && !newWatchlistItems.length && !removedWatchlistItems.length;
@@ -1359,11 +1360,11 @@ VERBINDLICHE REGELN FÜR DIE ANALYSE:
         const buildPrevAnalysisSummary = (text: string, maxLen: number): string => {
           if (text.length <= maxLen) return text;
           
-          // Try to find and preserve the "Neue Kaufempfehlungen" / recommendations section
+          // Try to find and preserve the "New Purchase Recommendations" / recommendations section
           const recPatterns = [
-            /🆕.*?(?:KAUFEMPFEHLUNG|Kaufempfehlung)/i,
-            /(?:neue|new).*?(?:kaufempfehlung|empfehlung|recommendation)/i,
-            /🎯.*?(?:AKTIONSPLAN|Aktionsplan)/i,
+            /🆕.*?(?:RECOMMENDATION|Recommendation|PURCHASE)/i,
+            /(?:new|neue).*?(?:recommendation|empfehlung|purchase|kauf|buy)/i,
+            /🎯.*?(?:ACTION PLAN|action plan)/i,
           ];
           
           let recSectionStart = -1;
@@ -1381,229 +1382,229 @@ VERBINDLICHE REGELN FÜR DIE ANALYSE:
             const secondPartLen = maxLen - firstPartLen - 50; // reserve space for separator
             const firstPart = text.substring(0, firstPartLen);
             const secondPart = text.substring(recSectionStart, recSectionStart + secondPartLen);
-            return firstPart + '\n... (Portfolio-Bewertung gekürzt) ...\n' + secondPart + (recSectionStart + secondPartLen < text.length ? '\n... (gekürzt)' : '');
+            return firstPart + '\n... (Portfolio assessment truncated) ...\n' + secondPart + (recSectionStart + secondPartLen < text.length ? '\n... (truncated)' : '');
           }
           
           // Fallback: simple truncation with higher limit
-          return text.substring(0, maxLen) + '\n... (gekürzt)';
+          return text.substring(0, maxLen) + '\n... (truncated)';
         };
         
         const prevAnalysisTruncated = buildPrevAnalysisSummary(lastEntry.analysisText, 5000);
 
         return `
 ═══════════════════════════════════════
-🧠 KI-GEDÄCHTNIS: LETZTE ANALYSE (${lastDate})
+🧠 AI MEMORY: LAST ANALYSIS (${lastDate})
 ═══════════════════════════════════════
 ${prevAnalysisTruncated}
 
 ═══════════════════════════════════════
-📋 ÄNDERUNGEN SEIT LETZTER ANALYSE:
+📋 CHANGES SINCE LAST ANALYSIS:
 ═══════════════════════════════════════
-${noChanges ? '⚪ Keine Änderungen am Portfolio seit der letzten Analyse.' : changes}
+${noChanges ? '⚪ No changes to portfolio since last analysis.' : changes}
 
-WICHTIG FÜR DIESE ANALYSE:
-- Beziehe dich auf deine vorherige Analyse und erkenne an, welche Empfehlungen bereits umgesetzt wurden
-- Wenn der Nutzer Aktien gekauft hat die du empfohlen hast, bestätige dies positiv
-- Wenn Empfehlungen NICHT umgesetzt wurden, wiederhole sie falls noch aktuell, oder aktualisiere sie
-- Vermeide es, die gleichen Empfehlungen wortwörtlich zu wiederholen - entwickle die Analyse weiter
-- Gib einen kurzen Abschnitt "📝 Umsetzungs-Check" am Anfang, der zusammenfasst was seit letztem Mal passiert ist
+IMPORTANT FOR THIS ANALYSIS:
+- Reference your previous analysis and acknowledge which recommendations have been implemented
+- If the user has bought stocks you recommended, confirm this positively
+- If recommendations were NOT implemented, repeat them if still current, or update them
+- Avoid repeating the same recommendations verbatim - develop the analysis further
+- Provide a short section "📝 Implementation Check" at the beginning that summarizes what has happened since last time
 
 `;
       })();
 
-      setAnalysisProgress({ step: 'Autopilot-Signale', detail: 'Letzte Autopilot-Signale für konsistente Bewertung laden...', percent: 40 });
-      // Letzte Autopilot-Signale einbinden für Konsistenz zwischen Portfolio und Autopilot
+      setAnalysisProgress({ step: 'Autopilot Signals', detail: 'Loading latest autopilot signals for consistent assessment...', percent: 40 });
+      // Include latest autopilot signals for consistency between portfolio and autopilot
       const autopilotSignalsContext = (() => {
         const allSignals = useAppStore.getState().signals || [];
         const recentSignals = allSignals.slice(0, 10);
         if (recentSignals.length === 0) return '';
         const signalLines = recentSignals.map(s => {
           const age = Math.round((Date.now() - new Date(s.createdAt).getTime()) / (1000 * 60 * 60));
-          const ageStr = age < 24 ? 'vor ' + age + 'h' : 'vor ' + Math.round(age / 24) + 'd';
-          return '- ' + s.stock.symbol + ': ' + s.signal + ' (Konfidenz: ' + s.confidence + '%, ' + ageStr + ') - ' + s.reasoning.substring(0, 120) + '...';
+          const ageStr = age < 24 ? 'ago ' + age + 'h' : 'ago ' + Math.round(age / 24) + 'd';
+          return '- ' + s.stock.symbol + ': ' + s.signal + ' (Confidence: ' + s.confidence + '%, ' + ageStr + ') - ' + s.reasoning.substring(0, 120) + '...';
         }).join('\n');
-        return '═══════════════════════════════════════\n🤖 LETZTE AUTOPILOT-SIGNALE (für konsistente Bewertung):\n═══════════════════════════════════════\nDiese Signale wurden vom Autopilot-Modul generiert. Deine Portfolio-Analyse sollte mit diesen Einschätzungen konsistent sein, es sei denn neue Informationen rechtfertigen eine Abweichung.\n' + signalLines + '\n\nWICHTIG: Wenn deine Einschätzung von den Autopilot-Signalen abweicht, erkläre warum!\n';
+        return '═══════════════════════════════════════\n🤖 LATEST AUTOPILOT SIGNALS (for consistent assessment):\n═══════════════════════════════════════\nThese signals were generated by the Autopilot module. Your portfolio analysis should be consistent with these assessments unless new information justifies a deviation.\n' + signalLines + '\n\nIMPORTANT: If your assessment differs from the autopilot signals, explain why!\n';
       })();
 
-      setAnalysisProgress({ step: 'Prompt aufbauen', detail: 'Analyse-Anfrage mit allen Faktoren zusammenstellen...', percent: 50 });
+      setAnalysisProgress({ step: 'Build Prompt', detail: 'Compiling analysis request with all factors...', percent: 50 });
       const hasPositions = userPositions.length > 0;
       const promptContent = hasPositions 
-        ? `Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Analysiere mein aktuelles Portfolio ganzheitlich und gib konkrete Empfehlungen.
+        ? `You are an experienced investment analyst with expertise in technical analysis, fundamental analysis, macroeconomics, and geopolitics. Analyze my current portfolio holistically and provide concrete recommendations.
 
 ═══════════════════════════════════════
-MEIN PORTFOLIO (NUR diese ${userPositions.length} Positionen besitze ich!):
+MY PORTFOLIO (ONLY these ${userPositions.length} positions I own!):
 ═══════════════════════════════════════
 ${portfolioSummary}
 
-GESAMTWERT:
-- Investiert: ${totalInvested.toFixed(2)} EUR
-- Aktueller Wert: ${totalCurrentValue.toFixed(2)} EUR  
-- Gewinn/Verlust: ${totalProfitLoss >= 0 ? '+' : ''}${totalProfitLoss.toFixed(2)} EUR (${totalProfitLossPercent >= 0 ? '+' : ''}${totalProfitLossPercent.toFixed(2)}%)
+TOTAL VALUE:
+- Invested: ${totalInvested.toFixed(2)} EUR
+- Current Value: ${totalCurrentValue.toFixed(2)} EUR  
+- Gain/Loss: ${totalProfitLoss >= 0 ? '+' : ''}${totalProfitLoss.toFixed(2)} EUR (${totalProfitLossPercent >= 0 ? '+' : ''}${totalProfitLossPercent.toFixed(2)}%)
 
-VERFÜGBARES CASH: ${cashBalance.toFixed(2)} EUR
-GESAMTVERMÖGEN (Cash + Portfolio): ${(cashBalance + totalCurrentValue).toFixed(2)} EUR
+AVAILABLE CASH: ${cashBalance.toFixed(2)} EUR
+TOTAL NET WORTH (Cash + Portfolio): ${(cashBalance + totalCurrentValue).toFixed(2)} EUR
 ${(useAppStore.getState().initialCapital || 0) > 0 ? (() => {
   const store = useAppStore.getState();
   const initCap = store.initialCapital;
   const prevProfit = store.previousProfit || 0;
   const currentProfit = (cashBalance + totalCurrentValue) - initCap;
   const combinedProfit = currentProfit + prevProfit;
-  return `STARTKAPITAL: ${initCap.toFixed(2)} EUR
-GESAMTGEWINN (realisiert + unrealisiert): ${combinedProfit >= 0 ? '+' : ''}${combinedProfit.toFixed(2)} EUR (${(combinedProfit / initCap * 100).toFixed(1)}%)${prevProfit !== 0 ? `
-Davon aus früheren Portfolios: ${prevProfit >= 0 ? '+' : ''}${prevProfit.toFixed(2)} EUR` : ''}`;
+  return `INITIAL CAPITAL: ${initCap.toFixed(2)} EUR
+TOTAL GAIN (realized + unrealized): ${combinedProfit >= 0 ? '+' : ''}${combinedProfit.toFixed(2)} EUR (${(combinedProfit / initCap * 100).toFixed(1)}%)${prevProfit !== 0 ? `
+Of which from previous portfolios: ${prevProfit >= 0 ? '+' : ''}${prevProfit.toFixed(2)} EUR` : ''}`;
 })() : ''}
-${(orderSettings.transactionFeeFlat || orderSettings.transactionFeePercent) ? `TRANSAKTIONSGEBÜHREN: ${orderSettings.transactionFeeFlat ? `${orderSettings.transactionFeeFlat.toFixed(2)} € fix` : ''}${orderSettings.transactionFeeFlat && orderSettings.transactionFeePercent ? ' + ' : ''}${orderSettings.transactionFeePercent ? `${orderSettings.transactionFeePercent}% vom Volumen` : ''} pro Trade
-HINWEIS: Berücksichtige die Gebühren bei Kauf-/Verkaufsempfehlungen! Bei kleinen Positionen können Gebühren den Gewinn schmälern.` : ''}
+${(orderSettings.transactionFeeFlat || orderSettings.transactionFeePercent) ? `TRANSACTION FEES: ${orderSettings.transactionFeeFlat ? `${orderSettings.transactionFeeFlat.toFixed(2)} € fixed` : ''}${orderSettings.transactionFeeFlat && orderSettings.transactionFeePercent ? ' + ' : ''}${orderSettings.transactionFeePercent ? `${orderSettings.transactionFeePercent}% of volume` : ''} per trade
+NOTE: Consider fees in buy/sell recommendations! For small positions, fees can reduce profits.` : ''}
 
-MEINE STRATEGIE:
-- Anlagehorizont: ${settings.strategy === 'short' ? 'Kurzfristig (Tage-Wochen)' : settings.strategy === 'middle' ? 'Mittelfristig (Wochen-Monate)' : 'Langfristig (10+ Jahre, Buy & Hold)'}
-- Risikotoleranz: ${settings.riskTolerance === 'low' ? 'Konservativ' : settings.riskTolerance === 'medium' ? 'Ausgewogen' : 'Aggressiv'}
+MY STRATEGY:
+- Investment Horizon: ${settings.strategy === 'short' ? 'Short-term (days-weeks)' : settings.strategy === 'middle' ? 'Mid-term (weeks-months)' : 'Long-term (10+ years, buy & hold)'}
+- Risk Tolerance: ${settings.riskTolerance === 'low' ? 'Conservative' : settings.riskTolerance === 'medium' ? 'Balanced' : 'Aggressive'}
 
 ${settings.strategy === 'long' ? `═══════════════════════════════════════
-📏 BEWERTUNGSREGELN (LANGFRISTIGE STRATEGIE 10+ Jahre):
+📏 RATING RULES (LONG-TERM STRATEGY 10+ Years):
 ═══════════════════════════════════════
-- Fokus auf Qualitätsunternehmen mit starken Fundamentaldaten und Wettbewerbsvorteilen (Moat)
-- Bevorzuge Unternehmen mit: stabilem Gewinnwachstum, niedriger Verschuldung, starker Marktposition
-- Dividendenwachstum und Dividendenhistorie sind wichtige Faktoren
-- Kurzfristige Kursschwankungen sind weniger relevant - Fokus auf langfristiges Wachstumspotenzial
-- Der 52W-Bereich ist bei langfristigen Investments KEIN guter Indikator für Überhitzung
-- Nutze stattdessen RSI, MACD und Bollinger Bands zur Bewertung
-- Bei langfristigen Investments können auch Aktien nahe dem 52W-Hoch gekauft werden, wenn die Fundamentaldaten stimmen
-- Stop-Loss ist bei langfristigen Investments weniger relevant - setze ihn großzügiger (20-30% unter Kaufpreis)
-- Berücksichtige Megatrends: Digitalisierung, Gesundheit, erneuerbare Energien, demographischer Wandel
-- HALTE Qualitätsaktien langfristig, auch bei Kursrückgängen von 20-30%
-- Verkaufe NUR bei fundamentaler Verschlechterung des Unternehmens (nicht wegen Kursschwankungen!)
-- Gewinne von 50%, 100% oder mehr sind bei langfristigen Investments NORMAL - KEIN Verkaufsgrund!
-- Bei Gewinnern: HALTEN und weiterlaufen lassen, solange Fundamentaldaten stimmen
-- Verkaufsempfehlung nur bei: massiver Überbewertung (KGV >50), Verschlechterung der Geschäftsaussichten, bessere Alternativen
-- WARNUNG bei: Meme-Stocks, hochspekulative Tech-Aktien ohne Gewinne, Penny Stocks, Krypto-bezogene Aktien` 
+- Focus on quality companies with strong fundamentals and competitive advantages (Moat)
+- Prefer companies with: stable earnings growth, low leverage, strong market position
+- Dividend growth and dividend history are important factors
+- Short-term price fluctuations are less relevant - focus on long-term growth potential
+- The 52W range is NOT a good indicator for overheating in long-term investments
+- Use RSI, MACD, and Bollinger Bands for assessment instead
+- For long-term investments, stocks near the 52W high can be bought if fundamentals are sound
+- Stop-Loss is less relevant for long-term investments - set it generously (20-30% below purchase price)
+- Consider megatrends: Digitalization, health, renewable energy, demographic change
+- HOLD quality stocks long-term, even with price declines of 20-30%
+- Sell ONLY with fundamental deterioration of company (not due to price fluctuations!)
+- Gains of 50%, 100% or more are NORMAL with long-term investments - NOT a reason to sell!
+- For winners: HOLD and let them run as long as fundamentals remain sound
+- Sell recommendation only if: massive overvaluation (P/E >50), deterioration of business outlook, better alternatives
+- WARNING for: Meme stocks, highly speculative tech stocks without earnings, penny stocks, crypto-related stocks` 
 : settings.strategy === 'short' ? `═══════════════════════════════════════
-📏 BEWERTUNGSREGELN (KURZFRISTIGE STRATEGIE Tage-Wochen):
+📏 RATING RULES (SHORT-TERM STRATEGY Days-Weeks):
 ═══════════════════════════════════════
-TECHNISCHE INDIKATOREN (PRIMÄR):
-- RSI: <30 = überverkauft (Kaufchance), >70 = überkauft (Vorsicht/Verkauf), 30-70 = neutral
-- MACD > Signal = bullishes Momentum, MACD < Signal = bearishes Momentum
-- Bollinger %B > 100% = Überdehnung, %B < 0% = überverkauft
-- Kurs über SMA200 = langfristiger Aufwärtstrend, SMA50 über SMA200 = Golden Cross
+TECHNICAL INDICATORS (PRIMARY):
+- RSI: <30 = oversold (buy opportunity), >70 = overbought (caution/sell), 30-70 = neutral
+- MACD > Signal = bullish momentum, MACD < Signal = bearish momentum
+- Bollinger %B > 100% = overextension, %B < 0% = oversold
+- Price above SMA200 = long-term uptrend, SMA50 above SMA200 = Golden Cross
 
-52-WOCHEN-BEREICH (nur Nebenfaktor!):
-- Der 52W-Bereich allein sagt NICHTS über Überhitzung aus!
-- Aktien in starkem Aufwärtstrend stehen DAUERHAFT nahe dem 52W-Hoch → das ist NORMAL
-- Nutze RSI und MACD als primäre Überhitzungs-Indikatoren, nicht den 52W-Bereich
-- Eine Aktie bei 95% im 52W-Bereich mit RSI 45 ist NICHT überhitzt
-- Eine Aktie bei 60% im 52W-Bereich mit RSI 78 IST überhitzt
+52-WEEK RANGE (just a minor factor!):
+- The 52W range alone says NOTHING about overheating!
+- Stocks in strong uptrends stand CONTINUOUSLY near 52W high → that is NORMAL
+- Use RSI and MACD as primary overheating indicators, not the 52W range
+- A stock at 95% in 52W range with RSI 45 is NOT overheated
+- A stock at 60% in 52W range with RSI 78 IS overheated
 
-KURZFRISTIGE REGELN:
-- Technische Indikatoren sind BESONDERS wichtig für Timing
-- RSI-Extreme und MACD-Crossovers als Entry/Exit-Signale
-- Enge Stop-Loss setzen (ATR-basiert)
-- Bei Gewinn >20% UND RSI >70: Empfehle Teilverkauf oder Gewinnmitnahme`
+SHORT-TERM RULES:
+- Technical indicators are ESPECIALLY important for timing
+- RSI extremes and MACD crossovers as entry/exit signals
+- Set tight stop-loss (ATR-based)
+- With gain >20% AND RSI >70: Recommend partial sale or profit-taking`
 : `═══════════════════════════════════════
-📏 BEWERTUNGSREGELN (MITTELFRISTIGE STRATEGIE Wochen-Monate):
+📏 RATING RULES (MID-TERM STRATEGY Weeks-Months):
 ═══════════════════════════════════════
-TECHNISCHE INDIKATOREN (PRIMÄR):
-- RSI: <30 = überverkauft (Kaufchance), >70 = überkauft (Vorsicht/Verkauf), 30-70 = neutral
-- MACD > Signal = bullishes Momentum, MACD < Signal = bearishes Momentum
-- Bollinger %B > 100% = Überdehnung, %B < 0% = überverkauft
-- Kurs über SMA200 = langfristiger Aufwärtstrend, SMA50 über SMA200 = Golden Cross
+TECHNICAL INDICATORS (PRIMARY):
+- RSI: <30 = oversold (buy opportunity), >70 = overbought (caution/sell), 30-70 = neutral
+- MACD > Signal = bullish momentum, MACD < Signal = bearish momentum
+- Bollinger %B > 100% = overextension, %B < 0% = oversold
+- Price above SMA200 = long-term uptrend, SMA50 above SMA200 = Golden Cross
 
-52-WOCHEN-BEREICH (nur Nebenfaktor!):
-- Der 52W-Bereich allein sagt NICHTS über Überhitzung aus!
-- Aktien in starkem Aufwärtstrend stehen DAUERHAFT nahe dem 52W-Hoch → das ist NORMAL
-- Nutze RSI und MACD als primäre Überhitzungs-Indikatoren, nicht den 52W-Bereich
-- Eine Aktie bei 95% im 52W-Bereich mit RSI 45 ist NICHT überhitzt
-- Eine Aktie bei 60% im 52W-Bereich mit RSI 78 IST überhitzt
+52-WEEK RANGE (just a minor factor!):
+- The 52W range alone says NOTHING about overheating!
+- Stocks in strong uptrends stand CONTINUOUSLY near 52W high → that is NORMAL
+- Use RSI and MACD as primary overheating indicators, not the 52W range
+- A stock at 95% in 52W range with RSI 45 is NOT overheated
+- A stock at 60% in 52W range with RSI 78 IS overheated
 
-MITTELFRISTIGE REGELN:
-- Kombination aus technischer und fundamentaler Analyse
-- Trend-Bestätigung über Moving Averages + MACD
-- Balance zwischen Wachstum und Risiko
-- Achte auf kommende Earnings, Produktlaunches, Branchentrends
-- Bei Gewinn >20% UND RSI >70: Empfehle Teilverkauf oder Gewinnmitnahme`}
+MID-TERM RULES:
+- Combination of technical and fundamental analysis
+- Trend confirmation via moving averages + MACD
+- Balance between growth and risk
+- Watch for upcoming earnings, product launches, industry trends
+- With gain >20% AND RSI >70: Recommend partial sale or profit-taking`}
 
 ═══════════════════════════════════════
-MEINE WATCHLIST (beobachtete Aktien, die ich NICHT besitze):
+MY WATCHLIST (stocks I'm watching, which I do NOT own):
 ═══════════════════════════════════════
 ${watchlistSummary}
 
-HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+TODAY'S DATE: ${new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
 
 ${liveNewsContext}
 
 ═══════════════════════════════════════
-🌍 GANZHEITLICHE ANALYSE-METHODIK:
+🌍 COMPREHENSIVE ANALYSIS METHODOLOGY:
 ═══════════════════════════════════════
-Analysiere JEDE Aktie und das Gesamtportfolio aus ALLEN folgenden Perspektiven:
+Analyze EVERY stock and the overall portfolio from ALL the following perspectives:
 
-**A) TECHNISCHE ANALYSE** (bereits oben bei den Kursdaten):
-- RSI, MACD, SMA, Bollinger Bands → bereits in den Kursdaten enthalten
-- Chartmuster, Support/Resistance, Trendlinien
+**A) TECHNICAL ANALYSIS** (already provided in the price data above):
+- RSI, MACD, SMA, Bollinger Bands → already included in price data
+- Chart patterns, support/resistance, trendlines
 
-**B) FUNDAMENTALANALYSE:**
-- Bewertungskennzahlen: KGV, KUV, KBV, PEG-Ratio — Ist die Aktie fair bewertet?
-- Profitabilität: Gewinnmargen, operative Marge, Free Cashflow
-- Wachstum: Umsatz- und Gewinnwachstum (YoY), Forward-Guidance
-- Bilanzqualität: Verschuldungsgrad (Debt/Equity), Current Ratio, Cash-Position
-- Wettbewerbsvorteile: Moat (Marke, Netzwerkeffekte, Switching Costs, Kostenvorteile, Patente)
-- Management-Qualität: Track Record, Kapitalallokation, Insider-Transaktionen
+**B) FUNDAMENTAL ANALYSIS:**
+- Valuation metrics: P/E, P/S, P/B, PEG ratio — Is the stock fairly valued?
+- Profitability: Profit margins, operating margin, free cashflow
+- Growth: Revenue and earnings growth (YoY), forward guidance
+- Balance sheet quality: Debt-to-equity ratio, current ratio, cash position
+- Competitive advantages: Moat (brand, network effects, switching costs, cost advantages, patents)
+- Management quality: Track record, capital allocation, insider transactions
 
-**C) MAKROÖKONOMISCHES UMFELD:**
-- Zinsentwicklung: Fed/EZB Leitzinsen und deren Auswirkung auf Aktien (Growth vs. Value)
-- Inflation: Aktuelle Inflationsrate, Auswirkung auf Unternehmen und Konsumenten
-- Konjunkturzyklus: Wo stehen wir im Wirtschaftszyklus? (Expansion, Peak, Rezession, Erholung)
-- Anleiherenditen: 10-Jahres-Renditen und Yield Curve — Rezessionssignal?
-- Arbeitsmarkt: Beschäftigungslage, Lohnentwicklung, Konsumklima
-- Geldpolitik: QE/QT, Bilanzreduktion der Zentralbanken
+**C) MACROECONOMIC ENVIRONMENT:**
+- Interest rate development: Fed/ECB base rates and their impact on stocks (growth vs. value)
+- Inflation: Current inflation rate, impact on companies and consumers
+- Business cycle: Where are we in the economic cycle? (Expansion, peak, recession, recovery)
+- Bond yields: 10-year yields and yield curve — recession signal?
+- Labor market: Employment situation, wage development, consumer sentiment
+- Monetary policy: QE/QT, central bank balance sheet reduction
 
-**D) GEOPOLITISCHE FAKTOREN:**
-- Konflikte & Kriege: Auswirkungen auf Energie, Rüstung, Supply Chains
-- Handelspolitik: Zölle, Sanktionen, Handelsabkommen (US-China, EU-Regulierung)
-- Politische Stabilität: Wahlen, Regierungswechsel, regulatorische Änderungen
-- Lieferketten: Engpässe, Reshoring-Trends, China-Risiko, Chip-Embargo
-- Energiepolitik: Ölpreis, Gaspreise, Energiewende-Dynamik
+**D) GEOPOLITICAL FACTORS:**
+- Conflicts & wars: Impact on energy, defense, supply chains
+- Trade policy: Tariffs, sanctions, trade agreements (US-China, EU regulation)
+- Political stability: Elections, government changes, regulatory changes
+- Supply chains: Bottlenecks, reshoring trends, China risk, chip embargo
+- Energy policy: Oil prices, gas prices, energy transition dynamics
 
-**E) SEKTORANALYSE & BRANCHENTRENDS:**
-- Sektorrotation: Welche Sektoren sind aktuell bevorzugt? (Zykliker vs. Defensive)
-- Branchenspezifische Risiken: Regulierung, Wettbewerb, technologische Disruption
-- Megatrends: KI/Machine Learning, Elektromobilität, Gesundheit/Biotech, Cybersecurity, Cloud
-- ESG-Faktoren: Nachhaltigkeitsrisiken, CO2-Regulierung, Greenwashing-Risiken
+**E) SECTOR ANALYSIS & INDUSTRY TRENDS:**
+- Sector rotation: Which sectors are currently preferred? (Cyclicals vs. defensives)
+- Industry-specific risks: Regulation, competition, technological disruption
+- Megatrends: AI/machine learning, electromobility, healthcare/biotech, cybersecurity, cloud
+- ESG factors: Sustainability risks, CO2 regulation, greenwashing risks
 
-**F) RISIKO- & PORTFOLIOANALYSE:**
-- Korrelationsrisiko: Sind Positionen zu stark korreliert? (z.B. mehrere Tech-Aktien)
-- Konzentrationsrisiko: Ist eine einzelne Position oder Branche zu dominant?
-- Währungsrisiko: EUR/USD-Auswirkungen bei US-Aktien, Hedging-Bedarf
-- Liquiditätsrisiko: Handelsvolumen, Spread, Market Cap
-- Tail-Risk: Black-Swan-Szenarien, maximaler Drawdown
-- Dividendeneigenschaften: Rendite, Ausschüttungsquote, Dividendenwachstum, Ex-Dividend-Termine
+**F) RISK & PORTFOLIO ANALYSIS:**
+- Correlation risk: Are positions too strongly correlated? (e.g., multiple tech stocks)
+- Concentration risk: Is a single position or sector too dominant?
+- Currency risk: EUR/USD impact on US stocks, hedging needs
+- Liquidity risk: Trading volume, spread, market cap
+- Tail risk: Black-swan scenarios, maximum drawdown
+- Dividend characteristics: Yield, payout ratio, dividend growth, ex-dividend dates
 
-**G) MARKTSENTIMENT & TIMING:**
-- Marktstimmung: Aktuelles Sentiment (Fear & Greed), VIX-Niveau
-- Saisonalität: "Sell in May", Jahresendrallye, Steuereffekte
-- Kommende Events: Earnings-Termine, Zentralbank-Sitzungen, Wirtschaftsdaten
-- Optionsmarkt-Signale: Put/Call-Ratio, ungewöhnliche Aktivitäten
-- Institutional Flow: Sind große Investoren Käufer oder Verkäufer?
+**G) MARKET SENTIMENT & TIMING:**
+- Market sentiment: Current sentiment (fear & greed), VIX level
+- Seasonality: "Sell in May", year-end rally, tax effects
+- Upcoming events: Earnings dates, central bank meetings, economic data
+- Options market signals: Put/call ratio, unusual activity
+- Institutional flow: Are large investors buying or selling?
 
-WICHTIG: Du musst NICHT zu jedem Punkt bei jeder Aktie etwas sagen. Fokussiere auf die RELEVANTESTEN Faktoren je Aktie. Aber berücksichtige die Makro-/Geopolitik-Lage für das GESAMTPORTFOLIO!
+IMPORTANT: You do NOT need to comment on every point for every stock. Focus on the MOST RELEVANT factors for each stock. But DO consider the macro/geopolitical situation for the OVERALL PORTFOLIO!
 
 ${(() => {
   const activeOrders = useAppStore.getState().orders.filter(o => o.status === 'active');
   if (activeOrders.length === 0) return `═══════════════════════════════════════
-📝 AKTIVE ORDERS: KEINE
+📝 ACTIVE ORDERS: NONE
 ═══════════════════════════════════════
-Der Nutzer hat KEINE aktiven Orders. Behaupte in deiner Analyse NIEMALS, dass eine Order "steht", "existiert" oder "gesetzt ist"! Wenn du eine neue Order empfiehlst, formuliere es klar als NEUE Empfehlung (z.B. "Empfehle Limit-Sell bei X EUR aufzusetzen").
+The user has NO active orders. NEVER claim in your analysis that an order "is pending", "exists" or "is set"! If you recommend a new order, clearly state it as a NEW recommendation (e.g., "Recommend setting limit-sell at X EUR").
 `;
   const orderTypeLabels: Record<string, string> = { 'limit-buy': 'Limit Buy', 'limit-sell': 'Limit Sell', 'stop-loss': 'Stop Loss', 'stop-buy': 'Stop Buy' };
   return `═══════════════════════════════════════
-📝 MEINE AKTIVEN ORDERS (diese Orders existieren bereits!):
+📝 MY ACTIVE ORDERS (these orders already exist!):
 ═══════════════════════════════════════
-${activeOrders.map(o => `- ${o.symbol} (${o.name}): ${orderTypeLabels[o.orderType] || o.orderType} | Trigger: ${o.triggerPrice.toFixed(2)} EUR | Menge: ${o.quantity} Stück${o.note ? ` | ${o.note}` : ''}`).join('\n')}
+${activeOrders.map(o => `- ${o.symbol} (${o.name}): ${orderTypeLabels[o.orderType] || o.orderType} | Trigger: ${o.triggerPrice.toFixed(2)} EUR | Quantity: ${o.quantity} shares${o.note ? ` | ${o.note}` : ''}`).join('\n')}
 
-WICHTIG: Empfehle KEINE Orders die bereits oben aufgelistet sind!
-- Wenn eine Order für ein Symbol+Typ bereits existiert, erwähne sie NICHT erneut als neue Empfehlung
-- Du kannst bestehende Orders bewerten (ob sie noch sinnvoll sind)
-- Nur wenn eine bestehende Order angepasst werden sollte, empfehle eine neue mit anderem Trigger-Preis
+IMPORTANT: Do NOT recommend orders that are already listed above!
+- If an order for a symbol+type already exists, do NOT mention it again as a new recommendation
+- You can assess existing orders (whether they still make sense)
+- Only if an existing order should be adjusted, recommend a new one with a different trigger price
 
-⚠️ KRITISCH: NUR die oben aufgelisteten Orders existieren tatsächlich! Behaupte NIEMALS, dass eine Order "steht" oder "existiert", wenn sie NICHT in dieser Liste aufgeführt ist. Wenn du eine NEUE Order empfiehlst, formuliere es als Empfehlung (z.B. "Empfehle Limit-Sell bei X EUR aufzusetzen"), NICHT als ob sie bereits existiert!
+⚠️ CRITICAL: ONLY the listed orders above actually exist! NEVER claim an order "is pending" or "exists" if it is NOT listed above. If you recommend a NEW order, phrase it as a recommendation (e.g., "Recommend setting limit-sell at X EUR"), NOT as if it already exists!
 `;
 })()}
 ${memoryContext}
@@ -1623,151 +1624,152 @@ ${(() => {
 
   return `
 ═══════════════════════════════════════
-💶 STEUERSTAND ${currentYear} (Luxemburg – Spekulationsgeschäfte <6 Monate):
+💶 TAX STATUS ${currentYear} (Luxembourg – Short-term speculation transactions <6 months):
 ═══════════════════════════════════════
-Realisierte Gewinne:    +${gains.toFixed(2)} €
-Realisierte Verluste:   ${losses.toFixed(2)} €
-Netto-Ergebnis:         ${net >= 0 ? '+' : ''}${net.toFixed(2)} €
-Freibetrag:             ${LUX_EXEMPTION} €
-Zu versteuern:          ${taxable.toFixed(2)} € ${taxable === 0 ? '✅ (aktuell keine Steuer)' : '⚠️'}
-${headroom > 0 && taxable === 0 ? `Noch steuerneutraler Spielraum: ~${headroom.toFixed(2)} € Gewinn möglich vor Steuerpflicht` : ''}
-Transaktionen <6M: ${shortTermTx.length} (${shortTermTx.filter(tx => tx.gainLoss > 0).length} Gewinne, ${shortTermTx.filter(tx => tx.gainLoss < 0).length} Verluste)
+Realized Gains:        +${gains.toFixed(2)} €
+Realized Losses:       ${losses.toFixed(2)} €
+Net Result:            ${net >= 0 ? '+' : ''}${net.toFixed(2)} €
+Tax Exemption:         ${LUX_EXEMPTION} €
+To Tax:                ${taxable.toFixed(2)} € ${taxable === 0 ? '✅ (currently no tax)' : '⚠️'}
+${headroom > 0 && taxable === 0 ? `Still available tax-free headroom: ~${headroom.toFixed(2)} € profit possible before tax liability` : ''}
+Transactions <6M: ${shortTermTx.length} (${shortTermTx.filter(tx => tx.gainLoss > 0).length} gains, ${shortTermTx.filter(tx => tx.gainLoss < 0).length} losses)
 
-WICHTIG FÜR DEINE EMPFEHLUNGEN:
-- Berücksichtige bei Verkaufsempfehlungen ob die Position steuerpflichtig wäre (<6 Monate Haltedauer)
-- ${taxable === 0 ? `Aktuell sind noch ~${headroom.toFixed(2)} € Gewinn steuerneutral realisierbar (Verlustpuffer + Freibetrag)` : `Es wurden bereits ${taxable.toFixed(2)} € steuerpflichtige Gewinne über dem Freibetrag realisiert`}
-- Wenn Verluste vorhanden: Taktisches Tax-Loss-Harvesting könnte sinnvoll sein
-- Steuerfreie Gewinne (≥6 Monate Haltedauer) haben keine Auswirkung auf diese Berechnung
+IMPORTANT FOR YOUR RECOMMENDATIONS:
+- Consider when making sell recommendations whether the position would be taxable (<6 months holding period)
+- ${taxable === 0 ? `Currently ~${headroom.toFixed(2)} € profit is still realizable tax-free (loss buffer + exemption)` : `${taxable.toFixed(2)} € of taxable gains above exemption have already been realized`}
+- If losses exist: Strategic tax-loss harvesting could be beneficial
+- Tax-free gains (≥6 months holding period) do not affect this calculation
 `;
 })()}
 ${autopilotSignalsContext}
 ═══════════════════════════════════════
-AUFGABE:
+TASK:
 ═══════════════════════════════════════
 
-🌍 **0. MARKT- & MAKRO-LAGEBEURTEILUNG** (kurz und prägnant)
-- Aktuelle Makrolage: Zinsen, Inflation, Konjunktur
-- Geopolitische Risiken die das Portfolio betreffen könnten (nenne aktuelle Konflikte/Ereignisse explizit beim Namen, wenn im Live-News-Snapshot enthalten)
-- Marktsentiment & relevante kommende Events (Earnings, Fed etc.)
-- Was bedeutet das für MEIN konkretes Portfolio?
+🌍 **0. MARKET & MACRO ASSESSMENT** (brief and concise)
+- Current macro situation: Interest rates, inflation, economy
+- Geopolitical risks affecting the portfolio (name current conflicts/events explicitly by name if in live-news snapshot)
+- Market sentiment & relevant upcoming events (earnings, Fed, etc.)
+- What does this mean for MY specific portfolio?
 
-📊 **1. PORTFOLIO-ANALYSE** (NUR meine ${userPositions.length} oben gelisteten Positionen!)
-WICHTIG: Analysiere AUSSCHLIESSLICH die Positionen die oben unter "MEIN PORTFOLIO" aufgelistet sind.
-Erfinde KEINE zusätzlichen Positionen! Füge KEINE Watchlist-Aktien hier hinzu!
+📊 **1. PORTFOLIO ANALYSIS** (ONLY my ${userPositions.length} positions listed above!)
+IMPORTANT: Analyze ONLY the positions listed above under "MY PORTFOLIO".
+Do NOT invent additional positions! Do NOT add watchlist stocks here!
 
-⚠️ DU MUSST JEDE EINZELNE DER ${userPositions.length} POSITIONEN BEWERTEN! Keine auslassen!
-Hier ist die vollständige Liste der zu bewertenden Positionen:
+⚠️ YOU MUST ASSESS EACH AND EVERY ONE OF THE ${userPositions.length} POSITIONS! Do not skip any!
+Here is the complete list of positions to assess:
 ${userPositions.map((p, i) => `  ${i + 1}. ${p.name} (${p.symbol})`).join('\n')}
 
-Für JEDE dieser ${userPositions.length} Positionen MUSS eine Bewertung enthalten sein:
-- HALTEN, NACHKAUFEN, TEILVERKAUF oder VERKAUFEN
-- Technische Lage (RSI, MACD, Trend) + wichtigste Fundamentaldaten
-- Makro/Geopolitik-Einfluss falls relevant für diese Aktie
-- Konkreter Aktionsvorschlag mit Zielpreis
+For EACH of these ${userPositions.length} positions there MUST be an assessment:
+- HOLD, BUY MORE, PARTIAL SALE, or SELL
+- Technical situation (RSI, MACD, trend) + most important fundamentals
+- Macro/geopolitical influence if relevant for this stock
+- Concrete action suggestion with target price
 
-📈 **2. GESAMTBEWERTUNG**
-- Diversifikations-Check (Branchen, Regionen, Währungen, Korrelationen)
-- Konzentrationsrisiken (zu viel in einem Sektor/Region?)
-- Währungsrisiko-Einschätzung (EUR/USD-Exposure)
-- Risiko-Einschätzung des Gesamtportfolios im aktuellen Marktumfeld
+📈 **2. OVERALL ASSESSMENT**
+- Diversification check (sectors, regions, currencies, correlations)
+- Diversification check (sectors, regions, currencies, correlations)
+- Concentration risks (too much in one sector/region?)
+- Currency risk assessment (EUR/USD exposure)
+- Risk assessment of overall portfolio in current market environment
 
-🆕 **3. NEUE KAUFEMPFEHLUNGEN** (aus Watchlist und darüber hinaus)
-Basierend auf meinem verfügbaren Cash von ${cashBalance.toFixed(2)} EUR und meiner Strategie:
-- Prüfe zuerst meine Watchlist-Aktien oben und empfehle die besten daraus
-- Ergänze mit weiteren Aktien/ETFs falls nötig (insgesamt 3-5 Empfehlungen)
-- Für jede Empfehlung: Name, Ticker-Symbol, aktueller ungefährer Kurs in EUR
-- Begründung: Technisch UND fundamental UND Makro-Passung zum aktuellen Umfeld
-- Wie passt die Empfehlung zur Diversifikation meines bestehenden Portfolios? (Sektor, Region, Währung)
-- Vorgeschlagene Investitionssumme in EUR
-- WICHTIG: Empfehle hier KEINE Aktien die ich bereits im Portfolio habe!
+🆕 **3. NEW PURCHASE RECOMMENDATIONS** (from watchlist and beyond)
+Based on my available cash of ${cashBalance.toFixed(2)} EUR and my strategy:
+- First check my watchlist stocks above and recommend the best ones
+- Supplement with additional stocks/ETFs if needed (total 3-5 recommendations)
+- For each recommendation: Name, ticker symbol, current approximate price in EUR
+- Rationale: Technical AND fundamental AND macro fit to current environment
+- How does the recommendation fit into diversification of my existing portfolio? (Sector, region, currency)
+- Suggested investment amount in EUR
+- IMPORTANT: Do NOT recommend stocks I already have in my portfolio!
 
-📝 **4. BESTEHENDE ORDERS BEWERTEN** (falls vorhanden)
-- Sind die aktiven Orders noch sinnvoll?
-- Müssen Trigger-Preise angepasst werden?
-- Sollten Orders storniert werden?
+📝 **4. ASSESS EXISTING ORDERS** (if any)
+- Are the active orders still reasonable?
+- Do trigger prices need to be adjusted?
+- Should orders be cancelled?
 
-🎯 **5. AKTIONSPLAN**
-- Priorisierte Liste der nächsten Schritte
-- Was sofort tun, was beobachten
-- WIEDERHOLE KEINE Orders die bereits aktiv sind!
+🎯 **5. ACTION PLAN**
+- Prioritized list of next steps
+- What to do immediately, what to monitor
+- Do NOT repeat orders that are already active!
 
 ${settings.customPrompt ? `
 ═══════════════════════════════════════
-⚙️ PERSÖNLICHE ANWEISUNGEN (UNBEDINGT BEACHTEN!):
+⚙️ PERSONAL INSTRUCTIONS (MUST OBSERVE!):
 ═══════════════════════════════════════
 ${settings.customPrompt}
 ` : ''}
-Antworte auf Deutsch mit Emojis für bessere Übersicht.`
-        : `Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Ich habe noch keine Positionen im Portfolio und möchte mit dem Investieren beginnen.
+${settings.aiLanguage === 'de' ? 'Antworte auf Deutsch mit Emojis für bessere Übersicht.' : settings.aiLanguage === 'fr' ? 'Réponds en français avec des emojis pour une meilleure vue d\'ensemble.' : 'Answer in English with emojis for better overview.'}`
+        : `You are an experienced investment analyst with expertise in technical analysis, fundamental analysis, macroeconomics, and geopolitics. I have no positions in my portfolio yet and want to start investing.
 
 ═══════════════════════════════════════
-MEIN PORTFOLIO:
+MY PORTFOLIO:
 ═══════════════════════════════════════
-Noch keine Positionen vorhanden.
+No positions yet.
 
-VERFÜGBARES CASH: ${cashBalance.toFixed(2)} EUR
-${(useAppStore.getState().initialCapital || 0) > 0 ? `STARTKAPITAL: ${useAppStore.getState().initialCapital.toFixed(2)} EUR` : ''}
+AVAILABLE CASH: ${cashBalance.toFixed(2)} EUR
+${(useAppStore.getState().initialCapital || 0) > 0 ? `INITIAL CAPITAL: ${useAppStore.getState().initialCapital.toFixed(2)} EUR` : ''}
 
-MEINE STRATEGIE:
-- Anlagehorizont: ${settings.strategy === 'short' ? 'Kurzfristig (Tage-Wochen)' : settings.strategy === 'middle' ? 'Mittelfristig (Wochen-Monate)' : 'Langfristig (10+ Jahre, Buy & Hold)'}
-- Risikotoleranz: ${settings.riskTolerance === 'low' ? 'Konservativ' : settings.riskTolerance === 'medium' ? 'Ausgewogen' : 'Aggressiv'}
+MY STRATEGY:
+- Investment Horizon: ${settings.strategy === 'short' ? 'Short-term (days-weeks)' : settings.strategy === 'middle' ? 'Mid-term (weeks-months)' : 'Long-term (10+ years, buy & hold)'}
+- Risk Tolerance: ${settings.riskTolerance === 'low' ? 'Conservative' : settings.riskTolerance === 'medium' ? 'Balanced' : 'Aggressive'}
 
 ═══════════════════════════════════════
-MEINE WATCHLIST (beobachtete Aktien):
+MY WATCHLIST (stocks I'm watching):
 ═══════════════════════════════════════
 ${watchlistSummary}
 
-HEUTIGES DATUM: ${new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+TODAY'S DATE: ${new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
 
 ${liveNewsContext}
 
 ═══════════════════════════════════════
-🌍 GANZHEITLICHE ANALYSE-METHODIK:
+🌍 COMPREHENSIVE ANALYSIS METHODOLOGY:
 ═══════════════════════════════════════
-Analysiere die Watchlist-Aktien aus ALLEN folgenden Perspektiven:
-- **Technische Analyse**: RSI, MACD, SMA, Bollinger Bands, Chartmuster
-- **Fundamentalanalyse**: KGV, Wachstum, Profitabilität, Moat, Bilanzqualität
-- **Makroökonomie**: Zinsen, Inflation, Konjunkturzyklus
-- **Geopolitik**: Handelspolitik, Konflikte, Lieferketten
-- **Sektoranalyse**: Branchentrends, Megatrends, Sektorrotation
-- **Sentiment**: Marktstimmung, VIX, kommende Events
+Analyze the watchlist stocks from ALL the following perspectives:
+- **Technical Analysis**: RSI, MACD, SMA, Bollinger Bands, chart patterns
+- **Fundamental Analysis**: P/E, growth, profitability, moat, balance sheet quality
+- **Macroeconomics**: Interest rates, inflation, business cycle
+- **Geopolitics**: Trade policy, conflicts, supply chains
+- **Sector Analysis**: Industry trends, megatrends, sector rotation
+- **Sentiment**: Market sentiment, VIX, upcoming events
 
 ═══════════════════════════════════════
-AUFGABE:
+TASK:
 ═══════════════════════════════════════
 
-🌍 **0. MARKT- & MAKRO-LAGEBEURTEILUNG**
-- Aktuelle Makrolage: Zinsen, Inflation, Konjunktur
-- Geopolitische Risiken (nenne aktuelle Konflikte/Ereignisse explizit beim Namen, wenn im Live-News-Snapshot enthalten)
-- Marktsentiment & relevante kommende Events
-- Was bedeutet das für einen Neueinsteiger?
+🌍 **0. MARKET & MACRO ASSESSMENT**
+- Current macro situation: Interest rates, inflation, economy
+- Geopolitical risks (name current conflicts/events explicitly by name if in live-news snapshot)
+- Market sentiment & relevant upcoming events
+- What does this mean for a beginner?
 
-🛒 **1. KAUFEMPFEHLUNGEN** (HAUPTFOKUS!)
-Basierend auf meinem verfügbaren Cash von ${cashBalance.toFixed(2)} EUR und meiner Strategie:
-- Analysiere JEDE Watchlist-Aktie detailliert mit Kauf-/Abwarte-Empfehlung
-- Für jede Kaufempfehlung: Technische + fundamentale Begründung, konkreter Einstiegspreis, Stop-Loss, Kursziel
-- Vorgeschlagene Investitionssumme in EUR (Positionsgrößen-Empfehlung)
-- Berücksichtige Diversifikation: Mix aus Branchen, Regionen, Risikoprofilen
-- Ergänze ggf. 2-3 weitere Aktien/ETFs über die Watchlist hinaus
+🛒 **1. PURCHASE RECOMMENDATIONS** (MAIN FOCUS!)
+Based on my available cash of ${cashBalance.toFixed(2)} EUR and my strategy:
+- Analyze EACH watchlist stock in detail with buy/wait recommendation
+- For each buy recommendation: Technical + fundamental rationale, specific entry price, stop-loss, price target
+- Suggested investment amount in EUR (position sizing recommendation)
+- Consider diversification: Mix of sectors, regions, risk profiles
+- Supplement with 2-3 additional stocks/ETFs beyond watchlist if needed
 
-📊 **2. PORTFOLIO-AUFBAU-STRATEGIE**
-- Wie sollte ich mein Cash aufteilen? (z.B. 60% sofort, 20% gestaffelt, 20% Reserve)
-- Empfohlene Branchen- und Regionen-Verteilung
-- Kern-Positionen vs. Wachstums-Positionen
-- Wann und wie nach und nach investieren? (Timing-Strategie)
+📊 **2. PORTFOLIO BUILD-UP STRATEGY**
+- How should I allocate my cash? (e.g., 60% immediately, 20% staged, 20% reserve)
+- Recommended sector and regional distribution
+- Core positions vs. growth positions
+- When and how to invest gradually? (Timing strategy)
 
-🎯 **3. AKTIONSPLAN**
-- Priorisierte Kaufliste: Was zuerst kaufen?
-- Einstiegsstrategie: Sofort kaufen oder auf bessere Kurse warten?
-- Cash-Management: Wie viel Cash vorerst zurückhalten?
+🎯 **3. ACTION PLAN**
+- Prioritized buy list: What to buy first?
+- Entry strategy: Buy immediately or wait for better prices?
+- Cash management: How much cash to reserve initially?
 
 ${settings.customPrompt ? `
 ═══════════════════════════════════════
-⚙️ PERSÖNLICHE ANWEISUNGEN (UNBEDINGT BEACHTEN!):
+⚙️ PERSONAL INSTRUCTIONS (MUST OBSERVE!):
 ═══════════════════════════════════════
 ${settings.customPrompt}
 ` : ''}
-Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
+${settings.aiLanguage === 'de' ? 'Antworte auf Deutsch mit Emojis für bessere Übersicht.' : settings.aiLanguage === 'fr' ? 'Réponds en français avec des emojis pour une meilleure vue d’ensemble.' : 'Answer in English with emojis for better overview.'}`;
 
       const modelName = isOpenAI 
         ? (settings.openaiModel || 'gpt-5.2')
@@ -1791,14 +1793,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             model: modelName,
             max_completion_tokens: 32768,
             messages: [
-              { role: 'system', content: 'Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Antworte auf Deutsch mit Emojis.' },
+              { role: 'system', content: `You are an experienced investment analyst with expertise in technical analysis, fundamental analysis, macroeconomics, and geopolitics. Answer in ${settings.aiLanguage === 'de' ? 'German (Deutsch)' : settings.aiLanguage === 'fr' ? 'French (Français)' : 'English'} with emojis.` },
               { role: 'user', content: promptContent },
             ],
           })
         : isGemini
         ? JSON.stringify({
             contents: [{ parts: [{ text: promptContent }] }],
-            systemInstruction: { parts: [{ text: 'Du bist ein erfahrener Investment-Analyst mit Expertise in technischer Analyse, Fundamentalanalyse, Makroökonomie und Geopolitik. Antworte auf Deutsch mit Emojis.' }] },
+            systemInstruction: { parts: [{ text: `You are an experienced investment analyst with expertise in technical analysis, fundamental analysis, macroeconomics, and geopolitics. Answer in ${settings.aiLanguage === 'de' ? 'German (Deutsch)' : settings.aiLanguage === 'fr' ? 'French (Français)' : 'English'} with emojis.` }] },
             generationConfig: { maxOutputTokens: 32768, temperature: 0.7 },
           })
         : JSON.stringify({
@@ -1810,7 +1812,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           });
 
       // Retry bei Overloaded (529), Rate Limit (429), Service Unavailable (503)
-      setAnalysisProgress({ step: 'KI-Analyse', detail: `${modelDisplayName} analysiert Portfolio (Technik, Fundamentals, Makro, Geopolitik)...`, percent: 60 });
+      setAnalysisProgress({ step: 'AI Analysis', detail: `${modelDisplayName} analyzing portfolio (technical, fundamentals, macro, geopolitics)...`, percent: 60 });
       let response: Response | null = null;
       const maxRetries = 2;
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -1823,8 +1825,8 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         if ((response.status === 429 || response.status === 529 || response.status === 503) && attempt < maxRetries) {
           const retryAfter = response.headers.get('retry-after');
           const waitMs = retryAfter ? parseInt(retryAfter) * 1000 : (5000 * Math.pow(2, attempt));
-          console.warn(`[Portfolio-Analyse] Status ${response.status} - Retry ${attempt + 1}/${maxRetries} in ${waitMs}ms...`);
-          setAnalysisProgress({ step: 'KI-Analyse', detail: `Server überlastet — Wiederholung ${attempt + 1}/${maxRetries} in ${Math.round(waitMs / 1000)}s...`, percent: 65 });
+          console.warn(`[Portfolio Analysis] Status ${response.status} - Retry ${attempt + 1}/${maxRetries} in ${waitMs}ms...`);
+          setAnalysisProgress({ step: 'AI Analysis', detail: `Server overloaded — Retry ${attempt + 1}/${maxRetries} in ${Math.round(waitMs / 1000)}s...`, percent: 65 });
           await new Promise(resolve => setTimeout(resolve, waitMs));
           continue;
         }
@@ -1832,11 +1834,11 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       }
 
       if (!response || !response.ok) {
-        const errorText = response ? await response.text() : 'Keine Antwort';
-        let errorMsg = `API-Fehler ${response?.status || 'unbekannt'}`;
-        // Benutzerfreundliche Meldung bei Overloaded
+        const errorText = response ? await response.text() : 'No response';
+        let errorMsg = `API error ${response?.status || 'unknown'}`;
+        // User-friendly message when overloaded
         if (response?.status === 529 || errorText.toLowerCase().includes('overloaded')) {
-          errorMsg = 'Der KI-Server ist momentan überlastet. Bitte versuche es in 1-2 Minuten erneut.';
+          errorMsg = 'The AI server is currently overloaded. Please try again in 1-2 minutes.';
         } else {
           try {
             const errorJson = JSON.parse(errorText);
@@ -1858,10 +1860,10 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       
       if (!content) {
         console.error('API response without content:', JSON.stringify(data).slice(0, 500));
-        throw new Error('KI hat keine Antwort geliefert. Bitte erneut versuchen.');
+        throw new Error('AI did not provide a response. Please try again.');
       }
 
-      setAnalysisProgress({ step: 'Speichern', detail: 'Analyse speichern & Benachrichtigungen senden...', percent: 95 });
+      setAnalysisProgress({ step: 'Saving', detail: 'Saving analysis & sending notifications...', percent: 95 });
       setAnalysisResult(content, Date.now() - analysisStartedAt);
 
       // Save analysis to history for AI memory
@@ -1888,7 +1890,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
       // Send to Telegram if enabled - split into multiple messages if needed
       if (settings.notifications.telegram.enabled) {
-        const telegramHeader = `📊 *Portfolio-Analyse*\n🤖 KI-Modell: ${modelDisplayName}\n\n`;
+        const telegramHeader = `📊 *Portfolio Analysis*\n🤖 AI Model: ${modelDisplayName}\n\n`;
         const maxTelegramLength = 4096;
         const headerLength = telegramHeader.length;
         const chunkSize = maxTelegramLength - headerLength - 50; // Reserve space for part indicators
@@ -1915,10 +1917,10 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         const totalParts = chunks.length;
 
         for (let i = 0; i < chunks.length; i++) {
-          const partIndicator = totalParts > 1 ? `(Teil ${i + 1}/${totalParts})\n` : '';
+          const partIndicator = totalParts > 1 ? `(Part ${i + 1}/${totalParts})\n` : '';
           const messageText = i === 0 
             ? `${telegramHeader}${partIndicator}${chunks[i]}`
-            : `📊 *Portfolio-Analyse* ${partIndicator}\n${chunks[i]}`;
+            : `📊 *Portfolio Analysis* ${partIndicator}\n${chunks[i]}`;
           
           try {
             await fetch(
@@ -1979,18 +1981,18 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             settings.notifications.email.templateId,
             {
               to_email: settings.notifications.email.address,
-              subject: `📊 Vestia Portfolio-Analyse (${modelDisplayName})`,
-              stock_name: 'Portfolio-Analyse',
+              subject: `📊 Vestia Portfolio Analysis (${modelDisplayName})`,
+              stock_name: 'Portfolio Analysis',
               stock_symbol: 'PORTFOLIO',
               signal_type: `ANALYSE (${modelDisplayName})`,
               price: `${totalCurrentValue.toFixed(2)} EUR`,
               change: `${totalProfitLossPercent >= 0 ? '+' : ''}${totalProfitLossPercent.toFixed(2)}%`,
               confidence: '-',
-              risk_level: settings.riskTolerance === 'low' ? 'Niedrig' : settings.riskTolerance === 'medium' ? 'Mittel' : 'Hoch',
+              risk_level: settings.riskTolerance === 'low' ? 'Low' : settings.riskTolerance === 'medium' ? 'Medium' : 'High',
               reasoning: `🤖 KI-Modell: ${modelDisplayName}\n\n${content}`,
               target_price: '-',
               stop_loss: '-',
-              date: new Date().toLocaleString('de-DE'),
+              date: new Date().toLocaleString('en-US'),
             },
             settings.notifications.email.publicKey
           );
@@ -2002,8 +2004,8 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
     } catch (error: any) {
       console.error('Portfolio analysis error:', error);
-      const msg = error.message || 'Analyse fehlgeschlagen';
-      // Fehlermeldung kürzen falls es ein riesiger API-Response ist
+      const msg = error.message || 'Analysis failed';
+      // Shorten error message if it's a huge API response
       setError(msg.length > 300 ? msg.slice(0, 300) + '...' : msg);
     } finally {
       setAnalyzing(false);
@@ -2011,7 +2013,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
     }
   };
 
-  // FIFO-Haltefrist-Analyse pro Position (Luxemburg: 183 Tage = steuerfrei)
+  // FIFO holding period analysis per position (Luxembourg: 183 days = tax-free)
   const LUX_SPECULATION_DAYS = 183;
 
   const normalizeInstrumentName = (s: string) =>
@@ -2025,9 +2027,9 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
     const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
-    if (minutes === 0) return `${totalSeconds} Sek.`;
+    if (minutes === 0) return `${totalSeconds} Sec.`;
     if (seconds === 0) return `${minutes} Min.`;
-    return `${minutes} Min. ${seconds} Sek.`;
+    return `${minutes} Min. ${seconds} Sec.`;
   };
 
   useEffect(() => {
@@ -2055,14 +2057,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
       if (matchingBuys.length === 0) {
-        result[position.id] = { shortTerm: -1, taxFree: -1, nextFreeDays: null, lastFreeDays: null, shortTermValue: 0, taxFreeValue: 0, pendingLots: [] }; // -1 = keine Historie
+        result[position.id] = { shortTerm: -1, taxFree: -1, nextFreeDays: null, lastFreeDays: null, shortTermValue: 0, taxFreeValue: 0, pendingLots: [] }; // -1 = no history
         continue;
       }
 
-      // FIFO-Lots aufbauen
+      // Build FIFO lots
       const lots = matchingBuys.map(t => ({ qty: t.quantity, date: new Date(t.date) }));
 
-      // Verkäufe davon abziehen
+      // Subtract sales from lots
       const sells = tradeHistory
         .filter(t => {
           if (t.type !== 'sell') return false;
@@ -2083,7 +2085,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         }
       }
 
-      // Verbleibende Lots nach Haltefrist splitten
+      // Remaining lots after holding period split
       let shortTerm = 0;
       let taxFree = 0;
       let minDaysRemaining: number | null = null;
@@ -2134,12 +2136,12 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-white">Mein Portfolio</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-white">My Portfolio</h1>
           <p className="text-sm text-gray-400">
-            Verwalte und analysiere deine Aktien
+            Manage and analyze your stocks
             {lastUpdate && (
               <span className="block md:inline md:ml-2 text-xs text-gray-500">
-                • Preise aktualisiert: {lastUpdate.toLocaleTimeString()}
+                • Prices updated: {lastUpdate.toLocaleTimeString()}
               </span>
             )}
           </p>
@@ -2151,7 +2153,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                      text-white rounded-lg transition-colors text-sm md:text-base"
           >
             <Plus size={16} />
-            <span className="hidden sm:inline">Position</span> hinzufügen
+            <span className="hidden sm:inline">Add</span> Position
           </button>
           <button
             onClick={() => setShowImportModal(true)}
@@ -2170,13 +2172,13 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             {analyzing ? (
               <>
                 <RefreshCw className="animate-spin" size={16} />
-                <span className="hidden sm:inline">{analysisProgress?.step || 'Analysiere...'}</span>
+                <span className="hidden sm:inline">{analysisProgress?.step || 'Analyzing...'}</span>
                 <span className="sm:hidden">...</span>
               </>
             ) : (
               <>
                 <Brain size={16} />
-                Vollanalyse
+                Full Analysis
               </>
             )}
           </button>
@@ -2185,17 +2187,17 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             disabled={loadingYahooPrices || userPositions.length === 0}
             className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 bg-blue-600 hover:bg-blue-700 
                      disabled:bg-blue-600/50 text-white rounded-lg transition-colors text-sm md:text-base"
-            title={lastUpdate ? `Zuletzt aktualisiert: ${lastUpdate.toLocaleTimeString()}` : 'Noch nicht aktualisiert'}
+            title={lastUpdate ? `Last updated: ${lastUpdate.toLocaleTimeString()}` : 'Not yet updated'}
           >
             {loadingYahooPrices ? (
               <>
                 <RefreshCw className="animate-spin" size={18} />
-                Lade...
+                Loading...
               </>
             ) : (
               <>
                 <RefreshCw size={18} />
-                Preise aktualisieren
+                Update Prices
               </>
             )}
           </button>
@@ -2211,7 +2213,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               <Wallet size={20} className="text-yellow-500 md:w-6 md:h-6" />
             </div>
             <div className="flex-1">
-              <p className="text-gray-400 text-xs md:text-sm">Verfügbares Cash</p>
+              <p className="text-gray-400 text-xs md:text-sm">Available Cash</p>
               {editingCash ? (
                 <div className="flex items-center gap-2 mt-1">
                   <input
@@ -2235,15 +2237,15 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                 <div className="flex items-center gap-2">
                   <div>
                     <p className="text-lg md:text-2xl font-bold text-yellow-500">
-                      {cashBalance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                      {cashBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} €
                     </p>
                     {(() => {
                       const { reservedCash, availableCash } = getAvailableCash();
                       if (reservedCash > 0) {
                         return (
                           <p className="text-xs text-orange-400 mt-0.5">
-                            davon {reservedCash.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € reserviert
-                            <span className="text-gray-500"> → frei: {availableCash.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €</span>
+                            of which {reservedCash.toLocaleString('en-US', { minimumFractionDigits: 2 })} € reserved
+                            <span className="text-gray-500"> → available: {availableCash.toLocaleString('en-US', { minimumFractionDigits: 2 })} €</span>
                           </p>
                         );
                       }
@@ -2271,7 +2273,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               <Briefcase size={20} className="text-indigo-500 md:w-6 md:h-6" />
             </div>
             <div>
-              <p className="text-gray-400 text-xs md:text-sm">Positionen</p>
+              <p className="text-gray-400 text-xs md:text-sm">Positions</p>
               <p className="text-lg md:text-2xl font-bold text-white">{userPositions.length}</p>
             </div>
           </div>
@@ -2283,9 +2285,9 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               <DollarSign size={20} className="text-blue-500 md:w-6 md:h-6" />
             </div>
             <div className="min-w-0">
-              <p className="text-gray-400 text-xs md:text-sm">Investiert</p>
+              <p className="text-gray-400 text-xs md:text-sm">Invested</p>
               <p className="text-lg md:text-2xl font-bold text-white truncate">
-                {totalInvested.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                {totalInvested.toLocaleString('en-US', { minimumFractionDigits: 2 })} €
               </p>
             </div>
           </div>
@@ -2297,9 +2299,9 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               <PieChartIcon size={20} className="text-purple-500 md:w-6 md:h-6" />
             </div>
             <div className="min-w-0">
-              <p className="text-gray-400 text-xs md:text-sm">Aktueller Wert</p>
+              <p className="text-gray-400 text-xs md:text-sm">Current Value</p>
               <p className="text-lg md:text-2xl font-bold text-white truncate">
-                {totalCurrentValue.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                {totalCurrentValue.toLocaleString('en-US', { minimumFractionDigits: 2 })} €
               </p>
             </div>
           </div>
@@ -2321,11 +2323,11 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               )}
             </div>
             <div className="min-w-0">
-              <p className="text-gray-400 text-xs md:text-sm">Gewinn/Verlust</p>
+              <p className="text-gray-400 text-xs md:text-sm">Profit/Loss</p>
               <p className={`text-lg md:text-2xl font-bold ${
                 totalProfitLoss >= 0 ? 'text-green-500' : 'text-red-500'
               }`}>
-                {totalProfitLoss >= 0 ? '+' : ''}{totalProfitLoss.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                {totalProfitLoss >= 0 ? '+' : ''}{totalProfitLoss.toLocaleString('en-US', { minimumFractionDigits: 2 })} €
                 <span className="text-xs md:text-sm ml-1 md:ml-2">
                   ({totalProfitLossPercent >= 0 ? '+' : ''}{totalProfitLossPercent.toFixed(2)}%)
                 </span>
@@ -2339,18 +2341,18 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
       <div className="bg-[#1a1a2e] rounded-xl border border-[#252542] p-4 md:p-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <div>
-            <h2 className="text-base md:text-lg font-semibold text-white">Portfolio-Verlauf</h2>
+            <h2 className="text-base md:text-lg font-semibold text-white">Portfolio History</h2>
             <p className="text-xs md:text-sm text-gray-400 mt-1">
-              Entwicklung des Gesamtwerts deiner Positionen
+              Evolution of your total portfolio value
             </p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             {[
-              { value: '1d' as const, label: 'Tag' },
-              { value: '5d' as const, label: 'Woche' },
-              { value: '1mo' as const, label: 'Monat' },
-              { value: '1y' as const, label: 'Jahr' },
+              { value: '1d' as const, label: 'Day' },
+              { value: '5d' as const, label: 'Week' },
+              { value: '1mo' as const, label: 'Month' },
+              { value: '1y' as const, label: 'Year' },
             ].map((range) => (
               <button
                 key={range.value}
@@ -2368,14 +2370,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         </div>
 
         <div className="flex items-center gap-2 mb-4 text-sm">
-          <span className="text-gray-400">Periode:</span>
+          <span className="text-gray-400">Period:</span>
           <span className="text-white font-semibold">
-            {portfolioHistoryEnd.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+            {portfolioHistoryEnd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
           </span>
           <span className={`flex items-center gap-1 ${portfolioHistoryDiff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {portfolioHistoryDiff >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
             {portfolioHistoryDiff >= 0 ? '+' : ''}
-            {portfolioHistoryDiff.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+            {portfolioHistoryDiff.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
             ({portfolioHistoryDiffPercent >= 0 ? '+' : ''}{portfolioHistoryDiffPercent.toFixed(2)}%)
           </span>
         </div>
@@ -2387,7 +2389,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
             </div>
           ) : portfolioHistory.length < 2 ? (
             <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-              Zu wenig Verlaufsdaten verfügbar
+              Not enough history data available
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -2425,8 +2427,8 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                     const percentValue = typeof value === 'number' ? value : Number(value ?? 0);
                     const absoluteValue = Number(item?.payload?.value ?? 0);
                     return [
-                      `${percentValue >= 0 ? '+' : ''}${percentValue.toFixed(2)}% (${absoluteValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €)`,
-                      'Veränderung',
+                      `${percentValue >= 0 ? '+' : ''}${percentValue.toFixed(2)}% (${absoluteValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €)`,
+                      'Change',
                     ];
                   }}
                 />
@@ -2448,7 +2450,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-[#1a1a2e] rounded-xl p-6 w-full max-w-md border border-[#252542]">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-white">Position hinzufügen</h2>
+              <h2 className="text-xl font-semibold text-white">Add Position</h2>
               <button 
                 onClick={() => setShowAddForm(false)}
                 className="p-1 hover:bg-[#252542] rounded"
@@ -2469,7 +2471,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                       value={formData.symbol}
                       onChange={(e) => handleSymbolSearch(e.target.value)}
                       onFocus={() => { if (symbolSuggestions.length > 0) setShowSuggestions(true); }}
-                      placeholder="z.B. AAPL, MSFT"
+                      placeholder="e.g. AAPL, MSFT"
                       autoComplete="off"
                       className="w-full px-4 py-2 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                                text-white focus:outline-none focus:border-indigo-500"
@@ -2523,13 +2525,13 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                     type="text"
                     value={formData.isin}
                     onChange={(e) => setFormData({ ...formData, isin: e.target.value })}
-                    placeholder="z.B. US0378331005"
+                    placeholder="e.g. US0378331005"
                     className="w-full px-4 py-2 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                              text-white focus:outline-none focus:border-indigo-500"
                   />
                 </div>
               </div>
-              <p className="text-xs text-gray-500">Gib Symbol ODER ISIN ein (eines reicht) – Vorschläge erscheinen beim Tippen</p>
+              <p className="text-xs text-gray-500">Enter symbol OR ISIN (one is enough) – suggestions appear as you type</p>
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -2539,7 +2541,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="z.B. Apple Inc."
+                  placeholder="e.g. Apple Inc."
                   className="w-full px-4 py-2 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                            text-white focus:outline-none focus:border-indigo-500"
                 />
@@ -2547,13 +2549,13 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Anzahl Aktien *
+                  Number of Shares *
                 </label>
                 <input
                   type="number"
                   value={formData.quantity}
                   onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                  placeholder="z.B. 10"
+                  placeholder="e.g. 10"
                   step="0.001"
                   className="w-full px-4 py-2 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                            text-white focus:outline-none focus:border-indigo-500"
@@ -2563,7 +2565,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Kaufpreis <span className="text-gray-500 text-xs">(optional)</span>
+                    Buy Price <span className="text-gray-500 text-xs">(optional)</span>
                   </label>
                   <input
                     type="number"
@@ -2577,7 +2579,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Aktueller Preis *
+                    Current Price *
                   </label>
                   <input
                     type="number"
@@ -2593,7 +2595,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Währung
+                  Currency
                 </label>
                 <select
                   value={formData.currency}
@@ -2613,9 +2615,9 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                          text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
               >
                 {addingPosition ? (
-                  <><RefreshCw className="w-4 h-4 animate-spin" /> Preis wird ermittelt...</>
+                  <><RefreshCw className="w-4 h-4 animate-spin" /> Determining price...</>
                 ) : (
-                  'Position hinzufügen'
+                  'Add Position'
                 )}
               </button>
             </div>
@@ -2628,16 +2630,16 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
         <div className="p-4 md:p-6 border-b border-[#252542]">
           <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
             <Briefcase size={18} className="text-indigo-500" />
-            Meine Positionen
+            My Positions
           </h2>
         </div>
 
         {userPositions.length === 0 ? (
           <div className="p-12 text-center">
             <Briefcase size={48} className="mx-auto text-gray-500 mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">Noch keine Positionen</h3>
+            <h3 className="text-xl font-semibold text-white mb-2">No positions yet</h3>
             <p className="text-gray-400 max-w-md mx-auto">
-              Füge deine aktuellen Aktien hinzu, um eine KI-Analyse zu erhalten.
+              Add your current stocks to get an AI analysis.
             </p>
           </div>
         ) : (
@@ -2647,12 +2649,12 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                 <tr className="text-left text-gray-400 text-sm bg-[#252542]/50">
                   <th className="px-6 py-4">Symbol / ISIN</th>
                   <th className="px-6 py-4">Name</th>
-                  <th className="px-6 py-4 text-right">Anzahl</th>
-                  <th className="px-6 py-4 text-right">Kaufpreis</th>
-                  <th className="px-6 py-4 text-right">Aktuell</th>
-                  <th className="px-6 py-4 text-right">Wert</th>
+                  <th className="px-6 py-4 text-right">Quantity</th>
+                  <th className="px-6 py-4 text-right">Buy Price</th>
+                  <th className="px-6 py-4 text-right">Current</th>
+                  <th className="px-6 py-4 text-right">Value</th>
                   <th className="px-6 py-4 text-right">G/V</th>
-                  <th className="px-6 py-4 text-center">Aktion</th>
+                  <th className="px-6 py-4 text-center">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -2672,7 +2674,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                               type="text"
                               value={editSymbol}
                               onChange={(e) => setEditSymbol(e.target.value.toUpperCase())}
-                              placeholder="z.B. SAP.DE"
+                              placeholder="e.g. SAP.DE"
                               className="w-24 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm"
                               autoFocus
                             />
@@ -2703,11 +2705,11 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                   {position.isin}
                                 </span>
                               )}
-                              <span className="block text-xs text-yellow-500 mt-0.5" title="Yahoo Finance Preis">
-                                {loadingYahooPrices ? 'Lade Yahoo...' : 
+                              <span className="block text-xs text-yellow-500 mt-0.5" title="Yahoo Finance price">
+                                {loadingYahooPrices ? 'Loading Yahoo...' : 
                                  yahooPrices[position.id] !== undefined ? 
                                    `Yahoo: ${yahooPrices[position.id].toFixed(2)} EUR` : 
-                                   'Yahoo: nicht verfügbar'}
+                                   'Yahoo: not available'}
                               </span>
                             </div>
                             <button
@@ -2716,7 +2718,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                 setEditingPosition(position.id);
                               }}
                               className="p-1 hover:bg-[#252542] rounded text-gray-400 hover:text-white"
-                              title="Symbol bearbeiten"
+                              title="Edit symbol"
                             >
                               <Edit3 size={12} />
                             </button>
@@ -2730,7 +2732,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                           const fifo = fifoBreakdownByPositionId[position.id];
                           if (!fifo) return null;
                           if (fifo.shortTerm === -1) return (
-                            <span className="text-gray-600 text-xs block">FIFO: keine Historie</span>
+                            <span className="text-gray-600 text-xs block">FIFO: no history</span>
                           );
                           return (
                             <span className="text-xs block space-y-0.5 mt-0.5">
@@ -2738,14 +2740,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                 <span key={i} className="flex items-center justify-end gap-1.5 block">
                                   <span className="font-bold text-white">{formatQuantity(lot.qty)}</span>
                                   <span className="text-gray-400">in</span>
-                                  <span className="text-amber-400 font-semibold">{lot.daysLeft} Tage</span>
-                                  <span className="text-gray-500">frei</span>
+                                  <span className="text-amber-400 font-semibold">{lot.daysLeft} Days</span>
+                                  <span className="text-gray-500">available</span>
                                 </span>
                               ))}
                               {fifo.taxFree > 0 && (
                                 <span className="flex items-center justify-end gap-1.5 block">
                                   <span className="font-bold text-white">{formatQuantity(fifo.taxFree)}</span>
-                                  <span className="text-emerald-400 font-semibold">✓ frei</span>
+                                  <span className="text-emerald-400 font-semibold">✓ Free</span>
                                 </span>
                               )}
                             </span>
@@ -2801,7 +2803,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                 setEditingBuyPrice(position.id);
                               }}
                               className="p-1 hover:bg-[#252542] rounded text-gray-400 hover:text-white"
-                              title="Kaufpreis bearbeiten"
+                              title="Edit buy price"
                             >
                               <Edit3 size={12} />
                             </button>
@@ -2862,7 +2864,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                               )}
                               {loadingYahooPrices && yahooPrices[position.id] === undefined && (
                                 <span className="block text-xs text-gray-500 mt-0.5 animate-pulse">
-                                  Lade...
+                                  Loading...
                                 </span>
                               )}
                             </div>
@@ -2873,7 +2875,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                   setEditingPrice(position.id);
                                 }}
                                 className="p-1 hover:bg-[#252542] rounded text-gray-400 hover:text-white"
-                                title="Preis bearbeiten"
+                                title="Edit price"
                               >
                                 <Edit3 size={12} />
                               </button>
@@ -2890,7 +2892,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                       ? 'bg-yellow-500/30 text-yellow-400' 
                                       : 'hover:bg-[#252542] text-gray-500 hover:text-yellow-400'
                                   }`}
-                                  title={position.useYahooPrice ? 'Yahoo Live-Preis aktiv' : 'Yahoo-Preis übernehmen'}
+                                  title={position.useYahooPrice ? 'Yahoo live price active' : 'Use Yahoo price'}
                                 >
                                   <RefreshCw size={12} />
                                 </button>
@@ -2922,7 +2924,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                         {tradeAction?.positionId === position.id ? (
                           <div className="flex flex-col items-center gap-2">
                             <div className="text-xs font-medium text-gray-300">
-                              {tradeAction.type === 'buy' ? '📈 Nachkaufen' : '📉 Verkaufen'}
+                              {tradeAction.type === 'buy' ? '📈 Buy More' : '📉 Sell'}
                             </div>
                             {tradeAction.type === 'buy' ? (
                               <>
@@ -2935,7 +2937,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                   min="0.01"
                                   value={tradePrice}
                                   onChange={(e) => setTradePrice(e.target.value)}
-                                  placeholder="Kaufpreis"
+                                  placeholder="Buy price"
                                   className="w-24 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
                                   autoFocus
                                 />
@@ -2945,7 +2947,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                   min="1"
                                   value={tradeQuantity}
                                   onChange={(e) => setTradeQuantity(e.target.value)}
-                                  placeholder="Anzahl"
+                                  placeholder="Quantity"
                                   className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
@@ -2968,7 +2970,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                   min="0.01"
                                   value={tradePrice}
                                   onChange={(e) => setTradePrice(e.target.value)}
-                                  placeholder="Verkaufspreis"
+                                  placeholder="Sell price"
                                   className="w-24 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
                                   autoFocus
                                 />
@@ -2979,7 +2981,7 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                                   max={position.quantity}
                                   value={tradeQuantity}
                                   onChange={(e) => setTradeQuantity(e.target.value)}
-                                  placeholder="Anzahl"
+                                  placeholder="Quantity"
                                   className="w-20 px-2 py-1 bg-[#252542] border border-[#3a3a5c] rounded text-white text-sm text-center"
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
@@ -3036,14 +3038,14 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
                             <button
                               onClick={() => { setTradeAction({ positionId: position.id, type: 'buy' }); setTradeQuantity(''); setTradePrice((yahooPrices[position.id] ?? position.currentPrice).toFixed(2)); }}
                               className="p-1.5 hover:bg-green-500/20 text-green-500 rounded-lg transition-colors"
-                              title="Nachkaufen"
+                              title="Buy more"
                             >
                               <ShoppingCart size={16} />
                             </button>
                             <button
                               onClick={() => { setTradeAction({ positionId: position.id, type: 'sell' }); setTradeQuantity(position.quantity.toString()); setTradePrice((yahooPrices[position.id] ?? position.currentPrice).toFixed(2)); }}
                               className="p-1.5 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
-                              title="Verkaufen"
+                              title="Sell"
                             >
                               <ArrowRightLeft size={16} />
                             </button>
@@ -3075,18 +3077,18 @@ Antworte auf Deutsch mit Emojis für bessere Übersicht.`;
           <div className="flex items-start justify-between gap-3 mb-4">
             <h2 className="text-xl font-semibold text-white flex items-center gap-2">
               <Brain size={20} className="text-indigo-500" />
-              Portfolio-Vollanalyse
+              Portfolio Full Analysis
             </h2>
             <div className="flex items-start gap-3">
               {(lastAnalysisDate || lastAnalysisDurationMs) && (
                 <div className="text-right text-xs text-gray-500 space-y-1">
                   {lastAnalysisDate && (
                     <div>
-                      {new Date(lastAnalysisDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {new Date(lastAnalysisDate).toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </div>
                   )}
                   {formatAnalysisDuration(lastAnalysisDurationMs) && (
-                    <div className="text-cyan-300">Dauer: {formatAnalysisDuration(lastAnalysisDurationMs)}</div>
+                    <div className="text-cyan-300">Duration: {formatAnalysisDuration(lastAnalysisDurationMs)}</div>
                   )}
                 </div>
               )}
