@@ -11,7 +11,7 @@ export interface ParsedTransaction {
   price: number;
   totalAmount: number;
   fees: number;
-  withholdingTax: number; // Quellensteuer (z.B. bei Dividenden)
+  withholdingTax: number; // Withholding tax (e.g., for dividends)
   currency: string;
   raw: Record<string, string>; // Original row data
 }
@@ -290,11 +290,11 @@ function buildTaxTransactions(transactions: ParsedTransaction[], warnings: strin
     }
 
     if (remainingQuantity > 0.0000001) {
-      warnings.push(`Verkauf ohne ausreichenden Kaufbestand für ${tx.name} (${remainingQuantity.toFixed(4)} Stück) konnte steuerlich nicht vollständig zugeordnet werden.`);
+      warnings.push(`Sale without sufficient purchase stock for ${tx.name} (${remainingQuantity.toFixed(4)} units) could not be completely assigned for tax purposes.`);
     }
   }
 
-  // Dividenden: immer steuerpflichtig (Luxemburg: progressiver Satz)
+  // Dividends: always taxable (Luxembourg: progressive rate)
   for (const tx of transactions.filter((t) => t.type === 'dividend')) {
     if (tx.totalAmount <= 0) continue;
     taxTransactions.push({
@@ -315,13 +315,13 @@ function buildTaxTransactions(transactions: ParsedTransaction[], warnings: strin
     });
   }
 
-  // Zinsen: steuerpflichtig (Luxemburg: Abgeltungssteuer 20% oder progressiv)
+  // Interest: taxable (Luxembourg: withholding tax 20% or progressive)
   for (const tx of transactions.filter((t) => t.type === 'interest')) {
     if (tx.totalAmount <= 0) continue;
     taxTransactions.push({
       id: crypto.randomUUID(),
-      symbol: 'ZINSEN',
-      name: tx.name || 'Zinszahlung',
+      symbol: 'INTEREST',
+      name: tx.name || 'Interest payment',
       transactionType: 'interest',
       quantity: 1,
       buyPrice: 0,
@@ -416,7 +416,7 @@ function aggregateTransactionsToPositions(transactions: ParsedTransaction[], war
   }
 
   if (soldOutCount > 0) {
-    warnings.push(`${soldOutCount} komplett verkaufte Position(en) werden nicht ins aktuelle Portfolio übernommen.`);
+    warnings.push(`${soldOutCount} completely sold position(s) will not be imported into the current portfolio.`);
   }
 
   return results;
@@ -443,7 +443,7 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
   const { headers, rows } = parseCSVRows(content, separator);
   
   if (headers.length === 0 || rows.length === 0) {
-    return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings: ['Keine Daten in der CSV-Datei gefunden.'], totalBuyTransactions: 0, totalSellTransactions: 0 };
+    return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings: ['No data found in the CSV file.'], totalBuyTransactions: 0, totalSellTransactions: 0 };
   }
   
   // Map headers to known columns
@@ -467,12 +467,12 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
   const hasTotal = !!reverseMap.total;
   
   if (!hasName && !reverseMap.isin) {
-    warnings.push('Keine Spalte für Name oder ISIN erkannt. Erkannte Spalten: ' + headers.join(', '));
+    warnings.push('No column for name or ISIN detected. Detected columns: ' + headers.join(', '));
     return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings, totalBuyTransactions: 0, totalSellTransactions: 0 };
   }
   
   if (!hasQuantity && !hasTotal) {
-    warnings.push('Keine Spalte für Anzahl oder Betrag erkannt.');
+    warnings.push('No column for quantity or amount detected.');
     return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings, totalBuyTransactions: 0, totalSellTransactions: 0 };
   }
 
@@ -493,7 +493,7 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
       return header ? (row[header] || '') : '';
     };
     
-    const name = getValue('name') || getValue('isin') || 'Unbekannt';
+    const name = getValue('name') || getValue('isin') || 'Unknown';
     const rawIsin = getValue('isin');
     const rawSymbol = getValue('symbol');
     const isin = rawIsin || (looksLikeIsin(rawSymbol) ? rawSymbol : undefined);
@@ -510,8 +510,15 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
     
     // Calculate missing values
     const effectiveQuantity = Math.abs(quantity) > 0 ? Math.abs(quantity) : (price > 0 ? Math.abs(total) / price : 0);
-    const effectivePrice = price > 0 ? price : (effectiveQuantity > 0 ? Math.abs(total) / effectiveQuantity : 0);
-    const effectiveTotal = total !== 0 ? Math.abs(total) : (effectiveQuantity * effectivePrice);
+    const rawPrice = price > 0 ? price : (effectiveQuantity > 0 ? Math.abs(total) / effectiveQuantity : 0);
+    // Sanity-check: if price×qty deviates >5% from the authoritative total field, the price column is corrupted
+    // (e.g. Trade Republic exports sometimes omit the decimal separator: 88.21 → 88210)
+    const absTotal = Math.abs(total);
+    const computedTotal = rawPrice * effectiveQuantity;
+    const effectivePrice = (absTotal > 0 && computedTotal > 0 && Math.abs(computedTotal - absTotal) / absTotal > 0.05)
+      ? absTotal / effectiveQuantity
+      : rawPrice;
+    const effectiveTotal = total !== 0 ? absTotal : (effectiveQuantity * effectivePrice);
     
     const transaction: ParsedTransaction = {
       date,
@@ -536,7 +543,7 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
   }
 
   if (isAmountOnlyTransactionList) {
-    warnings.push('Diese CSV enthält nur Gesamtbeträge ohne Stückzahl/Kurs. Damit lassen sich weder aktuelle Portfolio-Bestände noch Steuertransaktionen korrekt berechnen. Bitte nutze eine detaillierte Exportdatei mit Datum, Typ, Stückzahl und Preis.');
+    warnings.push('This CSV contains only total amounts without quantity/price. Neither current portfolio holdings nor tax transactions can be calculated correctly. Please use a detailed export file with date, type, quantity, and price.');
     return {
       mode: 'unsupported',
       positions: [],
@@ -568,7 +575,7 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
   }
 
   if (!hasDetailedTransactionData) {
-    warnings.push('Für einen vollständigen Trade-/Steuerimport werden mindestens Datum, Typ, Stückzahl und Preis oder Gesamtbetrag benötigt.');
+    warnings.push('For complete trade/tax import, at least date, type, quantity, and price or total amount are required.');
     return {
       mode: 'unsupported',
       positions: [],
