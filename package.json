@@ -1,11 +1,11 @@
 {
   "name": "vestia",
   "private": true,
-  "version": "1.10.5",
+  "version": "1.12.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && cp -r server-php dist/server-php && find dist/server-php/data -type f \\( -name '*.json' -o -name '*.log' -o -name '*.lock' -o -name '*.pid' \\) -delete 2>/dev/null; mkdir -p dist/server-php/data && touch dist/server-php/data/.gitkeep",
+    "build": "tsc -b && vite build && mkdir -p dist/server-php && cp -a server-php/. dist/server-php/ && find dist/server-php/data -type f \\( -name '*.json' -o -name '*.log' -o -name '*.lock' -o -name '*.pid' \\) -delete 2>/dev/null; mkdir -p dist/server-php/data && touch dist/server-php/data/.gitkeep",
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "php -S 0.0.0.0:3141 -t server-php server-php/router.php",
