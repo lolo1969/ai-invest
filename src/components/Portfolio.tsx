@@ -59,7 +59,7 @@ function TradeHistory() {
 
   if (tradeHistory.length === 0) return null;
 
-  const sortedTrades = [...tradeHistory].sort((a, b) => b.timestamp - a.timestamp);
+  const sortedTrades = [...tradeHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const displayedTrades = showAll ? sortedTrades : sortedTrades.slice(0, 10);
 
   return (
