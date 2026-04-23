@@ -604,6 +604,18 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
   const tradeHistory = buildTradeHistory(transactions);
   const taxTransactions = buildTaxTransactions(transactions, warnings);
 
+  // Period exports often contain only recent sells (without historical buys in the same file).
+  // In this case, detailed FIFO warnings are misleading for merge imports.
+  if (totalBuy === 0 && totalSell > 0) {
+    const filteredWarnings = warnings.filter((warning) => {
+      const lower = warning.toLowerCase();
+      return !lower.includes('completely sold position(s)') && !lower.includes('sale without sufficient purchase stock');
+    });
+    filteredWarnings.push('This file contains only sell transactions for the selected period. FIFO tax matching may require historical buy transactions from earlier exports.');
+    warnings.length = 0;
+    warnings.push(...filteredWarnings);
+  }
+
   return {
     mode: 'transactions',
     positions,

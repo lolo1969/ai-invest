@@ -405,8 +405,8 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
               <Upload size={20} className="text-indigo-400" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-white">Portfolio importieren</h2>
-              <p className="text-sm text-gray-400">CSV-Datei von Trade Republic oder anderem Broker</p>
+              <h2 className="text-xl font-semibold text-white">Import Portfolio</h2>
+              <p className="text-sm text-gray-400">Import a CSV export from your broker or portfolio tool</p>
             </div>
           </div>
           <button onClick={handleClose} className="p-2 hover:bg-[#252542] rounded-lg transition-colors">
@@ -433,9 +433,9 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                   }`}
               >
                 <FileText size={48} className="mx-auto text-gray-500 mb-4" />
-                <p className="text-white text-lg mb-2">CSV-Datei hierher ziehen oder klicken</p>
+                <p className="text-white text-lg mb-2">Drag CSV file here or click</p>
                 <p className="text-gray-400 text-sm">
-                  Unterstützt: Trade Republic, Scalable Capital, ING, comdirect und andere Broker-CSVs
+                  Works with many broker and portfolio CSV exports when the required columns are included
                 </p>
                 <input
                   ref={fileInputRef}
@@ -455,7 +455,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                   onClick={() => setPasteMode(!pasteMode)}
                   className="text-indigo-400 hover:text-indigo-300 text-sm transition-colors"
                 >
-                  {pasteMode ? 'Datei-Upload anzeigen' : 'Oder CSV-Text manuell einfügen'}
+                  {pasteMode ? 'Show file upload' : 'Or paste CSV text manually'}
                 </button>
               </div>
 
@@ -464,7 +464,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                   <textarea
                     value={pasteText}
                     onChange={(e) => setPasteText(e.target.value)}
-                    placeholder={`CSV-Daten hier einfügen, z.B.:\n\nName;ISIN;Anzahl;Kaufkurs;Währung\nApple Inc.;US0378331005;10;142.50;EUR\nMicrosoft;US5949181045;5;310.00;EUR`}
+                    placeholder={`Paste CSV data here, e.g.:\n\nName;ISIN;Quantity;Purchase Price;Currency\nApple Inc.;US0378331005;10;142.50;EUR\nMicrosoft;US5949181045;5;310.00;EUR`}
                     className="w-full h-48 bg-[#0d0d1a] border border-[#252542] rounded-lg p-4 text-white font-mono text-sm
                              placeholder-gray-600 focus:outline-none focus:border-indigo-500 resize-none"
                   />
@@ -474,20 +474,19 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                     className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/30 
                              text-white rounded-lg transition-colors font-medium"
                   >
-                    CSV verarbeiten
+                    CSV Process
                   </button>
                 </div>
               )}
 
               {/* Help Section */}
               <div className="bg-[#0d0d1a] rounded-xl p-4 border border-[#252542]">
-                <h3 className="text-white font-medium mb-2">💡 So exportierst du dein Portfolio:</h3>
+                <h3 className="text-white font-medium mb-2">💡 CSV requirements</h3>
                 <div className="text-sm text-gray-400 space-y-2">
-                  <p><strong className="text-gray-300">Trade Republic:</strong> Nutze <a href="https://github.com/pytr-org/pytr" target="_blank" rel="noopener" className="text-indigo-400 hover:underline">pytr</a> oder erstelle eine CSV manuell aus deinen Abrechnungen.</p>
-                  <p><strong className="text-gray-300">Scalable Capital:</strong> Portfolio → Export → CSV-Download</p>
-                  <p><strong className="text-gray-300">Portfolio Performance:</strong> Datei → Exportieren → CSV</p>
-                  <p><strong className="text-gray-300">Manuell:</strong> Erstelle eine CSV mit den Spalten: Name, ISIN, Anzahl, Kaufkurs, Währung</p>
-                  <p><strong className="text-gray-300">Für Steuern/Trade-Historie:</strong> Benötigt werden zusätzlich Datum, Typ, Stückzahl und Preis oder Gesamtbetrag. Reine Betrag-Listen ohne Stückzahl/Kurs reichen dafür nicht aus.</p>
+                  <p><strong className="text-gray-300">For positions:</strong> Include at least name or symbol, quantity, purchase price and ideally ISIN plus currency.</p>
+                  <p><strong className="text-gray-300">For trade history and taxes:</strong> Include date, transaction type, quantity and price or total amount.</p>
+                  <p><strong className="text-gray-300">Important:</strong> Files that only contain totals or cash movements without quantity and instrument details are not sufficient for a full import.</p>
+                  <p><strong className="text-gray-300">Tip:</strong> Exports from brokers and tools such as Portfolio Performance usually work if those fields are present.</p>
                 </div>
               </div>
             </div>
@@ -506,9 +505,9 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                       : 'border-[#252542] bg-[#0d0d1a] hover:border-gray-600'
                   }`}
                 >
-                  <div className="text-sm font-medium text-white">Zusammenführen</div>
+                  <div className="text-sm font-medium text-white">Merge</div>
                   <div className="mt-1 text-xs text-gray-400">
-                    Neue Einträge hinzufügen, bestehende Positionen und Steuerdaten behalten.
+                    Add new entries, keep existing positions and tax data.
                   </div>
                 </button>
                 <button
@@ -519,9 +518,9 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                       : 'border-[#252542] bg-[#0d0d1a] hover:border-gray-600'
                   }`}
                 >
-                  <div className="text-sm font-medium text-white">Überschreiben</div>
+                  <div className="text-sm font-medium text-white">Overwrite</div>
                   <div className="mt-1 text-xs text-gray-400">
-                    Vor dem Import vorhandene Positionen, Trade-History und Steuerdaten löschen.
+                    Delete existing positions, trade history and tax data before import.
                   </div>
                 </button>
               </div>
@@ -531,7 +530,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <AlertTriangle size={18} className="text-yellow-500" />
-                    <span className="text-yellow-400 font-medium">Hinweise</span>
+                    <span className="text-yellow-400 font-medium">Warnings</span>
                   </div>
                   {importResult.warnings.map((w, i) => (
                     <p key={i} className="text-yellow-300 text-sm">{w}</p>
@@ -543,38 +542,38 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold text-green-400">{importResult.positions.length}</p>
-                  <p className="text-xs text-gray-400">Positionen erkannt</p>
+                  <p className="text-xs text-gray-400">Positions detected</p>
                 </div>
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold text-blue-400">{importResult.totalBuyTransactions}</p>
-                  <p className="text-xs text-gray-400">Käufe</p>
+                  <p className="text-xs text-gray-400">Purchases</p>
                 </div>
                 <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold text-orange-400">{importResult.totalSellTransactions}</p>
-                  <p className="text-xs text-gray-400">Verkäufe</p>
+                  <p className="text-xs text-gray-400">Sales</p>
                 </div>
                 <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold text-purple-400">
                     {importResult.taxTransactions.filter(tx => !tx.transactionType || tx.transactionType === 'capital-gain').length}
                   </p>
-                  <p className="text-xs text-gray-400">Steuerzeilen</p>
+                  <p className="text-xs text-gray-400">Tax lines</p>
                 </div>
                 <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold text-cyan-400">
                     {importResult.taxTransactions.filter(tx => tx.transactionType === 'dividend' || tx.transactionType === 'interest').length}
                   </p>
-                  <p className="text-xs text-gray-400">Div. / Zinsen</p>
+                  <p className="text-xs text-gray-400">Div. / Interest</p>
                 </div>
               </div>
 
               <div className="bg-[#0d0d1a] rounded-lg border border-[#252542] p-3 text-sm text-gray-300">
-                {importResult.mode === 'positions' && 'Diese Datei enthält einen Bestands-Snapshot. Importiert werden nur aktuelle Portfolio-Positionen.'}
+                {importResult.mode === 'positions' && 'This file contains a holdings snapshot. Only current portfolio positions will be imported.'}
                 {importResult.mode === 'transactions' && (() => {
                   const capGain = importResult.taxTransactions.filter(tx => !tx.transactionType || tx.transactionType === 'capital-gain').length;
                   const divInt = importResult.taxTransactions.filter(tx => tx.transactionType === 'dividend' || tx.transactionType === 'interest').length;
-                  return `Diese Datei enthält detaillierte Transaktionen. Importiert werden aktuelle Positionen, ${importResult.tradeHistory.length} Trade-History-Einträge, ${capGain} Steuer-Veräußerungen${divInt > 0 ? ` und ${divInt} Dividenden/Zinsen` : ''}.`;
+                  return `This file contains detailed transactions. Current positions, ${importResult.tradeHistory.length} trade history entries, ${capGain} tax disposals${divInt > 0 ? ` and ${divInt} dividends/interest` : ''} will be imported.`;
                 })()}
-                {importResult.mode === 'unsupported' && 'Diese Datei reicht für einen korrekten Portfolio-/Steuerimport nicht aus. Die Hinweise oben zeigen, welche Felder fehlen.'}
+                {importResult.mode === 'unsupported' && 'This file is not sufficient for correct portfolio/tax import. The hints above show which fields are missing.'}
               </div>
 
               {/* Position List */}
@@ -589,13 +588,13 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                         className="w-4 h-4 rounded border-gray-500 bg-transparent accent-indigo-500"
                       />
                       <span className="text-sm text-gray-300">
-                        Alle auswählen ({selectedPositions.size}/{importResult.positions.length})
+                        Select all ({selectedPositions.size}/{importResult.positions.length})
                       </span>
                     </label>
                     {fetchingPrices && (
                       <span className="flex items-center gap-1.5 text-xs text-blue-400">
                         <Loader2 size={13} className="animate-spin" />
-                        Kurse werden geladen…
+                        Prices are being loaded…
                       </span>
                     )}
                   </div>
@@ -628,7 +627,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                     <div className="mt-2 space-y-1">
                       {importResult.skipped.map((s, i) => (
                         <div key={i} className="text-xs text-gray-500 bg-[#0d0d1a] px-3 py-2 rounded">
-                          {s.name} – Keine gültige Menge erkannt
+                          {s.name} – No valid quantity detected
                         </div>
                       ))}
                     </div>
@@ -640,18 +639,18 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                 <div className="text-center py-8">
                   <AlertTriangle size={48} className="mx-auto text-yellow-500 mb-4" />
                   <p className="text-white text-lg">
-                    {importResult.mode === 'unsupported' ? 'CSV-Format für Portfolio-/Steuerimport nicht ausreichend' : 'Keine importierbaren Positionen gefunden'}
+                    {importResult.mode === 'unsupported' ? 'CSV format not sufficient for portfolio/tax import' : 'No importable positions found'}
                   </p>
                   <p className="text-gray-400 text-sm mt-2">
                     {importResult.mode === 'transactions'
-                      ? 'Es wurden keine offenen Positionen erkannt. Trade-Historie und Steuerdaten können trotzdem importiert werden.'
-                      : 'Prüfe das Format deiner CSV-Datei. Für Steuern werden mindestens Datum, Typ, Anzahl und Preis/Gesamtbetrag benötigt.'}
+                      ? 'No open positions detected. Trade history and tax data can still be imported.'
+                      : 'Check the format of your CSV file. For taxes you need at least date, type, quantity and price/total amount.'}
                   </p>
                   <button
                     onClick={reset}
                     className="mt-4 px-4 py-2 bg-[#252542] hover:bg-[#2a2a4a] text-white rounded-lg transition-colors"
                   >
-                    Nochmal versuchen
+                    Try again
                   </button>
                 </div>
               )}
@@ -662,7 +661,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
           {step === 'importing' && (
             <div className="text-center py-12">
               <Loader2 size={48} className="mx-auto text-indigo-400 animate-spin mb-4" />
-              <p className="text-white text-lg">Importiere Daten...</p>
+              <p className="text-white text-lg">Importing data...</p>
               <div className="mt-4 w-64 mx-auto bg-[#252542] rounded-full h-2">
                 <div 
                   className="bg-indigo-500 rounded-full h-2 transition-all duration-300"
@@ -678,17 +677,17 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
               <div className="p-4 bg-green-500/20 rounded-full w-20 h-20 mx-auto flex items-center justify-center mb-4">
                 <Check size={40} className="text-green-400" />
               </div>
-              <p className="text-white text-2xl font-bold mb-2">Import abgeschlossen!</p>
+              <p className="text-white text-2xl font-bold mb-2">Import completed!</p>
               <p className="text-gray-400">
-                {importedSummary.positions} {importedSummary.positions === 1 ? 'Position' : 'Positionen'}, {importedSummary.trades} {importedSummary.trades === 1 ? 'Trade' : 'Trades'} und {importedSummary.taxes} {importedSummary.taxes === 1 ? 'Steuertransaktion' : 'Steuertransaktionen'} importiert.
+                {importedSummary.positions} {importedSummary.positions === 1 ? 'Position' : 'Positions'}, {importedSummary.trades} {importedSummary.trades === 1 ? 'Trade' : 'Trades'} and {importedSummary.taxes} {importedSummary.taxes === 1 ? 'Tax transaction' : 'Tax transactions'} imported.
                 {importResult && selectedPositions.size - importedSummary.positions > 0 && (
                   <span className="text-yellow-400">
-                    {' '}({selectedPositions.size - importedSummary.positions} Positions-Duplikate übersprungen)
+                    {' '}({selectedPositions.size - importedSummary.positions} position duplicates skipped)
                   </span>
                 )}
               </p>
               <p className="text-gray-500 text-sm mt-2">
-                Aktuelle Kurse werden für importierte Positionen automatisch über Yahoo Finance aktualisiert.
+                Current prices for imported positions will be automatically updated via Yahoo Finance.
               </p>
             </div>
           )}
@@ -698,12 +697,12 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
         {step === 'preview' && (
           <div className="flex items-center justify-between p-6 border-t border-[#252542] shrink-0">
             <button onClick={reset} className="px-4 py-2 text-gray-400 hover:text-white text-sm transition-colors">
-              Zurück
+              Back
             </button>
             <div className="flex items-center gap-3">
               {importMode === 'overwrite' && (
                 <span className="text-xs text-red-400 flex items-center gap-1">
-                  ⚠ Bestehende Daten werden gelöscht
+                  ⚠ Existing data will be deleted
                 </span>
               )}
               <button
@@ -711,7 +710,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                 disabled={!importResult || importResult.mode === 'unsupported' || (selectedPositions.size === 0 && importResult.tradeHistory.length === 0 && importResult.taxTransactions.length === 0)}
                 className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
               >
-                Import starten
+                Start Import
               </button>
             </div>
           </div>
@@ -774,7 +773,7 @@ function PositionRow({
         <div className="flex items-center gap-3 text-xs text-gray-500">
           {position.isin && <span>ISIN: {position.isin}</span>}
           {position.symbol && <span>Symbol: {position.symbol}</span>}
-          <span>{position.transactions.length} Transaktion(en)</span>
+          <span>{position.transactions.length} Transaction(s)</span>
         </div>
       </div>
       <div className="text-right shrink-0">

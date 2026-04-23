@@ -1,58 +1,58 @@
 /**
- * Session-Management: Jeder Browser/Tab bekommt eine eigene Session-ID.
+ * Session Management: Each browser/tab gets its own session ID.
  * 
- * Die Session-ID wird für zwei Zwecke verwendet:
- * 1. Als localStorage-Namespace: Jeder Nutzer bekommt einen eigenen Zustand
- * 2. Als Server-Session: Backend isoliert Daten pro Session-ID
+ * The session ID is used for two purposes:
+ * 1. As localStorage namespace: Each user gets their own state
+ * 2. As server session: Backend isolates data per session ID
  * 
- * WICHTIG: Session-ID wird als volle UUID generiert (nicht gekürzt)
- * für maximale Kollisionsfreiheit.
+ * IMPORTANT: Session ID is generated as full UUID (not shortened)
+ * for maximum collision safety.
  */
 
 const SESSION_KEY = 'vestia-session-id';
 
 /**
- * Session-ID laden oder neu generieren.
- * Jeder Browser bekommt eine einzigartige ID → komplett isolierter State.
+ * Load or generate session ID.
+ * Each browser gets a unique ID → completely isolated state.
  */
 export function getSessionId(): string {
   let sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
-    // Volle UUID für maximale Sicherheit (keine Kürzung)
+    // Full UUID for maximum security (no shortening)
     sessionId = crypto.randomUUID();
     localStorage.setItem(SESSION_KEY, sessionId);
-    console.log(`[Session] Neue Session-ID generiert: ${sessionId}`);
+    console.log(`[Session] New session ID generated: ${sessionId}`);
   }
   return sessionId;
 }
 
 /**
- * Gibt den localStorage-Key für den Zustand dieser Session zurück.
- * Jede Session bekommt einen eigenen Key → keine Daten-Vermischung.
+ * Returns the localStorage key for this session's state.
+ * Each session gets its own key → no data mixing.
  */
 export function getStorageKey(): string {
   return `vestia-storage-${getSessionId()}`;
 }
 
 /**
- * Migration: Alte shared `vestia-storage` Daten zur session-spezifischen Key migrieren.
- * Wird einmalig beim App-Start aufgerufen.
+ * Migration: Migrate old shared `vestia-storage` data to session-specific key.
+ * Called once at app startup.
  */
 export function migrateSharedStorage(): void {
   const OLD_KEY = 'vestia-storage';
   const newKey = getStorageKey();
 
-  // Nur migrieren wenn alt vorhanden und neu noch leer
+  // Only migrate if old data exists and new is empty
   const oldData = localStorage.getItem(OLD_KEY);
   const newData = localStorage.getItem(newKey);
 
   if (oldData && !newData) {
     localStorage.setItem(newKey, oldData);
-    // Alten Key entfernen, damit keine zweite Session dieselben Daten erbt
+    // Remove old key so no second session inherits the same data
     localStorage.removeItem(OLD_KEY);
-    console.log(`[Session] Daten von '${OLD_KEY}' nach '${newKey}' migriert`);
+    console.log(`[Session] Data migrated from '${OLD_KEY}' to '${newKey}'`);
   }
 }
 
-// Migration sofort beim Import ausführen
+// Run migration immediately at import
 migrateSharedStorage();

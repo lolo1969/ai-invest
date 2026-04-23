@@ -10,16 +10,20 @@ import type {
   Order
 } from '../types';
 
+const BOOTSTRAP_UNIVERSE_US = ['SPY', 'VTI', 'QQQ', 'AAPL', 'MSFT', 'JPM', 'XOM', 'JNJ', 'PG', 'KO'];
+const BOOTSTRAP_UNIVERSE_EU = ['EXS1.DE', 'EUNL.DE', 'IUSQ.DE', 'SAP.DE', 'SIE.DE', 'ALV.DE', 'ASML.AS', 'AIR.PA', 'MC.PA', 'BNP.PA'];
+const BOOTSTRAP_UNIVERSE_MIXED = ['SPY', 'VTI', 'EXS1.DE', 'EUNL.DE', 'SAP.DE', 'ASML.AS', 'JPM', 'JNJ', 'PG', 'XOM'];
+
 /**
- * Autopilot-Service: Führt KI-Analysen durch und erstellt/verwaltet Orders automatisch.
+ * Autopilot Service: Runs AI analysis and creates/manages orders automatically.
  * 
- * Ablauf eines Zyklus:
- * 1. Prüfe ob Markt offen (wenn activeHoursOnly)
- * 2. Lade aktuelle Kurse für Watchlist + Portfolio
- * 3. Führe KI-Analyse durch
- * 4. Prüfe Safety-Regeln für jeden Vorschlag
- * 5. Erstelle/aktualisiere Orders je nach Modus
- * 6. Logge alle Aktionen
+ * Autopilot cycle flow:
+ * 1. Check if market is open (if activeHoursOnly)
+ * 2. Load current prices for watchlist + portfolio
+ * 3. Run AI analysis
+ * 4. Check safety rules for each suggestion
+ * 5. Create/update orders based on mode
+ * 6. Log all actions
  */
 
 function createLogEntry(
@@ -40,7 +44,7 @@ function createLogEntry(
   };
 }
 
-// Hole Stunde und Minute in einer bestimmten Zeitzone (DST-sicher)
+// Get hour and minute in a specific timezone (DST-safe)
 function getTimeInZone(tz: string): { hours: number; minutes: number; day: number } {
   const now = new Date();
   const formatter = new Intl.DateTimeFormat('en-US', {
@@ -52,7 +56,7 @@ function getTimeInZone(tz: string): { hours: number; minutes: number; day: numbe
   });
   const parts = formatter.formatToParts(now);
   const rawHours = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10);
-  const hours = rawHours === 24 ? 0 : rawHours; // Manche Browser geben 24 statt 0 zurück
+  const hours = rawHours === 24 ? 0 : rawHours; // Some browsers return 24 instead of 0
   const minutes = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10);
   const weekdayStr = parts.find(p => p.type === 'weekday')?.value ?? '';
   const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -60,11 +64,11 @@ function getTimeInZone(tz: string): { hours: number; minutes: number; day: numbe
   return { hours, minutes, day };
 }
 
-// Prüfe ob irgendein relevanter Markt gerade offen ist
+// Check if any relevant market is currently open
 // EU (Xetra): Mo-Fr 9:00-17:30 Europe/Berlin
 // US (NYSE):  Mo-Fr 9:30-16:00 America/New_York
 function isMarketOpen(): { open: boolean; market?: string } {
-  // EU-Markt prüfen (Xetra Frankfurt)
+  // Check EU market (Xetra Frankfurt)
   const eu = getTimeInZone('Europe/Berlin');
   if (eu.day >= 1 && eu.day <= 5) {
     const euTime = eu.hours * 60 + eu.minutes;
@@ -73,7 +77,7 @@ function isMarketOpen(): { open: boolean; market?: string } {
     }
   }
 
-  // US-Markt prüfen (NYSE)
+  // Check US market (NYSE)
   const us = getTimeInZone('America/New_York');
   if (us.day >= 1 && us.day <= 5) {
     const usTime = us.hours * 60 + us.minutes;
@@ -83,6 +87,112 @@ function isMarketOpen(): { open: boolean; market?: string } {
   }
 
   return { open: false };
+}
+
+function getBootstrapUniverseSequence(market?: string): string[][] {
+  if (market === 'EU (Xetra)') return [BOOTSTRAP_UNIVERSE_EU, BOOTSTRAP_UNIVERSE_MIXED, BOOTSTRAP_UNIVERSE_US];
+  if (market === 'US (NYSE)') return [BOOTSTRAP_UNIVERSE_US, BOOTSTRAP_UNIVERSE_MIXED, BOOTSTRAP_UNIVERSE_EU];
+  return [BOOTSTRAP_UNIVERSE_MIXED, BOOTSTRAP_UNIVERSE_US, BOOTSTRAP_UNIVERSE_EU];
+}
+
+function generateBootstrapBuySuggestions(
+  stocks: Stock[],
+  availableCash: number,
+  minCashReservePercent: number,
+  maxTradesPerCycle: number,
+  maxPositionPercent: number
+): AISuggestedOrder[] {
+  if (availableCash <= 0 || stocks.length === 0) return [];
+
+  const reserveAmount = availableCash * (minCashReservePercent / 100);
+  const investableCash = Math.max(0, availableCash - reserveAmount);
+  if (investableCash <= 0) return [];
+
+  const tradeSlots = Math.max(1, Math.min(maxTradesPerCycle, 3));
+  const totalAssets = availableCash;
+  const maxPerPositionByRisk = totalAssets * (maxPositionPercent / 100);
+  const budgetPerTrade = investableCash / tradeSlots;
+
+  const selected = stocks
+    .filter(s => s.price > 0)
+    .sort((a, b) => {
+      const aIsFallback = a.isFallback ? 1 : 0;
+      const bIsFallback = b.isFallback ? 1 : 0;
+      if (aIsFallback !== bIsFallback) return aIsFallback - bIsFallback;
+      return b.changePercent - a.changePercent;
+    })
+    .slice(0, tradeSlots);
+
+  const orders: AISuggestedOrder[] = [];
+  for (const stock of selected) {
+    const usableBudget = Math.max(0, Math.min(budgetPerTrade, maxPerPositionByRisk));
+    const quantity = Math.floor(usableBudget / stock.price);
+    if (quantity < 1) continue;
+
+    orders.push({
+      symbol: stock.symbol,
+      orderType: 'limit-buy',
+      quantity,
+      triggerPrice: Math.round(stock.price * 100) / 100,
+      reasoning: 'Bootstrap-Kauf: Automatisch erstellt (leere Watchlist/Portfolio, cash-basiertes Initialinvestment).',
+    });
+  }
+
+  return orders;
+}
+
+function normalizeBootstrapSuggestedOrders(
+  suggestedOrders: AISuggestedOrder[],
+  stocks: Stock[],
+  availableCash: number,
+  minCashReservePercent: number,
+  maxTradesPerCycle: number,
+  maxPositionPercent: number
+): AISuggestedOrder[] {
+  if (availableCash <= 0) return [];
+
+  const reserveAmount = availableCash * (minCashReservePercent / 100);
+  const investableCash = Math.max(0, availableCash - reserveAmount);
+  if (investableCash <= 0) return [];
+
+  const tradeSlots = Math.max(1, Math.min(maxTradesPerCycle, 3));
+  const maxPerPositionByRisk = availableCash * (maxPositionPercent / 100);
+  const budgetPerTrade = investableCash / tradeSlots;
+
+  const buyCandidates = suggestedOrders
+    .filter(o => o.orderType === 'limit-buy' || o.orderType === 'stop-buy')
+    .map(o => {
+      const stock = findCompatibleSymbolMatch(o.symbol, stocks, (item) => item.symbol);
+      const trigger = o.triggerPrice > 0 ? o.triggerPrice : (stock?.price || 0);
+      return {
+        ...o,
+        orderType: 'limit-buy' as const,
+        triggerPrice: trigger,
+      };
+    })
+    .filter(o => o.triggerPrice > 0)
+    .slice(0, tradeSlots);
+
+  const normalized: AISuggestedOrder[] = [];
+  for (const candidate of buyCandidates) {
+    const usableBudget = Math.max(0, Math.min(budgetPerTrade, maxPerPositionByRisk));
+    const maxAffordableQty = Math.floor(usableBudget / candidate.triggerPrice);
+    if (maxAffordableQty < 1) continue;
+
+    const quantity = candidate.quantity > 0
+      ? Math.max(1, Math.min(candidate.quantity, maxAffordableQty))
+      : maxAffordableQty;
+
+    normalized.push({
+      symbol: candidate.symbol,
+      orderType: 'limit-buy',
+      quantity,
+      triggerPrice: Math.round(candidate.triggerPrice * 100) / 100,
+      reasoning: candidate.reasoning || 'Bootstrap-Kauf: KI-Signal cash-basiert normalisiert.',
+    });
+  }
+
+  return normalized;
 }
 
 export async function runAutopilotCycle(): Promise<void> {
@@ -103,17 +213,17 @@ export async function runAutopilotCycle(): Promise<void> {
   // Sicherheitscheck
   if (!settings.enabled) return;
 
-  // Bei Vollautomatisch: Order-Auto-Ausführung sicherstellen
+  // For full-auto: Ensure order auto-execution
   if (settings.mode === 'full-auto' && !store.orderSettings.autoExecute) {
     store.updateOrderSettings({ autoExecute: true });
   }
 
   const cycleId = crypto.randomUUID().slice(0, 8);
-  log(createLogEntry('info', `🔄 Autopilot-Zyklus #${cycleId} gestartet`));
+  log(createLogEntry('info', `🔄 Autopilot cycle #${cycleId} started`));
   updateAutopilotState({ isRunning: true });
 
   try {
-    // 0. Abgelaufene Orders bereinigen
+    // 0. Clean up expired orders
     const now = new Date();
     const expiredOrders = orders.filter(
       o => (o.status === 'active' || o.status === 'pending') && o.expiresAt && new Date(o.expiresAt) < now
@@ -121,12 +231,12 @@ export async function runAutopilotCycle(): Promise<void> {
     if (expiredOrders.length > 0) {
       for (const expired of expiredOrders) {
         cancelOrder(expired.id);
-        log(createLogEntry('info', `⏰ Order abgelaufen: ${expired.orderType.toUpperCase()} ${expired.quantity}x ${expired.symbol}`, undefined, expired.symbol, expired.id));
+        log(createLogEntry('info', `⏰ Order expired: ${expired.orderType.toUpperCase()} ${expired.quantity}x ${expired.symbol}`, undefined, expired.symbol, expired.id));
       }
-      log(createLogEntry('info', `🧹 ${expiredOrders.length} abgelaufene Order(s) storniert`));
+      log(createLogEntry('info', `🧹 ${expiredOrders.length} expired order(s) cancelled`));
     }
 
-    // 0b. Doppelte Sell-Orders bereinigen (gleiche Richtung + ähnlicher Preis ±5% oder Alias-Symbol)
+    // 0b. Clean up duplicate sell orders (same direction + similar price ±5% or alias symbol)
     const activeOrders = useAppStore.getState().orders.filter(
       o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss')
     );
@@ -143,11 +253,11 @@ export async function runAutopilotCycle(): Promise<void> {
     let duplicatesCancelled = 0;
     for (const sellOrders of sellGroups) {
       if (sellOrders.length <= 1) continue;
-      // Sortiere nach Erstellungsdatum – älteste zuerst (die behalten wir)
+      // Sort by creation date – oldest first (we keep those)
       sellOrders.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       const kept: typeof activeOrders = [];
       for (const order of sellOrders) {
-        // Duplikat wenn: gleiche Gruppe und Preis ±5% einer bereits behaltenen Order
+        // Duplicate if: same group and price ±5% of an already kept order
         const isDuplicate = kept.some(k => {
           const priceDiff = Math.abs(k.triggerPrice - order.triggerPrice) / k.triggerPrice;
           return priceDiff <= 0.05; // ±5%
@@ -156,7 +266,7 @@ export async function runAutopilotCycle(): Promise<void> {
           cancelOrder(order.id);
           duplicatesCancelled++;
           log(createLogEntry('info',
-            `🧹 Doppelte Sell-Order storniert: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ ${order.triggerPrice.toFixed(2)}€`,
+            `🧹 Duplicate sell order cancelled: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ ${order.triggerPrice.toFixed(2)}€`,
             undefined, order.symbol, order.id
           ));
         } else {
@@ -165,13 +275,13 @@ export async function runAutopilotCycle(): Promise<void> {
       }
     }
     if (duplicatesCancelled > 0) {
-      log(createLogEntry('info', `🧹 ${duplicatesCancelled} doppelte Sell-Order(s) bereinigt`));
+      log(createLogEntry('info', `🧹 ${duplicatesCancelled} duplicate sell order(s) cleaned up`));
     }
 
-    // 1. Marktzeiten prüfen
+    // 1. Check market hours
     const marketStatus = isMarketOpen();
     if (settings.activeHoursOnly && !marketStatus.open) {
-      log(createLogEntry('info', '⏰ Alle Märkte geschlossen (EU: Xetra 9:00-17:30 MEZ, US: NYSE 9:30-16:00 ET) – Zyklus übersprungen'));
+      log(createLogEntry('info', '⏰ All markets closed (EU: Xetra 9:00-17:30 CET, US: NYSE 9:30-16:00 ET) – Cycle skipped'));
       updateAutopilotState({ 
         isRunning: false,
         lastRunAt: new Date().toISOString(),
@@ -179,10 +289,10 @@ export async function runAutopilotCycle(): Promise<void> {
       return;
     }
     if (marketStatus.open && marketStatus.market) {
-      log(createLogEntry('info', `📈 Markt offen: ${marketStatus.market}`));
+      log(createLogEntry('info', `📈 Market open: ${marketStatus.market}`));
     }
 
-    // 2. API-Key prüfen
+    // 2. Check API key
     const activeApiKey = appSettings.aiProvider === 'openai' 
       ? appSettings.apiKeys.openai 
       : appSettings.aiProvider === 'gemini'
@@ -195,28 +305,34 @@ export async function runAutopilotCycle(): Promise<void> {
       return;
     }
 
-    // 3. Aktuelle Kurse laden
-    log(createLogEntry('info', '📊 Lade aktuelle Kursdaten...'));
-    
+    // 3. Load current prices
+    log(createLogEntry('info', '📊 Loading current price data...'));
+    const isBootstrapCycle = userPositions.length === 0 && store.watchlist.length === 0;
+
     // Alle relevanten Symbole sammeln
     const portfolioSymbols = userPositions.map(p => p.symbol);
-    const watchlistSymbols = appSettings.watchlist;
-    const allSymbols = [...new Set([...portfolioSymbols, ...watchlistSymbols])];
-    
+    const watchlistSymbols = appSettings.watchlist || [];
+    let allSymbols = [...new Set([...portfolioSymbols, ...watchlistSymbols])];
+
     if (allSymbols.length === 0) {
-      log(createLogEntry('warning', '⚠️ Keine Aktien in Watchlist oder Portfolio'));
+      allSymbols = getBootstrapUniverseSequence(marketStatus.market)[0];
+      log(createLogEntry('info', `🌱 Bootstrap mode: Starter universe derived by market (${marketStatus.market || 'mixed'}): ${allSymbols.join(', ')}`));
+    }
+
+    const stocks = await marketDataService.getQuotesWithRange(allSymbols);
+    log(createLogEntry('info', `✅ ${stocks.length} prices loaded`));
+
+    if (stocks.length === 0) {
+      log(createLogEntry('warning', '⚠️ No market data available for current symbol universe'));
       updateAutopilotState({ isRunning: false, lastRunAt: new Date().toISOString() });
       return;
     }
 
-    const stocks = await marketDataService.getQuotesWithRange(allSymbols);
-    log(createLogEntry('info', `✅ ${stocks.length} Kurse geladen`));
-
-    // Watchlist aktualisieren
+    // Update watchlist
     stocks.forEach(stock => store.addToWatchlist(stock));
 
-    // 4. KI-Analyse durchführen
-    log(createLogEntry('analysis', `🧠 KI-Analyse gestartet (${appSettings.aiProvider})...`));
+    // 4. Run AI analysis
+    log(createLogEntry('analysis', `🧠 AI analysis started (${appSettings.aiProvider})...`));
     
     const currentPositions: Position[] = userPositions.map(up => {
       const stockData = stocks.find(s => s.symbol === up.symbol);
@@ -256,7 +372,7 @@ export async function runAutopilotCycle(): Promise<void> {
     const profitPctVal = initCap > 0 ? (combinedProfit / (initCap || 1)) * 100 : 0;
     const os = store.orderSettings;
 
-    // Verfügbares Cash berechnen (abzgl. reserviertes Cash durch aktive Kauf-Orders inkl. Gebühren)
+    // Calculate available cash (minus reserved cash from active buy orders incl. fees)
     const reservedCash = orders
       .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
       .reduce((sum, o) => {
@@ -275,6 +391,7 @@ export async function runAutopilotCycle(): Promise<void> {
       previousSignals: signals.slice(0, 10),
       activeOrders: orders.filter(o => o.status === 'active'),
       customPrompt: appSettings.customPrompt || undefined,
+      aiLanguage: appSettings.aiLanguage || 'en',
       initialCapital: initCap > 0 ? initCap : undefined,
       totalAssets: totalAssetsVal,
       portfolioValue: portfolioVal,
@@ -287,7 +404,7 @@ export async function runAutopilotCycle(): Promise<void> {
 
     log(createLogEntry(
       'analysis', 
-      `✅ Analyse abgeschlossen: ${analysisResponse.signals.length} Signale, ${analysisResponse.suggestedOrders.length} Order-Vorschläge`,
+      `✅ Analysis completed: ${analysisResponse.signals.length} signals, ${analysisResponse.suggestedOrders.length} order suggestions`,
       analysisResponse.marketSummary
     ));
 
@@ -301,12 +418,12 @@ export async function runAutopilotCycle(): Promise<void> {
       ));
     }
 
-    // Signale speichern
+    // Save signals
     for (const signal of analysisResponse.signals) {
       store.addSignal(signal);
     }
 
-    // Analyse-History speichern (voller Text, nicht gekürzt, damit Portfolio-Gedächtnis funktioniert)
+    // Save analysis history (full text, not truncated, so portfolio memory works)
     const totalValue = userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0) + cashBalance;
     store.addAnalysisHistory({
       id: crypto.randomUUID(),
@@ -326,10 +443,38 @@ export async function runAutopilotCycle(): Promise<void> {
     });
     store.setLastAnalysis(analysisResponse.marketSummary);
 
-    // 5. Order-Vorschläge verarbeiten
-    const suggestedOrders = analysisResponse.suggestedOrders || [];
+    // 5. Process order suggestions
+    let suggestedOrders = analysisResponse.suggestedOrders || [];
+
+    if (isBootstrapCycle && settings.allowBuy) {
+      const normalizedBootstrapOrders = normalizeBootstrapSuggestedOrders(
+        suggestedOrders,
+        stocks,
+        availableCash,
+        settings.minCashReservePercent,
+        settings.maxTradesPerCycle,
+        settings.maxPositionPercent
+      );
+
+      if (normalizedBootstrapOrders.length > 0) {
+        suggestedOrders = normalizedBootstrapOrders;
+        log(createLogEntry('info', `🌱 Bootstrap normalized ${normalizedBootstrapOrders.length} market-based buy order(s) from AI suggestions`));
+      } else {
+        const bootstrapOrders = generateBootstrapBuySuggestions(
+          stocks,
+          availableCash,
+          settings.minCashReservePercent,
+          settings.maxTradesPerCycle,
+          settings.maxPositionPercent
+        );
+        if (bootstrapOrders.length > 0) {
+          suggestedOrders = bootstrapOrders;
+          log(createLogEntry('info', `🌱 Bootstrap fallback generated ${bootstrapOrders.length} cash-based buy order(s)`));
+        }
+      }
+    }
     
-    // Fix-up: SELL-Orders mit quantity 0 (Fallback-generiert) bekommen die echte Positionsgröße
+    // Fix-up: SELL orders with quantity 0 (fallback-generated) get the actual position size
     for (const order of suggestedOrders) {
       if (order.quantity === 0) {
         const isSell = order.orderType === 'limit-sell' || order.orderType === 'stop-loss';
@@ -343,12 +488,49 @@ export async function runAutopilotCycle(): Promise<void> {
     }
     
     if (suggestedOrders.length === 0) {
-      log(createLogEntry('info', '📝 Keine Order-Vorschläge von der KI'));
+      log(createLogEntry('info', '📝 No order suggestions from AI'));
     } else {
-      const approvedOrders = applySafetyRules(suggestedOrders, stocks, log);
+      let approvedOrders = applySafetyRules(suggestedOrders, stocks, log, { bootstrapMode: isBootstrapCycle });
+      let stocksForApprovedOrders = stocks;
+
+      if (approvedOrders.length === 0 && isBootstrapCycle && settings.allowBuy) {
+        const universeSequence = getBootstrapUniverseSequence(marketStatus.market);
+        const initialUniverseKey = [...allSymbols].sort().join('|');
+        const retryUniverses = universeSequence
+          .map(u => [...u])
+          .filter(u => u.sort().join('|') !== initialUniverseKey)
+          .slice(0, 2);
+
+        for (const retrySymbols of retryUniverses) {
+          log(createLogEntry('info', `🔁 Bootstrap retry: testing alternative candidate universe (${retrySymbols.join(', ')})`));
+          const retryStocks = await marketDataService.getQuotesWithRange(retrySymbols);
+          if (retryStocks.length === 0) {
+            log(createLogEntry('warning', '⚠️ Bootstrap retry skipped: no quotes for candidate universe'));
+            continue;
+          }
+
+          retryStocks.forEach(stock => store.addToWatchlist(stock));
+          const retrySuggestions = generateBootstrapBuySuggestions(
+            retryStocks,
+            availableCash,
+            settings.minCashReservePercent,
+            settings.maxTradesPerCycle,
+            settings.maxPositionPercent
+          );
+
+          if (retrySuggestions.length === 0) continue;
+          const retryApproved = applySafetyRules(retrySuggestions, retryStocks, log, { bootstrapMode: true });
+          if (retryApproved.length > 0) {
+            approvedOrders = retryApproved;
+            stocksForApprovedOrders = retryStocks;
+            log(createLogEntry('info', `✅ Bootstrap retry successful: ${retryApproved.length} order(s) approved from alternative universe`));
+            break;
+          }
+        }
+      }
       
       if (approvedOrders.length === 0) {
-        log(createLogEntry('info', '🛡️ Alle Vorschläge von Safety-Regeln abgelehnt'));
+        log(createLogEntry('info', '🛡️ All suggestions rejected by safety rules'));
       } else {
         // Je nach Modus handeln
         if (settings.mode === 'suggest-only') {
@@ -356,20 +538,20 @@ export async function runAutopilotCycle(): Promise<void> {
           for (const order of approvedOrders) {
             log(createLogEntry(
               'info',
-              `💡 Vorschlag: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ ${order.triggerPrice.toFixed(2)}€`,
+              `💡 Suggestion: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ ${order.triggerPrice.toFixed(2)}€`,
               order.reasoning,
               order.symbol
             ));
           }
-          log(createLogEntry('info', `📋 ${approvedOrders.length} Vorschläge im suggest-only Modus (keine Orders erstellt)`));
+          log(createLogEntry('info', `📋 ${approvedOrders.length} suggestions in suggest-only mode (no orders created)`));
         } else {
           // full-auto oder confirm-each: Orders erstellen
           let ordersCreated = 0;
           for (const suggested of approvedOrders) {
             const isSellOrder = suggested.orderType === 'limit-sell' || suggested.orderType === 'stop-loss';
 
-            // Duplikat-Sell-Schutz: Prüfe ob bereits eine Sell-Order (egal welcher Typ)
-            // für dasselbe Symbol bei ähnlichem Preis (±5%) existiert
+            // Duplicate sell protection: Check if a sell order (any type) already exists
+            // for the same symbol at similar price (±5%)
             if (isSellOrder) {
               const existingSells = orders.filter(
                 o => (o.status === 'active' || o.status === 'pending') 
@@ -382,25 +564,25 @@ export async function runAutopilotCycle(): Promise<void> {
               });
               if (similarSell) {
                 log(createLogEntry('skipped',
-                  `⏭️ ${suggested.symbol}: Sell-Order übersprungen – bereits ${similarSell.orderType.toUpperCase()} @ ${similarSell.triggerPrice.toFixed(2)}€ vorhanden (±5% von ${suggested.triggerPrice.toFixed(2)}€)`,
+                  `⏭️ ${suggested.symbol}: Sell order skipped – already ${similarSell.orderType.toUpperCase()} @ ${similarSell.triggerPrice.toFixed(2)}€ exists (±5% of ${suggested.triggerPrice.toFixed(2)}€)`,
                   undefined, suggested.symbol, similarSell.id
                 ));
                 continue;
               }
 
-              // Prüfe ob Gesamtverkaufsvolumen die Position übersteigen würde
+              // Check if total sale volume would exceed the position
               const position = findCompatibleSymbolMatch(suggested.symbol, userPositions, (item) => item.symbol);
               const totalExistingSellQty = sumByEquivalentSymbol(suggested.symbol, existingSells, (item) => item.symbol, (item) => item.quantity);
               if (position && (totalExistingSellQty + suggested.quantity) > position.quantity) {
                 log(createLogEntry('skipped',
-                  `⏭️ ${suggested.symbol}: Sell-Order übersprungen – bestehende Sells (${totalExistingSellQty}) + neue (${suggested.quantity}) > Position (${position.quantity})`,
+                  `⏭️ ${suggested.symbol}: Sell order skipped – existing sells (${totalExistingSellQty}) + new (${suggested.quantity}) > position (${position.quantity})`,
                   undefined, suggested.symbol
                 ));
                 continue;
               }
             }
 
-            // Bestehende gleiche Autopilot-Orders stornieren (nur Autopilot-generierte, keine manuellen)
+            // Cancel existing identical autopilot orders (only autopilot-generated, no manual ones)
             const existingAutopilotOrders = orders.filter(
               o => (o.status === 'active' || o.status === 'pending') 
                 && symbolsReferToSameInstrument(o.symbol, suggested.symbol)
@@ -409,12 +591,12 @@ export async function runAutopilotCycle(): Promise<void> {
             );
             for (const existing of existingAutopilotOrders) {
               cancelOrder(existing.id);
-              log(createLogEntry('info', `🔄 Bestehende Autopilot-Order storniert: ${existing.orderType} ${existing.symbol}`, undefined, existing.symbol, existing.id));
+              log(createLogEntry('info', `🔄 Existing autopilot order cancelled: ${existing.orderType} ${existing.symbol}`, undefined, existing.symbol, existing.id));
             }
 
-            const stockData = findCompatibleSymbolMatch(suggested.symbol, stocks, (item) => item.symbol);
+            const stockData = findCompatibleSymbolMatch(suggested.symbol, stocksForApprovedOrders, (item) => item.symbol);
             const orderStatus = settings.mode === 'confirm-each' ? 'pending' : 'active';
-            // Autopilot-Orders laufen standardmäßig nach 7 Tagen ab
+            // Autopilot orders expire by default after 7 days
             const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
             const newOrder: Order = {
               id: crypto.randomUUID(),
@@ -430,7 +612,7 @@ export async function runAutopilotCycle(): Promise<void> {
               note: `🤖 Autopilot: ${suggested.reasoning}`,
             };
 
-            // Zentrale Duplikat-Prüfung (nochmal, als letzte Sicherung)
+            // Central duplicate check (again, as last safety net)
             const dupCheck = checkDuplicateOrder(newOrder);
             if (!dupCheck.ok) {
               log(createLogEntry('skipped',
@@ -459,14 +641,14 @@ export async function runAutopilotCycle(): Promise<void> {
       }
     }
 
-    // Warnungen loggen
+    // Log warnings
     if (analysisResponse.warnings && analysisResponse.warnings.length > 0) {
       for (const warning of analysisResponse.warnings) {
         log(createLogEntry('warning', `⚠️ ${warning}`));
       }
     }
 
-    log(createLogEntry('info', `✅ Zyklus #${cycleId} abgeschlossen`));
+    log(createLogEntry('info', `✅ Cycle #${cycleId} completed`));
     
     updateAutopilotState({
       isRunning: false,
@@ -475,25 +657,26 @@ export async function runAutopilotCycle(): Promise<void> {
     });
 
   } catch (error: any) {
-    log(createLogEntry('error', `❌ Fehler im Zyklus: ${error.message || 'Unbekannter Fehler'}`, error.stack));
+    log(createLogEntry('error', `❌ Error in cycle: ${error.message || 'Unknown error'}`, error.stack));
     updateAutopilotState({ isRunning: false, lastRunAt: new Date().toISOString() });
   }
 }
 
 /**
- * Safety-Layer: Prüft jeden Order-Vorschlag gegen die konfigurierten Limits
+ * Safety-Layer: Checks each order suggestion against configured limits
  */
 function applySafetyRules(
   suggestedOrders: AISuggestedOrder[],
   _stocks: Stock[],
-  log: (entry: AutopilotLogEntry) => void
+  log: (entry: AutopilotLogEntry) => void,
+  options?: { bootstrapMode?: boolean }
 ): AISuggestedOrder[] {
   const store = useAppStore.getState();
   const settings = store.autopilotSettings;
   const { cashBalance, userPositions, orders, orderSettings } = store;
   const totalPortfolioValue = userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0) + cashBalance;
   
-  // Berechne bereits reserviertes Cash durch aktive/pendende Kauf-Orders (inkl. Gebühren)
+  // Calculate already reserved cash from active/pending buy orders (incl. fees)
   const reservedCashByOrders = orders
     .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
     .reduce((sum, o) => {
@@ -503,7 +686,7 @@ function applySafetyRules(
     }, 0);
   let availableCash = cashBalance - reservedCashByOrders;
 
-  // Berechne bereits reservierte Stücke pro Symbol durch aktive/pendende Verkaufs-Orders
+  // Calculate already reserved shares per symbol from active/pending sell orders
   const reservedSharesBySymbol = new Map<string, number>();
   orders
     .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss'))
@@ -515,9 +698,9 @@ function applySafetyRules(
   let tradesThisCycle = 0;
 
   for (const order of suggestedOrders) {
-    // Max Trades pro Zyklus
+    // Max trades per cycle
     if (tradesThisCycle >= settings.maxTradesPerCycle) {
-      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Max. Trades pro Zyklus erreicht (${settings.maxTradesPerCycle})`, undefined, order.symbol));
+      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Max. trades per cycle reached (${settings.maxTradesPerCycle})`, undefined, order.symbol));
       continue;
     }
 
@@ -526,16 +709,16 @@ function applySafetyRules(
     const isSell = order.orderType === 'limit-sell' || order.orderType === 'stop-loss';
     
     if (isBuy && !settings.allowBuy) {
-      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Käufe deaktiviert`, undefined, order.symbol));
+      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Purchases disabled`, undefined, order.symbol));
       continue;
     }
     if (isSell && !settings.allowSell) {
-      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Verkäufe deaktiviert`, undefined, order.symbol));
+      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Sales disabled`, undefined, order.symbol));
       continue;
     }
 
     // Neue Positionen erlaubt?
-    if (isBuy && !settings.allowNewPositions) {
+    if (isBuy && !settings.allowNewPositions && !options?.bootstrapMode) {
       const existingPosition = findCompatibleSymbolMatch(order.symbol, userPositions, (item) => item.symbol);
       if (!existingPosition) {
         log(createLogEntry('skipped', `⏭️ ${order.symbol}: Neue Positionen nicht erlaubt`, undefined, order.symbol));
@@ -553,7 +736,7 @@ function applySafetyRules(
       }
     }
 
-    // Max Positionsgröße
+    // Max position size
     if (isBuy && totalPortfolioValue > 0) {
       const orderValue = order.triggerPrice * order.quantity;
       const existingValue = userPositions
@@ -564,14 +747,14 @@ function applySafetyRules(
       
       if (positionPercent > settings.maxPositionPercent) {
         log(createLogEntry('skipped', 
-          `⏭️ ${order.symbol}: Position wäre ${positionPercent.toFixed(1)}% > Max ${settings.maxPositionPercent}%`,
+          `⏭️ ${order.symbol}: Position would be ${positionPercent.toFixed(1)}% > Max ${settings.maxPositionPercent}%`,
           undefined, order.symbol
         ));
         continue;
       }
     }
 
-    // Min Cash-Reserve bei Käufen (mit Gebühren und bereits reserviertem Cash)
+    // Min cash reserve for purchases (incl. fees and already reserved cash)
     if (isBuy) {
       const orderCost = order.triggerPrice * order.quantity;
       const orderFee = (orderSettings.transactionFeeFlat || 0) + orderCost * (orderSettings.transactionFeePercent || 0) / 100;
@@ -581,26 +764,26 @@ function applySafetyRules(
       
       if (cashPercentAfter < settings.minCashReservePercent) {
         log(createLogEntry('skipped',
-          `⏭️ ${order.symbol}: Cash-Reserve nach Kauf wäre ${cashPercentAfter.toFixed(1)}% < Min ${settings.minCashReservePercent}%`,
+          `⏭️ ${order.symbol}: Cash reserve after purchase would be ${cashPercentAfter.toFixed(1)}% < Min ${settings.minCashReservePercent}%`,
           undefined, order.symbol
         ));
         continue;
       }
 
-      // Genug verfügbares Cash? (inkl. Gebühren, abzgl. reserviertes Cash)
+      // Enough available cash? (incl. fees, minus reserved cash)
       if (totalOrderCost > availableCash) {
         log(createLogEntry('skipped',
-          `⏭️ ${order.symbol}: Nicht genug verfügbares Cash (${totalOrderCost.toFixed(2)}€ inkl. Gebühren > ${availableCash.toFixed(2)}€ verfügbar)`,
+          `⏭️ ${order.symbol}: Not enough available cash (${totalOrderCost.toFixed(2)}€ incl. fees > ${availableCash.toFixed(2)}€ available)`,
           undefined, order.symbol
         ));
         continue;
       }
 
-      // Cash für diesen genehmigten Kauf reservieren (für nachfolgende Orders in diesem Zyklus)
+      // Reserve cash for this approved buy (for subsequent orders in this cycle)
       availableCash -= totalOrderCost;
     }
 
-    // Genug Stücke für Verkauf? (abzgl. bereits reservierte durch andere Sell-Orders)
+    // Enough shares for sale? (minus already reserved by other sell orders)
     if (isSell) {
       const position = findCompatibleSymbolMatch(order.symbol, userPositions, (item) => item.symbol);
       const reserved = Array.from(reservedSharesBySymbol.entries())
@@ -609,13 +792,13 @@ function applySafetyRules(
       const availableShares = (position?.quantity ?? 0) - reserved;
       if (!position || availableShares < order.quantity) {
         log(createLogEntry('skipped',
-          `⏭️ ${order.symbol}: Nicht genug verfügbare Aktien (${availableShares} frei, ${reserved > 0 ? `${reserved} reserviert, ` : ''}benötigt ${order.quantity})`,
+          `⏭️ ${order.symbol}: Not enough available shares (${availableShares} free, ${reserved > 0 ? `${reserved} reserved, ` : ''}required ${order.quantity})`,
           undefined, order.symbol
         ));
         continue;
       }
 
-      // Stücke für diesen genehmigten Verkauf reservieren
+      // Reserve shares for this approved sale
       reservedSharesBySymbol.set(position?.symbol || order.symbol, reserved + order.quantity);
     }
 

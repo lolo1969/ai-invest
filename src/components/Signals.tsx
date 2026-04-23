@@ -29,8 +29,8 @@ export function Signals() {
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-white">Investment Signale</h1>
-          <p className="text-sm text-gray-400">KI-generierte Kauf- und Verkaufsempfehlungen</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-white">Investment Signals</h1>
+          <p className="text-sm text-gray-400">AI-generated buy and sell recommendations</p>
         </div>
         {signals.length > 0 && (
           <button
@@ -38,12 +38,12 @@ export function Signals() {
             className="px-4 py-2 bg-[#252542] hover:bg-[#3a3a5a] text-gray-300 
                      rounded-lg transition-colors"
           >
-            Signale löschen
+            Clear Signals
           </button>
         )}
       </div>
 
-      {/* Signal Stats - Klickbar zum Filtern */}
+      {/* Signal Stats - Clickable to filter */}
       <div className="grid grid-cols-3 gap-2 md:gap-4">
         <button
           onClick={() => setFilter(filter === 'BUY' ? 'ALL' : 'BUY')}
@@ -54,7 +54,7 @@ export function Signals() {
             <TrendingUp size={24} className="text-green-500" />
           </div>
           <div className="text-left">
-            <p className="text-green-400 text-sm">Kaufsignale</p>
+            <p className="text-green-400 text-sm">Buy Signals</p>
             <p className="text-2xl font-bold text-white">{buySignals.length}</p>
           </div>
         </button>
@@ -68,7 +68,7 @@ export function Signals() {
             <TrendingDown size={24} className="text-red-500" />
           </div>
           <div className="text-left">
-            <p className="text-red-400 text-sm">Verkaufssignale</p>
+            <p className="text-red-400 text-sm">Sell Signals</p>
             <p className="text-2xl font-bold text-white">{sellSignals.length}</p>
           </div>
         </button>
@@ -82,27 +82,27 @@ export function Signals() {
             <Minus size={24} className="text-yellow-500" />
           </div>
           <div className="text-left">
-            <p className="text-yellow-400 text-sm">Halten</p>
+            <p className="text-yellow-400 text-sm">Hold</p>
             <p className="text-2xl font-bold text-white">{holdSignals.length}</p>
           </div>
         </button>
       </div>
 
-      {/* Filter-Anzeige */}
+      {/* Filter display */}
       {filter !== 'ALL' && (
         <div className="flex items-center gap-2">
-          <span className="text-gray-400">Filter aktiv:</span>
+          <span className="text-gray-400">Active Filter:</span>
           <span className={`px-3 py-1 rounded-full text-sm font-medium
             ${filter === 'BUY' ? 'bg-green-500/20 text-green-400' : ''}
             ${filter === 'SELL' ? 'bg-red-500/20 text-red-400' : ''}
             ${filter === 'HOLD' ? 'bg-yellow-500/20 text-yellow-400' : ''}`}>
-            {filter === 'BUY' ? 'Kaufen' : filter === 'SELL' ? 'Verkaufen' : 'Halten'}
+            {filter === 'BUY' ? 'Buy' : filter === 'SELL' ? 'Sell' : 'Hold'}
           </span>
           <button
             onClick={() => setFilter('ALL')}
             className="text-gray-500 hover:text-white text-sm underline"
           >
-            Filter zurücksetzen
+            Reset Filter
           </button>
         </div>
       )}
@@ -111,17 +111,17 @@ export function Signals() {
       {signals.length === 0 ? (
         <div className="bg-[#1a1a2e] rounded-xl p-12 border border-[#252542] text-center">
           <AlertTriangle size={48} className="mx-auto text-gray-500 mb-4" />
-          <h3 className="text-xl font-semibold text-white mb-2">Keine Signale vorhanden</h3>
+          <h3 className="text-xl font-semibold text-white mb-2">No Signals Available</h3>
           <p className="text-gray-400">
-            Starte eine KI-Analyse im Dashboard, um Investment-Signale zu erhalten.
+            Start an AI analysis on the Dashboard to receive investment signals.
           </p>
         </div>
       ) : filteredSignals.length === 0 ? (
         <div className="bg-[#1a1a2e] rounded-xl p-12 border border-[#252542] text-center">
           <AlertTriangle size={48} className="mx-auto text-gray-500 mb-4" />
-          <h3 className="text-xl font-semibold text-white mb-2">Keine Signale für diesen Filter</h3>
+          <h3 className="text-xl font-semibold text-white mb-2">No Signals for This Filter</h3>
           <p className="text-gray-400">
-            Es gibt keine {filter === 'BUY' ? 'Kauf' : filter === 'SELL' ? 'Verkauf' : 'Halten'}-Signale.
+            There are no {filter === 'BUY' ? 'buy' : filter === 'SELL' ? 'sell' : 'hold'} signals.
           </p>
         </div>
       ) : (
@@ -142,21 +142,21 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
       border: 'border-green-500/30',
       icon: <TrendingUp size={24} className="text-green-500" />,
       badge: 'bg-green-500 text-white',
-      label: 'KAUFEN',
+      label: 'BUY',
     },
     SELL: {
       bg: 'bg-red-500/10',
       border: 'border-red-500/30',
       icon: <TrendingDown size={24} className="text-red-500" />,
       badge: 'bg-red-500 text-white',
-      label: 'VERKAUFEN',
+      label: 'SELL',
     },
     HOLD: {
       bg: 'bg-yellow-500/10',
       border: 'border-yellow-500/30',
       icon: <Minus size={24} className="text-yellow-500" />,
       badge: 'bg-yellow-500 text-black',
-      label: 'HALTEN',
+      label: 'HOLD',
     },
   };
 
@@ -185,8 +185,9 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
         {/* Content */}
         <div className="flex-1">
           <div className="flex items-center gap-2 md:gap-3 mb-2 flex-wrap">
-            <h3 className="text-lg md:text-xl font-bold text-white">{signal.stock.symbol}</h3>
-            <span className="text-gray-400 text-sm">{signal.stock.name}</span>
+            <h3 className="text-lg md:text-xl font-bold text-white">
+              {signal.stock.name} ({signal.stock.symbol})
+            </h3>
             <span className={`hidden md:inline ${config.badge} px-3 py-1 rounded-full text-sm font-bold`}>
               {config.label}
             </span>
@@ -197,7 +198,7 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 text-xs md:text-sm">
             <div>
               <p className="text-gray-500 flex items-center gap-1">
-                <Target size={14} /> Aktueller Preis
+                <Target size={14} /> Current Price
               </p>
               <p className="text-white font-medium">
                 {signal.stock.price.toFixed(2)} {signal.stock.currency}
@@ -207,7 +208,7 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
             {signal.targetPrice && (
               <div>
                 <p className="text-gray-500 flex items-center gap-1">
-                  <Target size={14} /> Zielpreis
+                  <Target size={14} /> Target Price
                 </p>
                 <p className="text-green-400 font-medium">
                   {signal.targetPrice.toFixed(2)} {signal.stock.currency}
@@ -218,7 +219,7 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
             {signal.idealEntryPrice && (
               <div>
                 <p className="text-gray-500 flex items-center gap-1">
-                  <DollarSign size={14} /> Idealer Einstieg
+                  <DollarSign size={14} /> Ideal Entry
                 </p>
                 <p className="text-blue-400 font-medium">
                   {signal.idealEntryPrice.toFixed(2)} {signal.stock.currency}
@@ -239,12 +240,12 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
 
             <div>
               <p className="text-gray-500 flex items-center gap-1">
-                <Shield size={14} /> Risiko
+                <Shield size={14} /> Risk
               </p>
               <p className={`font-medium ${riskColors[signal.riskLevel]}`}>
-                {signal.riskLevel === 'low' && 'Niedrig'}
-                {signal.riskLevel === 'medium' && 'Mittel'}
-                {signal.riskLevel === 'high' && 'Hoch'}
+                {signal.riskLevel === 'low' && 'Low'}
+                {signal.riskLevel === 'medium' && 'Medium'}
+                {signal.riskLevel === 'high' && 'High'}
               </p>
             </div>
           </div>
@@ -284,7 +285,7 @@ function SignalDetailCard({ signal }: { signal: InvestmentSignal }) {
       {/* Timestamp */}
       <div className="mt-4 pt-4 border-t border-[#252542] flex items-center gap-2 text-xs text-gray-500">
         <Clock size={12} />
-        {new Date(signal.createdAt).toLocaleString('de-DE')}
+        {new Date(signal.createdAt).toLocaleString('en-US')}
       </div>
     </div>
   );

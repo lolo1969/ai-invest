@@ -30,20 +30,20 @@ import type { AutopilotMode, AutopilotLogType } from '../types';
 
 const MODE_CONFIG: Record<AutopilotMode, { label: string; description: string; icon: React.ReactNode; color: string }> = {
   'suggest-only': {
-    label: 'Nur Vorschläge',
-    description: 'KI analysiert und schlägt vor, erstellt aber keine Orders',
+    label: 'Suggestions Only',
+    description: 'AI analyzes and suggests, but does not create orders',
     icon: <Eye size={18} />,
     color: 'text-blue-400 bg-blue-400/10 border-blue-400/30',
   },
   'confirm-each': {
-    label: 'Mit Bestätigung',
-    description: 'KI erstellt Orders, die du vor Ausführung bestätigen musst',
+    label: 'Confirm Each',
+    description: 'AI creates orders that you must confirm before execution',
     icon: <CheckCircle2 size={18} />,
     color: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30',
   },
   'full-auto': {
-    label: 'Vollautomatisch',
-    description: 'KI analysiert, erstellt und führt Orders selbständig aus',
+    label: 'Full Auto',
+    description: 'AI analyzes, creates and executes orders automatically',
     icon: <Zap size={18} />,
     color: 'text-red-400 bg-red-400/10 border-red-400/30',
   },
@@ -84,7 +84,7 @@ export function Autopilot() {
     addAutopilotLog,
   } = useAppStore();
 
-  // Manuellen Zyklus direkt auslösen (ohne Hook)
+  // Trigger manual cycle directly (without hook)
   const isRunningRef = useRef(false);
   const isRunning = autopilotState.isRunning;
   
@@ -96,7 +96,7 @@ export function Autopilot() {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       type: 'info',
-      message: '🔧 Manueller Zyklus gestartet',
+      message: '🔧 Manual cycle started',
     });
     
     try {
@@ -114,7 +114,7 @@ export function Autopilot() {
   const [logFilter, setLogFilter] = useState<AutopilotLogType | 'all'>('all');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
-  // Live-Ticker: Aktualisiert Countdown jede Sekunde
+  // Live ticker: Updates countdown every second
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!autopilotSettings.enabled) return;
@@ -122,42 +122,42 @@ export function Autopilot() {
     return () => clearInterval(tickInterval);
   }, [autopilotSettings.enabled]);
 
-  // Pending Orders (zur Bestätigung)
+  // Pending orders (for confirmation)
   const pendingOrders = useMemo(() => {
     return orders.filter(o => o.status === 'pending');
   }, [orders]);
 
-  // Order bestätigen = aktivieren (NICHT sofort ausführen!)
-  // Limit- und Stop-Orders sollen erst auslösen, wenn die Trigger-Bedingung erfüllt ist.
-  // Die eigentliche Ausführung übernimmt der useOrderExecution-Hook.
+  // Confirm order = activate (NOT execute immediately!)
+  // Limit and stop orders should only trigger when the trigger condition is met.
+  // The actual execution is handled by the useOrderExecution hook.
   const confirmAndActivateOrder = useCallback((orderId: string) => {
     const order = orders.find(o => o.id === orderId);
     if (!order || order.status !== 'pending') return;
     
-    // Nur aktivieren – useOrderExecution prüft den Trigger und führt aus
+    // Only activate – useOrderExecution checks the trigger and executes
     useAppStore.getState().confirmOrder(orderId);
     
     addAutopilotLog({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       type: 'order-created',
-      message: `✅ Order bestätigt & aktiviert: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ Trigger ${order.triggerPrice.toFixed(2)}€`,
+      message: `✅ Order confirmed & activated: ${order.orderType.toUpperCase()} ${order.quantity}x ${order.symbol} @ Trigger ${order.triggerPrice.toFixed(2)}€`,
       symbol: order.symbol,
       orderId: order.id,
     });
   }, [orders, addAutopilotLog]);
 
-  // Alle pending Orders bestätigen und aktivieren
+  // Confirm and activate all pending orders
   const confirmAndActivateAll = useCallback(() => {
     pendingOrders.forEach(o => confirmAndActivateOrder(o.id));
   }, [pendingOrders, confirmAndActivateOrder]);
 
-  // Gesamtportfolio-Wert
+  // Total portfolio value
   const totalPortfolioValue = useMemo(() => {
     return userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0) + cashBalance;
   }, [userPositions, cashBalance]);
 
-  // Gefiltertes Log
+  // Filtered log
   const filteredLog = useMemo(() => {
     if (logFilter === 'all') return autopilotLog;
     return autopilotLog.filter(entry => entry.type === logFilter);
@@ -166,7 +166,7 @@ export function Autopilot() {
   const handleToggleEnabled = () => {
     const newEnabled = !autopilotSettings.enabled;
     updateAutopilotSettings({ enabled: newEnabled });
-    // Bei Aktivierung im Vollautomatisch-Modus: Auto-Ausführung einschalten
+    // When enabling in full-auto mode: Enable auto-execution
     if (newEnabled && autopilotSettings.mode === 'full-auto') {
       useAppStore.getState().updateOrderSettings({ autoExecute: true });
     }
@@ -179,17 +179,17 @@ export function Autopilot() {
     if (!isoString) return '–';
     const diff = Date.now() - new Date(isoString).getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'gerade eben';
-    if (mins < 60) return `vor ${mins} Min.`;
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} min ago`;
     const hours = Math.floor(mins / 60);
-    if (hours < 24) return `vor ${hours} Std.`;
-    return `vor ${Math.floor(hours / 24)} Tagen`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
   };
 
   const formatNextRun = (isoString: string | null): string => {
     if (!isoString) return '–';
     const diff = new Date(isoString).getTime() - Date.now();
-    if (diff <= 0) return 'Jetzt...';
+    if (diff <= 0) return 'Now...';
     const totalSecs = Math.floor(diff / 1000);
     const hours = Math.floor(totalSecs / 3600);
     const mins = Math.floor((totalSecs % 3600) / 60);
@@ -207,10 +207,10 @@ export function Autopilot() {
             <Bot className="text-emerald-400" size={24} />
             Autopilot
           </h2>
-          <p className="text-gray-400 mt-1 text-sm">KI-gesteuerter automatischer Handel</p>
+          <p className="text-gray-400 mt-1 text-sm">AI-driven automated trading</p>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
-          {/* Manueller Zyklus */}
+          {/* Manual Cycle */}
           <button
             onClick={triggerManualCycle}
             disabled={isRunning || !autopilotSettings.enabled}
@@ -218,10 +218,10 @@ export function Autopilot() {
                      text-gray-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
           >
             <RefreshCw size={14} className={isRunning ? 'animate-spin' : ''} />
-            <span className="hidden sm:inline">{isRunning ? 'Läuft...' : 'Jetzt analysieren'}</span>
-            <span className="sm:hidden">{isRunning ? '...' : 'Analyse'}</span>
+            <span className="hidden sm:inline">{isRunning ? 'Running...' : 'Analyze Now'}</span>
+            <span className="sm:hidden">{isRunning ? '...' : 'Analysis'}</span>
           </button>
-          {/* Hauptschalter */}
+          {/* Main switch */}
           <button
             onClick={handleToggleEnabled}
             className={`flex items-center gap-2 px-6 py-2 rounded-lg transition-all font-medium ${
@@ -233,12 +233,12 @@ export function Autopilot() {
             {autopilotSettings.enabled ? (
               <>
                 <Square size={16} />
-                Autopilot stoppen
+                Stop Autopilot
               </>
             ) : (
               <>
                 <Play size={16} />
-                Autopilot starten
+                Start Autopilot
               </>
             )}
           </button>
@@ -261,38 +261,38 @@ export function Autopilot() {
               isRunning ? 'text-yellow-400' :
               autopilotSettings.enabled ? 'text-emerald-400' : 'text-gray-500'
             }`}>
-              {isRunning ? 'Analysiert...' : autopilotSettings.enabled ? 'Aktiv' : 'Inaktiv'}
+              {isRunning ? 'Analyzing...' : autopilotSettings.enabled ? 'Active' : 'Inactive'}
             </span>
           </div>
         </div>
 
-        {/* Modus */}
+        {/* Mode */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-          <span className="text-sm text-gray-400">Modus</span>
+          <span className="text-sm text-gray-400">Mode</span>
           <p className="text-lg font-bold text-white mt-1">
             {MODE_CONFIG[autopilotSettings.mode].label}
           </p>
         </div>
 
-        {/* Letzter Lauf */}
+        {/* Last Run */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-          <span className="text-sm text-gray-400">Letzter Lauf</span>
+          <span className="text-sm text-gray-400">Last Run</span>
           <p className="text-lg font-bold text-white mt-1">
             {formatTimeAgo(autopilotState.lastRunAt)}
           </p>
         </div>
 
-        {/* Nächster Lauf */}
+        {/* Next Run */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-          <span className="text-sm text-gray-400">Nächster Lauf</span>
+          <span className="text-sm text-gray-400">Next Run</span>
           <p className="text-lg font-bold text-white mt-1">
             {autopilotSettings.enabled ? formatNextRun(autopilotState.nextRunAt) : '–'}
           </p>
         </div>
 
-        {/* Zyklen */}
+        {/* Cycles */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-          <span className="text-sm text-gray-400">Zyklen / Orders</span>
+          <span className="text-sm text-gray-400">Cycles / Orders</span>
           <p className="text-lg font-bold text-white mt-1">
             {autopilotState.cycleCount} / {autopilotState.totalOrdersCreated}
           </p>
@@ -310,16 +310,16 @@ export function Autopilot() {
         >
           <div className="flex items-center gap-2">
             <Settings2 size={18} className="text-gray-400" />
-            <span className="font-semibold">Einstellungen</span>
+            <span className="font-semibold">Settings</span>
           </div>
           {showSettings ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </button>
 
         {showSettings && (
           <div className="p-4 pt-0 space-y-6">
-            {/* Modus-Auswahl */}
+            {/* Mode selection */}
             <div>
-              <label className="block text-sm text-gray-400 mb-2">Betriebsmodus</label>
+              <label className="block text-sm text-gray-400 mb-2">Operating Mode</label>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {(Object.keys(MODE_CONFIG) as AutopilotMode[]).map((mode) => {
                   const config = MODE_CONFIG[mode];
@@ -328,7 +328,7 @@ export function Autopilot() {
                       key={mode}
                       onClick={() => {
                         updateAutopilotSettings({ mode });
-                        // Bei Vollautomatisch: Order-Auto-Ausführung aktivieren
+                        // For fully automatic mode: enable auto order execution
                         if (mode === 'full-auto') {
                           useAppStore.getState().updateOrderSettings({ autoExecute: true });
                         }
@@ -351,8 +351,8 @@ export function Autopilot() {
               {autopilotSettings.mode === 'full-auto' && (
                 <div className="mt-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                   <p className="text-xs text-red-400">
-                    ⚠️ Im Vollautomatik-Modus erstellt die KI eigenständig Orders. 
-                    Stelle sicher, dass die Sicherheitslimits korrekt eingestellt sind.
+                    ⚠️ In full automatic mode, the AI creates orders independently. 
+                    Make sure security limits are set correctly.
                   </p>
                 </div>
               )}
@@ -361,19 +361,19 @@ export function Autopilot() {
             {/* Timing */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Analyse-Intervall</label>
+                <label className="block text-sm text-gray-400 mb-1">Analysis Interval</label>
                 <select
                   value={autopilotSettings.intervalMinutes}
                   onChange={(e) => updateAutopilotSettings({ intervalMinutes: parseInt(e.target.value) })}
                   className="w-full bg-[#252542] text-white rounded-lg px-3 py-2 border border-[#353560] 
                            focus:border-emerald-500 focus:outline-none"
                 >
-                  <option value={30}>Alle 30 Minuten</option>
-                  <option value={60}>Stündlich</option>
-                  <option value={120}>Alle 2 Stunden</option>
-                  <option value={240}>Alle 4 Stunden</option>
-                  <option value={480}>Alle 8 Stunden</option>
-                  <option value={1440}>Täglich</option>
+                  <option value={30}>Every 30 minutes</option>
+                  <option value={60}>Hourly</option>
+                  <option value={120}>Every 2 hours</option>
+                  <option value={240}>Every 4 hours</option>
+                  <option value={480}>Every 8 hours</option>
+                  <option value={1440}>Daily</option>
                 </select>
               </div>
               <div className="flex items-center gap-3 pt-6">
@@ -389,21 +389,21 @@ export function Autopilot() {
                   }`} />
                 </button>
                 <div>
-                  <span className="text-sm text-white">Nur Börsenzeiten</span>
-                  <p className="text-xs text-gray-500">EU: Mo-Fr 9:00-17:30 MEZ · US: Mo-Fr 9:30-16:00 ET</p>
+                  <span className="text-sm text-white">Market hours only</span>
+                  <p className="text-xs text-gray-500">EU: Mon-Fri 9:00-17:30 CET · US: Mon-Fri 9:30-16:00 ET</p>
                 </div>
               </div>
             </div>
 
-            {/* Sicherheitslimits */}
+            {/* Security Limits */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <ShieldCheck size={16} className="text-emerald-400" />
-                <span className="text-sm font-semibold text-white">Sicherheitslimits</span>
+                <span className="text-sm font-semibold text-white">Security Limits</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Max. Orders pro Zyklus</label>
+                  <label className="block text-xs text-gray-400 mb-1">Max Orders per Cycle</label>
                   <input
                     type="number"
                     value={autopilotSettings.maxTradesPerCycle}
@@ -416,7 +416,7 @@ export function Autopilot() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
-                    Max. Positionsgröße
+                    Max Position Size
                     <span className="text-emerald-400 ml-1">
                       ({totalPortfolioValue > 0 ? (totalPortfolioValue * autopilotSettings.maxPositionPercent / 100).toFixed(0) : '0'}€)
                     </span>
@@ -436,7 +436,7 @@ export function Autopilot() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
-                    Min. Cash-Reserve
+                    Min Cash Reserve
                     <span className="text-emerald-400 ml-1">
                       ({totalPortfolioValue > 0 ? (totalPortfolioValue * autopilotSettings.minCashReservePercent / 100).toFixed(0) : '0'}€)
                     </span>
@@ -455,7 +455,7 @@ export function Autopilot() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Min. KI-Konfidenz</label>
+                  <label className="block text-xs text-gray-400 mb-1">Min AI Confidence</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="range"
@@ -472,18 +472,18 @@ export function Autopilot() {
               </div>
             </div>
 
-            {/* Handels-Scope */}
+            {/* Trading Permissions */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <ScrollText size={16} className="text-emerald-400" />
-                <span className="text-sm font-semibold text-white">Handels-Berechtigungen</span>
+                <span className="text-sm font-semibold text-white">Trading Permissions</span>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
-                  { key: 'allowBuy', label: 'Käufe erlauben', desc: 'Neue Aktien kaufen' },
-                  { key: 'allowSell', label: 'Verkäufe erlauben', desc: 'Bestehende verkaufen' },
-                  { key: 'allowNewPositions', label: 'Neue Positionen', desc: 'Aktien kaufen die noch nicht im Portfolio sind' },
-                  { key: 'watchlistOnly', label: 'Nur Watchlist', desc: 'Nur Watchlist + Portfolio Aktien' },
+                  { key: 'allowBuy', label: 'Allow Buys', desc: 'Buy new stocks' },
+                  { key: 'allowSell', label: 'Allow Sells', desc: 'Sell existing holdings' },
+                  { key: 'allowNewPositions', label: 'New Positions', desc: 'Buy stocks not yet in portfolio' },
+                  { key: 'watchlistOnly', label: 'Watchlist Only', desc: 'Only watchlist & portfolio stocks' },
                 ].map(({ key, label, desc }) => (
                   <button
                     key={key}
@@ -511,13 +511,13 @@ export function Autopilot() {
         )}
       </div>
 
-      {/* Pending Orders - Bestätigung */}
+      {/* Pending Orders - Confirmation */}
       {pendingOrders.length > 0 && (
         <div className="bg-[#1a1a2e] rounded-xl border border-yellow-500/30 mb-6">
           <div className="flex items-center justify-between p-4 border-b border-yellow-500/20">
             <div className="flex items-center gap-2">
               <CheckCircle2 size={18} className="text-yellow-400" />
-              <span className="font-semibold text-white">Ausstehende Bestätigungen</span>
+              <span className="font-semibold text-white">Pending Confirmations</span>
               <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
                 {pendingOrders.length}
               </span>
@@ -528,14 +528,14 @@ export function Autopilot() {
                 className="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors"
               >
                 <Check size={14} />
-                Alle aktivieren
+                Activate All
               </button>
               <button
                 onClick={() => pendingOrders.forEach(o => cancelOrder(o.id))}
                 className="flex items-center gap-1 text-xs px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
               >
                 <X size={14} />
-                Alle ablehnen
+                Reject All
               </button>
             </div>
           </div>
@@ -552,13 +552,13 @@ export function Autopilot() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                          {isBuy ? 'KAUF' : 'VERKAUF'}
+                          {isBuy ? 'BUY' : 'SELL'}
                         </span>
                         <span className="font-semibold text-white">{order.symbol}</span>
                         <span className="text-sm text-gray-400">{order.name}</span>
                       </div>
                       <div className="text-xs text-gray-500 mt-1">
-                        {order.quantity} Stück × {order.triggerPrice.toFixed(2)} € = <span className="text-white font-medium">{totalValue.toFixed(2)} €</span>
+                        {order.quantity} shares × {order.triggerPrice.toFixed(2)} € = <span className="text-white font-medium">{totalValue.toFixed(2)} €</span>
                       </div>
                       {order.note && (
                         <div className="text-xs text-gray-500 mt-1 max-w-lg truncate">{order.note}</div>
@@ -571,14 +571,14 @@ export function Autopilot() {
                       className="flex items-center gap-1 px-3 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors text-sm font-medium"
                     >
                       <Check size={16} />
-                      Aktivieren
+                      Activate
                     </button>
                     <button
                       onClick={() => cancelOrder(order.id)}
                       className="flex items-center gap-1 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors text-sm font-medium"
                     >
                       <X size={16} />
-                      Ablehnen
+                      Reject
                     </button>
                   </div>
                 </div>
@@ -593,8 +593,8 @@ export function Autopilot() {
         <div className="flex items-center justify-between p-4 border-b border-[#252542]">
           <div className="flex items-center gap-2">
             <ScrollText size={18} className="text-gray-400" />
-            <span className="font-semibold text-white">Aktivitäts-Log</span>
-            <span className="text-xs text-gray-500">({autopilotLog.length} Einträge)</span>
+            <span className="font-semibold text-white">Activity Log</span>
+            <span className="text-xs text-gray-500">({autopilotLog.length} entries)</span>
           </div>
           <div className="flex items-center gap-2">
             {/* Filter */}
@@ -603,13 +603,13 @@ export function Autopilot() {
               onChange={(e) => setLogFilter(e.target.value as any)}
               className="bg-[#252542] text-white text-xs rounded px-2 py-1 border border-[#353560]"
             >
-              <option value="all">Alle</option>
+              <option value="all">All</option>
               <option value="info">Info</option>
-              <option value="analysis">Analyse</option>
+              <option value="analysis">Analysis</option>
               <option value="order-created">Orders</option>
-              <option value="warning">Warnungen</option>
-              <option value="error">Fehler</option>
-              <option value="skipped">Übersprungen</option>
+              <option value="warning">Warnings</option>
+              <option value="error">Errors</option>
+              <option value="skipped">Skipped</option>
             </select>
             {autopilotLog.length > 0 && (
               <button
@@ -618,7 +618,7 @@ export function Autopilot() {
                          bg-[#252542] px-2 py-1 rounded transition-colors"
               >
                 <Trash2 size={12} />
-                Leeren
+                Clear
               </button>
             )}
           </div>
@@ -628,11 +628,11 @@ export function Autopilot() {
           {filteredLog.length === 0 ? (
             <div className="text-center py-16 text-gray-500">
               <Bot size={40} className="mx-auto mb-3 opacity-30" />
-              <p>Noch keine Aktivitäten</p>
+              <p>No Activity Yet</p>
               <p className="text-sm mt-1">
                 {autopilotSettings.enabled 
-                  ? 'Der nächste Zyklus startet bald...' 
-                  : 'Aktiviere den Autopilot um zu beginnen'}
+                  ? 'Next cycle starts soon...' 
+                  : 'Enable Autopilot to begin'}
               </p>
             </div>
           ) : (
@@ -670,7 +670,7 @@ export function Autopilot() {
                         </span>
                       )}
                       <span className="text-xs text-gray-600">
-                        {new Date(entry.timestamp).toLocaleString('de-DE', {
+                        {new Date(entry.timestamp).toLocaleString('en-US', {
                           day: '2-digit',
                           month: '2-digit',
                           year: 'numeric',
@@ -690,19 +690,19 @@ export function Autopilot() {
 
       {/* Info Box */}
       <div className="mt-6 bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
-        <h3 className="text-sm font-semibold text-gray-300 mb-2">ℹ️ So funktioniert der Autopilot</h3>
+        <h3 className="text-sm font-semibold text-gray-300 mb-2">ℹ️ How the Autopilot Works</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-500">
           <div className="flex items-start gap-2">
             <Eye size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Nur Vorschläge:</strong> Die KI analysiert dein Portfolio regelmäßig und zeigt Empfehlungen im Log. Du entscheidest manuell.</span>
+            <span><strong className="text-gray-400">Suggestions Only:</strong> AI analyzes your portfolio regularly and shows recommendations in the log. You decide manually.</span>
           </div>
           <div className="flex items-start gap-2">
             <CheckCircle2 size={14} className="text-yellow-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Mit Bestätigung:</strong> Die KI erstellt Orders automatisch. Orders werden erst durch die Auto-Ausführung (Orders-Seite) aktiv.</span>
+            <span><strong className="text-gray-400">With Confirmation:</strong> AI creates orders automatically. Orders only become active through auto-execution (Orders page).</span>
           </div>
           <div className="flex items-start gap-2">
             <Zap size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Vollautomatisch:</strong> Wie „Mit Bestätigung", zusätzlich wird Auto-Ausführung in Orders aktiviert. ⚠️ Nur mit Sicherheitslimits nutzen!</span>
+            <span><strong className="text-gray-400">Fully Automatic:</strong> Like "With Confirmation", additionally auto-execution in Orders is enabled. ⚠️ Only use with security limits!</span>
           </div>
         </div>
       </div>
@@ -732,10 +732,10 @@ function ServerStatusBanner() {
           <Server size={20} className="text-emerald-400" />
         </div>
         <div className="flex-1">
-          <p className="text-emerald-300 font-medium text-sm">Backend-Server verbunden</p>
+          <p className="text-emerald-300 font-medium text-sm">Backend Server Connected</p>
           <p className="text-emerald-400/70 text-xs mt-0.5">
-            Autopilot & Order-Ausführung laufen auch ohne Browser im Hintergrund.
-            {info?.activeOrders > 0 && ` ${info.activeOrders} aktive Orders werden überwacht.`}
+            Autopilot & order execution run in the background without browser.
+            {info?.activeOrders > 0 && ` ${info.activeOrders} active orders are monitored.`}
           </p>
         </div>
         <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -743,18 +743,5 @@ function ServerStatusBanner() {
     );
   }
 
-  return (
-    <div className="mb-6 bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center gap-3">
-      <div className="p-2 bg-amber-500/20 rounded-lg">
-        <Server size={20} className="text-amber-400" />
-      </div>
-      <div className="flex-1">
-        <p className="text-amber-300 font-medium text-sm">Kein Backend-Server</p>
-        <p className="text-amber-400/70 text-xs mt-0.5">
-          Autopilot läuft nur solange die App im Browser geöffnet ist.
-          Starte den Server mit <code className="bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300">npm run server</code> für Hintergrund-Betrieb.
-        </p>
-      </div>
-    </div>
-  );
+  return null;
 }

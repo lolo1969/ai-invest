@@ -15,11 +15,13 @@ import {
   Wallet,
   TrendingUp,
   Trash2,
-  Brain
+  Brain,
+  Zap
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { notificationService } from '../services/notifications';
-import type { InvestmentStrategy, RiskLevel, AIProvider, ClaudeModel, OpenAIModel, GeminiModel } from '../types';
+import { createAlpacaService } from '../services/alpacaService';
+import type { InvestmentStrategy, RiskLevel, AIProvider, AILanguage, ClaudeModel, OpenAIModel, GeminiModel } from '../types';
 
 export function Settings() {
   const { 
@@ -35,13 +37,16 @@ export function Settings() {
     portfolios, activePortfolioId,
     lastAnalysis, lastAnalysisDate, setLastAnalysis,
     analysisHistory, clearAnalysisHistory,
-    autopilotSettings, autopilotLog, autopilotState
+    autopilotSettings, autopilotLog, autopilotState,
+    alpacaSettings, updateAlpacaSettings,
   } = useAppStore();
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const [testingEmail, setTestingEmail] = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<'success' | 'error' | null>(null);
+  const [testingAlpaca, setTestingAlpaca] = useState(false);
+  const [alpacaTestResult, setAlpacaTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
   const [importStatus, setImportStatus] = useState<'success' | 'error' | null>(null);
   const [importSummary, setImportSummary] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +56,7 @@ export function Settings() {
     const exportData = {
       version: '1.10.5',
       exportDate: new Date().toISOString(),
-      // Alle Einstellungen (Strategie, Risiko, KI-Anbieter, Modelle, API-Keys, Benachrichtigungen, Custom Prompt)
+      // All settings (Strategy, Risk, AI Provider, Models, API Keys, Notifications, Custom Prompt)
       settings,
       // Portfolio & Positionen
       userPositions,
@@ -62,7 +67,7 @@ export function Settings() {
       cashBalance,
       initialCapital,
       previousProfit,
-      // Signale & Orders
+      // Signals & Orders
       signals,
       orders,
       orderSettings,
@@ -103,7 +108,7 @@ export function Settings() {
         // Restore settings (includes watchlist symbols, strategy, risk, API keys, notifications, custom prompt)
         if (importData.settings) {
           updateSettings(importData.settings);
-          summary.push('✅ Einstellungen (Strategie, Risiko, KI-Anbieter, API-Keys, Benachrichtigungen, Custom Prompt)');
+          summary.push('✅ Settings (Strategy, Risk, AI Provider, API Keys, Notifications, Custom Prompt)');
         }
         
         // Restore positions - clear existing first, then add imported
@@ -116,7 +121,7 @@ export function Settings() {
           importData.userPositions.forEach((pos: any) => {
             store.addUserPosition(pos);
           });
-          summary.push(`✅ ${importData.userPositions.length} Portfolio-Positionen`);
+          summary.push(`✅ ${importData.userPositions.length} Portfolio Positions`);
         }
         
         // Restore watchlist stocks
@@ -129,7 +134,7 @@ export function Settings() {
           importData.watchlist.forEach((stock: any) => {
             store.addToWatchlist(stock);
           });
-          summary.push(`✅ ${importData.watchlist.length} Watchlist-Einträge`);
+          summary.push(`✅ ${importData.watchlist.length} Watchlist Entries`);
         }
         
         // Restore signals
@@ -138,25 +143,25 @@ export function Settings() {
           importData.signals.forEach((signal: any) => {
             addSignal(signal);
           });
-          summary.push(`✅ ${importData.signals.length} Signale`);
+          summary.push(`✅ ${importData.signals.length} Signals`);
         }
         
         // Restore cash balance
         if (importData.cashBalance !== undefined && importData.cashBalance !== null) {
           setCashBalance(Number(importData.cashBalance));
-          summary.push(`✅ Cash-Bestand: ${Number(importData.cashBalance).toLocaleString('de-DE', { minimumFractionDigits: 2 })} €`);
+          summary.push(`✅ Cash Balance: ${Number(importData.cashBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })} €`);
         }
 
         // Restore initial capital
         if (importData.initialCapital !== undefined && importData.initialCapital !== null) {
           setInitialCapital(Number(importData.initialCapital));
-          summary.push(`✅ Startkapital: ${Number(importData.initialCapital).toLocaleString('de-DE', { minimumFractionDigits: 2 })} €`);
+          summary.push(`✅ Initial Capital: ${Number(importData.initialCapital).toLocaleString('en-US', { minimumFractionDigits: 2 })} €`);
         }
 
         // Restore previous profit
         if (importData.previousProfit !== undefined && importData.previousProfit !== null) {
           setPreviousProfit(Number(importData.previousProfit));
-          summary.push(`✅ Vorherige Gewinne: ${Number(importData.previousProfit).toLocaleString('de-DE', { minimumFractionDigits: 2 })} €`);
+          summary.push(`✅ Previous Profits: ${Number(importData.previousProfit).toLocaleString('en-US', { minimumFractionDigits: 2 })} €`);
         }
 
         // Restore orders
@@ -168,17 +173,17 @@ export function Settings() {
           summary.push(`✅ ${importData.orders.length} Orders`);
         }
 
-        // Restore order settings (inkl. Transaktionsgebühren)
+        // Restore order settings (including transaction fees)
         if (importData.orderSettings) {
           store.updateOrderSettings(importData.orderSettings);
-          summary.push('✅ Order-Einstellungen (Transaktionsgebühren)');
+          summary.push('✅ Order Settings (Transaction Fees)');
         }
 
         // Restore price alerts
         if (importData.priceAlerts && Array.isArray(importData.priceAlerts)) {
           store.priceAlerts.forEach((a: any) => store.removePriceAlert(a.id));
           importData.priceAlerts.forEach((a: any) => store.addPriceAlert(a));
-          summary.push(`✅ ${importData.priceAlerts.length} Preisalarme`);
+          summary.push(`✅ ${importData.priceAlerts.length} Price Alerts`);
         }
 
         // Restore portfolios
@@ -200,42 +205,42 @@ export function Settings() {
         if (importData.lastAnalysis !== undefined) {
           store.setLastAnalysis(importData.lastAnalysis);
           if (importData.lastAnalysis) {
-            summary.push('✅ Letzte KI-Analyse');
+            summary.push('✅ Last AI Analysis');
           }
         }
 
         // Restore analysis history
         if (importData.analysisHistory && Array.isArray(importData.analysisHistory)) {
           store.clearAnalysisHistory();
-          // Älteste zuerst hinzufügen, da addAnalysisHistory am Anfang einfügt
+          // Add oldest first, since addAnalysisHistory inserts at the beginning
           [...importData.analysisHistory].reverse().forEach((entry: any) => {
             store.addAnalysisHistory(entry);
           });
-          summary.push(`✅ ${importData.analysisHistory.length} Analyse-Einträge (KI-Gedächtnis)`);
+          summary.push(`✅ ${importData.analysisHistory.length} Analysis entries (AI Memory)`);
         }
 
         // Restore autopilot settings
         if (importData.autopilotSettings) {
           store.updateAutopilotSettings(importData.autopilotSettings);
-          summary.push('✅ Autopilot-Einstellungen');
+          summary.push('✅ Autopilot Settings');
         }
 
         // Restore autopilot log
         if (importData.autopilotLog && Array.isArray(importData.autopilotLog)) {
           store.clearAutopilotLog();
-          // Älteste zuerst hinzufügen
+          // Add oldest first
           [...importData.autopilotLog].reverse().forEach((entry: any) => {
             store.addAutopilotLog(entry);
           });
           if (importData.autopilotLog.length > 0) {
-            summary.push(`✅ ${importData.autopilotLog.length} Autopilot-Log-Einträge`);
+            summary.push(`✅ ${importData.autopilotLog.length} Autopilot Log Entries`);
           }
         }
 
         // Restore autopilot state
         if (importData.autopilotState) {
           store.updateAutopilotState(importData.autopilotState);
-          summary.push('✅ Autopilot-Status');
+          summary.push('✅ Autopilot Status');
         }
         
         console.log('[Backup Import] Version:', importData.version, '| Restored:', summary.length, 'data categories');
@@ -260,6 +265,31 @@ export function Settings() {
   const handleSave = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const testAlpaca = async () => {
+    setTestingAlpaca(true);
+    setAlpacaTestResult(null);
+    try {
+      const alpaca = createAlpacaService(
+        settings.apiKeys.alpacaKeyId,
+        settings.apiKeys.alpacaKeySecret,
+        alpacaSettings.paper
+      );
+      if (!alpaca) {
+        setAlpacaTestResult({ ok: false, info: 'API Key ID oder Secret fehlt.' });
+        return;
+      }
+      const account = await alpaca.getAccount();
+      setAlpacaTestResult({
+        ok: true,
+        info: `Konto ${account.account_number} · Status: ${account.status} · Kaufkraft: ${Number(account.buying_power).toLocaleString('de-DE', { minimumFractionDigits: 2 })} ${account.currency}`,
+      });
+    } catch (err: any) {
+      setAlpacaTestResult({ ok: false, info: err?.message ?? 'Verbindung fehlgeschlagen.' });
+    } finally {
+      setTestingAlpaca(false);
+    }
   };
 
   const testTelegram = async () => {
@@ -293,15 +323,15 @@ export function Settings() {
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4 md:space-y-6">
       <div className="pt-12 lg:pt-0">
-        <h1 className="text-2xl md:text-3xl font-bold text-white">Einstellungen</h1>
-        <p className="text-sm text-gray-400">Konfiguriere deinen Investment Advisor</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Settings</h1>
+        <p className="text-sm text-gray-400">Configure your Investment Advisor</p>
       </div>
 
       {/* Investment Settings */}
       <section className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-[#252542] space-y-4 md:space-y-6">
         <h2 className="text-lg md:text-xl font-semibold text-white flex items-center gap-2">
           <Target size={18} className="text-indigo-500" />
-          Investment-Einstellungen
+          Investment Settings
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -309,7 +339,7 @@ export function Settings() {
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               <Target size={16} className="inline mr-1" />
-              Strategie
+              Strategy
             </label>
             <select
               value={settings.strategy}
@@ -317,9 +347,9 @@ export function Settings() {
               className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                        text-white focus:outline-none focus:border-indigo-500"
             >
-              <option value="short">Kurzfristig (Tage-Wochen)</option>
-              <option value="middle">Mittelfristig (Wochen-Monate)</option>
-              <option value="long">Langfristig (10+ Jahre)</option>
+              <option value="short">Short-term (Days-Weeks)</option>
+              <option value="middle">Mid-term (Weeks-Months)</option>
+              <option value="long">Long-term (10+ Years)</option>
             </select>
           </div>
 
@@ -327,7 +357,7 @@ export function Settings() {
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               <Wallet size={16} className="inline mr-1" />
-              Startkapital (€)
+              Initial Capital (€)
             </label>
             <input
               type="number"
@@ -337,16 +367,16 @@ export function Settings() {
               onChange={(e) => setInitialCapital(Math.max(0, parseFloat(e.target.value) || 0))}
               className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                        text-white focus:outline-none focus:border-indigo-500"
-              placeholder="z.B. 10000"
+              placeholder="e.g. 10000"
             />
-            <p className="text-xs text-gray-500 mt-1">Ursprünglich investierter Betrag für Gesamtgewinn-Berechnung</p>
+            <p className="text-xs text-gray-500 mt-1">Originally invested amount for total profit calculation</p>
           </div>
 
-          {/* Vorhergehende Gewinne */}
+          {/* Previous profits */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               <TrendingUp size={16} className="inline mr-1" />
-              Vorhergehende Gewinne/Verluste (€)
+              Previous Profits/Losses (€)
             </label>
             <input
               type="number"
@@ -355,16 +385,16 @@ export function Settings() {
               onChange={(e) => setPreviousProfit(parseFloat(e.target.value) || 0)}
               className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                        text-white focus:outline-none focus:border-indigo-500"
-              placeholder="z.B. 1500 oder -300"
+              placeholder="e.g. 1500 or -300"
             />
-            <p className="text-xs text-gray-500 mt-1">Gewinne (+) oder Verluste (-) aus früheren Portfolios, werden mit dem aktuellen Gewinn verrechnet</p>
+            <p className="text-xs text-gray-500 mt-1">Profits (+) or losses (-) from previous portfolios, offset against current gains</p>
           </div>
 
           {/* Risk Tolerance */}
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-300 mb-2">
               <Shield size={16} className="inline mr-1" />
-              Risikotoleranz
+              Risk Tolerance
             </label>
             <div className="flex gap-4">
               {(['low', 'medium', 'high'] as RiskLevel[]).map((level) => (
@@ -377,12 +407,43 @@ export function Settings() {
                       : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-indigo-500'
                   }`}
                 >
-                  {level === 'low' && 'Konservativ'}
-                  {level === 'medium' && 'Ausgewogen'}
-                  {level === 'high' && 'Aggressiv'}
+                  {level === 'low' && 'Conservative'}
+                  {level === 'medium' && 'Balanced'}
+                  {level === 'high' && 'Aggressive'}
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+
+        {/* AI Output Language */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            <Brain size={16} className="inline mr-1" />
+            AI Analysis Language
+          </label>
+          <p className="text-xs text-gray-500 mb-3">
+            Language for all AI analysis outputs (signals, summaries, recommendations).
+          </p>
+          <div className="flex gap-3">
+            {([
+              { value: 'en', label: '🇬🇧 English' },
+              { value: 'de', label: '🇩🇪 Deutsch' },
+              { value: 'fr', label: '🇫🇷 Français' },
+            ] as { value: AILanguage; label: string }[]).map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => updateSettings({ aiLanguage: value })}
+                className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-all ${
+                  (settings.aiLanguage || 'en') === value
+                    ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300'
+                    : 'bg-[#252542] border-[#3a3a5a] text-gray-400 hover:border-indigo-500/50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -390,22 +451,22 @@ export function Settings() {
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
             <MessageSquareText size={16} className="inline mr-1" />
-            Persönliche Anweisungen für die KI
+            Custom Instructions for AI
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            Hier kannst du der KI spezifische Vorgaben geben, z.B. Präferenzen für ETF-Typen, steuerliche Besonderheiten, Branchen-Ausschlüsse etc.
+            Provide the AI with specific instructions, e.g., ETF preferences, tax considerations, sector exclusions, etc.
           </p>
           <textarea
             value={settings.customPrompt || ''}
             onChange={(e) => updateSettings({ customPrompt: e.target.value })}
-            placeholder="z.B.: Ich wohne in Luxemburg. Bevorzuge thesaurierende ETFs statt ausschüttende (steuerlich vorteilhafter). Keine Rüstungsaktien. Fokus auf europäische Märkte..."
+            placeholder="e.g.: I live in Luxembourg. Prefer accumulating ETFs over distributing ones (tax advantageous). No weapons stocks. Focus on European markets..."
             rows={4}
             className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                      text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500
                      resize-y min-h-[100px]"
           />
           <p className="text-xs text-gray-600 mt-1">
-            {(settings.customPrompt || '').length} Zeichen
+            {(settings.customPrompt || '').length} characters
           </p>
         </div>
       </section>
@@ -414,17 +475,17 @@ export function Settings() {
       <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-6">
         <h2 className="text-xl font-semibold text-white flex items-center gap-2">
           <Receipt size={20} className="text-indigo-500" />
-          Transaktionsgebühren
+          Transaction Fees
         </h2>
         <p className="text-sm text-gray-400">
-          Gebühren werden bei jedem Kauf und Verkauf automatisch vom Cash-Bestand abgezogen.
+          Fees are automatically deducted from cash balance on every buy and sell.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Flat Fee */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Fixe Gebühr pro Trade (€)
+              Fixed Fee per Trade (€)
             </label>
             <input
               type="number"
@@ -434,15 +495,15 @@ export function Settings() {
               onChange={(e) => updateOrderSettings({ transactionFeeFlat: Math.max(0, parseFloat(e.target.value) || 0) })}
               className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                        text-white focus:outline-none focus:border-indigo-500"
-              placeholder="z.B. 1.00"
+              placeholder="e.g. 1.00"
             />
-            <p className="text-xs text-gray-500 mt-1">Fester Betrag pro Transaktion (z.B. 1,00 €)</p>
+            <p className="text-xs text-gray-500 mt-1">Fixed amount per transaction (e.g., 1.00 €)</p>
           </div>
 
           {/* Percent Fee */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Prozentuale Gebühr pro Trade (%)
+              Percentage Fee per Trade (%)
             </label>
             <input
               type="number"
@@ -452,20 +513,20 @@ export function Settings() {
               onChange={(e) => updateOrderSettings({ transactionFeePercent: Math.max(0, parseFloat(e.target.value) || 0) })}
               className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                        text-white focus:outline-none focus:border-indigo-500"
-              placeholder="z.B. 0.25"
+              placeholder="e.g. 0.25"
             />
-            <p className="text-xs text-gray-500 mt-1">Prozent des Ordervolumens (z.B. 0,25%)</p>
+            <p className="text-xs text-gray-500 mt-1">Percent of order volume (e.g., 0.25%)</p>
           </div>
         </div>
 
         {/* Preview */}
         <div className="bg-[#252542] rounded-lg p-4">
-          <p className="text-sm text-gray-400">Beispielrechnung für eine Order über 1.000 €:</p>
+          <p className="text-sm text-gray-400">Example calculation for a €1,000 order:</p>
           <p className="text-sm text-white mt-1">
-            Fixe Gebühr: {(orderSettings.transactionFeeFlat || 0).toFixed(2)} € + 
-            Prozentuale Gebühr: {(1000 * (orderSettings.transactionFeePercent || 0) / 100).toFixed(2)} € = {' '}
+            Fixed Fee: {(orderSettings.transactionFeeFlat || 0).toFixed(2)} € + 
+            Percentage Fee: {(1000 * (orderSettings.transactionFeePercent || 0) / 100).toFixed(2)} € = {' '}
             <span className="font-bold text-indigo-400">
-              {((orderSettings.transactionFeeFlat || 0) + 1000 * (orderSettings.transactionFeePercent || 0) / 100).toFixed(2)} € Gesamtgebühren
+              {((orderSettings.transactionFeeFlat || 0) + 1000 * (orderSettings.transactionFeePercent || 0) / 100).toFixed(2)} € Total Fees
             </span>
           </p>
         </div>
@@ -475,13 +536,13 @@ export function Settings() {
       <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-6">
         <h2 className="text-xl font-semibold text-white flex items-center gap-2">
           <Key size={20} className="text-indigo-500" />
-          API-Schlüssel & KI-Anbieter
+          API Keys & AI Provider
         </h2>
 
         {/* AI Provider Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            KI-Anbieter auswählen
+            Select AI Provider
           </label>
           <div className="flex gap-4">
             {(['gemini', 'claude', 'openai'] as AIProvider[]).map((provider) => (
@@ -502,24 +563,23 @@ export function Settings() {
           </div>
           <p className="text-xs text-gray-500 mt-2">
             {settings.aiProvider === 'claude' 
-              ? 'Claude bietet exzellente Analysefähigkeiten und ist gut für detaillierte Finanzanalysen.'
+              ? 'Claude offers excellent analysis capabilities and is ideal for detailed financial analyses.'
               : settings.aiProvider === 'gemini'
-              ? '🆓 Gemini bietet einen kostenlosen API-Key – ideal zum Einstieg! Hol dir deinen Key auf ai.google.dev'
-              : 'OpenAI liefert strukturierte JSON-Antworten für Finanzanalysen.'}
+              ? '🆓 Gemini offers a free API key – perfect for getting started! Get your key at ai.google.dev'
+              : 'OpenAI provides structured JSON responses for financial analysis.'}
           </p>
         </div>
 
         {/* Model Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            KI-Modell auswählen
+            Select AI Model
           </label>
           {settings.aiProvider === 'claude' ? (
             <div className="flex gap-3 flex-wrap">
-              {([
-                { value: 'claude-opus-4-6' as ClaudeModel, label: '🔮 Claude Opus 4.6', desc: 'Beste Qualität (neuestes Modell)' },
-                { value: 'claude-sonnet-4-6' as ClaudeModel, label: '🟣 Claude Sonnet 4.6', desc: 'Schnell & intelligent' },
-                { value: 'claude-haiku-4-5-20251001' as ClaudeModel, label: '⚡ Claude Haiku 4.5', desc: 'Am schnellsten' },
+              {([                { value: 'claude-opus-4-6' as ClaudeModel, label: '🔮 Claude Opus 4.6', desc: 'Best quality (latest model)' },
+                { value: 'claude-sonnet-4-6' as ClaudeModel, label: '🟣 Claude Sonnet 4.6', desc: 'Fast & intelligent' },
+                { value: 'claude-haiku-4-5-20251001' as ClaudeModel, label: '⚡ Claude Haiku 4.5', desc: 'Fastest' },
               ]).map((model) => (
                 <button
                   key={model.value}
@@ -538,9 +598,9 @@ export function Settings() {
           ) : settings.aiProvider === 'gemini' ? (
             <div className="flex gap-3 flex-wrap">
               {([
-                { value: 'gemini-2.5-flash' as GeminiModel, label: '⚡ Gemini 2.5 Flash', desc: 'Schnell & kostenlos' },
-                { value: 'gemini-2.5-pro' as GeminiModel, label: '🔵 Gemini 2.5 Pro', desc: 'Leistungsstärkstes Modell' },
-                { value: 'gemini-2.5-flash-lite' as GeminiModel, label: '💨 Gemini 2.5 Flash-Lite', desc: 'Am günstigsten & schnellsten' },
+                { value: 'gemini-2.5-flash' as GeminiModel, label: '⚡ Gemini 2.5 Flash', desc: 'Fast & free' },
+                { value: 'gemini-2.5-pro' as GeminiModel, label: '🔵 Gemini 2.5 Pro', desc: 'Most powerful model' },
+                { value: 'gemini-2.5-flash-lite' as GeminiModel, label: '💨 Gemini 2.5 Flash-Lite', desc: 'Cheapest & fastest' },
               ]).map((model) => (
                 <button
                   key={model.value}
@@ -559,9 +619,9 @@ export function Settings() {
           ) : (
             <div className="flex gap-3 flex-wrap">
               {([
-                { value: 'gpt-5.4' as OpenAIModel, label: '🟢 GPT-5.4', desc: 'Beste Qualität (neuestes Modell)' },
-                { value: 'gpt-5.4-mini' as OpenAIModel, label: '🟡 GPT-5.4 Mini', desc: 'Schnell & günstig' },
-                { value: 'gpt-5.4-nano' as OpenAIModel, label: '⚪ GPT-5.4 Nano', desc: 'Am günstigsten' },
+                { value: 'gpt-5.4' as OpenAIModel, label: '🟢 GPT-5.4', desc: 'Best quality (latest model)' },
+                { value: 'gpt-5.4-mini' as OpenAIModel, label: '🟡 GPT-5.4 Mini', desc: 'Fast & inexpensive' },
+                { value: 'gpt-5.4-nano' as OpenAIModel, label: '⚪ GPT-5.4 Nano', desc: 'Most inexpensive' },
               ]).map((model) => (
                 <button
                   key={model.value}
@@ -583,8 +643,8 @@ export function Settings() {
         {/* Claude API Key */}
         <div className={settings.aiProvider !== 'claude' ? 'opacity-50' : ''}>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            Claude API-Schlüssel (Anthropic)
-            {settings.aiProvider === 'claude' && <span className="text-indigo-400 ml-2">• Aktiv</span>}
+            Claude API Key (Anthropic)
+            {settings.aiProvider === 'claude' && <span className="text-indigo-400 ml-2">• Active</span>}
           </label>
           <input
             type="password"
@@ -597,7 +657,7 @@ export function Settings() {
                      text-white focus:outline-none focus:border-indigo-500"
           />
           <p className="text-xs text-gray-500 mt-2">
-            Erhalte deinen API-Key auf{' '}
+            Get your API key at{' '}
             <a 
               href="https://console.anthropic.com" 
               target="_blank" 
@@ -612,8 +672,8 @@ export function Settings() {
         {/* Gemini API Key */}
         <div className={settings.aiProvider !== 'gemini' ? 'opacity-50' : ''}>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            Gemini API-Schlüssel (Google)
-            {settings.aiProvider === 'gemini' && <span className="text-blue-400 ml-2">• Aktiv</span>}
+            Gemini API Key (Google)
+            {settings.aiProvider === 'gemini' && <span className="text-blue-400 ml-2">• Active</span>}
           </label>
           <input
             type="password"
@@ -626,7 +686,7 @@ export function Settings() {
                      text-white focus:outline-none focus:border-indigo-500"
           />
           <p className="text-xs text-gray-500 mt-2">
-            🆓 Kostenloser API-Key auf{' '}
+            🆓 Free API key at{' '}
             <a 
               href="https://aistudio.google.com/apikey" 
               target="_blank" 
@@ -635,15 +695,15 @@ export function Settings() {
             >
               aistudio.google.com/apikey
             </a>
-            {' '}– Ideal zum Starten ohne Kosten!
+            {' '}– Perfect for getting started without costs!
           </p>
         </div>
 
         {/* OpenAI API Key */}
         <div className={settings.aiProvider !== 'openai' ? 'opacity-50' : ''}>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            OpenAI API-Schlüssel
-            {settings.aiProvider === 'openai' && <span className="text-green-400 ml-2">• Aktiv</span>}
+            OpenAI API Key
+            {settings.aiProvider === 'openai' && <span className="text-green-400 ml-2">• Active</span>}
           </label>
           <input
             type="password"
@@ -656,7 +716,7 @@ export function Settings() {
                      text-white focus:outline-none focus:border-indigo-500"
           />
           <p className="text-xs text-gray-500 mt-2">
-            Erhalte deinen API-Key auf{' '}
+            Get your API key at{' '}
             <a 
               href="https://platform.openai.com/api-keys" 
               target="_blank" 
@@ -668,12 +728,12 @@ export function Settings() {
           </p>
         </div>
 
-        {/* Finnhub API Key (für Live-News) */}
+        {/* Finnhub API Key (for live news) */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            Finnhub API-Schlüssel
-            <span className="text-gray-500 ml-2 font-normal">(optional – für Live-News)</span>
-            {settings.apiKeys.marketData && <span className="text-green-400 ml-2">• Konfiguriert</span>}
+            Finnhub API Key
+            <span className="text-gray-500 ml-2 font-normal">(optional – for live news)</span>
+            {settings.apiKeys.marketData && <span className="text-green-400 ml-2">• Configured</span>}
           </label>
           <input
             type="password"
@@ -686,7 +746,7 @@ export function Settings() {
                      text-white focus:outline-none focus:border-indigo-500"
           />
           <p className="text-xs text-gray-500 mt-2">
-            Finnhub liefert Live-News für Makro- & Geopolitik-Kontext in der KI-Analyse. Ohne diesen Key nutzt die App Yahoo Finance News (eingeschränkt). Kostenlos auf{' '}
+            Finnhub provides live news for macro & geopolitics context in AI analysis. Without this key the app uses Yahoo Finance News (limited). Free at{' '}
             <a 
               href="https://finnhub.io/register" 
               target="_blank" 
@@ -699,29 +759,117 @@ export function Settings() {
         </div>
       </section>
 
-      {/* KI-Gedächtnis */}
+      {/* Alpaca Paper Trading */}
+      <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-4">
+        <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+          <Zap size={20} className="text-yellow-400" />
+          Alpaca Paper Trading
+        </h2>
+        <p className="text-gray-400 text-sm">
+          Verbinde Vestia mit einem Alpaca Paper-Trading-Konto. Ausgeführte Orders werden parallel an Alpaca übermittelt – das interne Portfolio bleibt die primäre Datenquelle.
+        </p>
+
+        {/* Enable toggle */}
+        <div className="flex items-center justify-between">
+          <span className="text-gray-300 text-sm font-medium">Alpaca aktivieren</span>
+          <button
+            onClick={() => updateAlpacaSettings({ enabled: !alpacaSettings.enabled })}
+            className={`relative w-12 h-6 rounded-full transition-colors ${alpacaSettings.enabled ? 'bg-yellow-500' : 'bg-gray-600'}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${alpacaSettings.enabled ? 'translate-x-6' : ''}`} />
+          </button>
+        </div>
+
+        {/* API Key ID */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            API Key ID
+            {settings.apiKeys.alpacaKeyId && <span className="text-green-400 ml-2">• Konfiguriert</span>}
+          </label>
+          <input
+            type="password"
+            value={settings.apiKeys.alpacaKeyId}
+            onChange={(e) => updateSettings({ apiKeys: { ...settings.apiKeys, alpacaKeyId: e.target.value } })}
+            placeholder="PK..."
+            className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                     text-white focus:outline-none focus:border-yellow-500"
+          />
+        </div>
+
+        {/* API Secret */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            API Secret Key
+          </label>
+          <input
+            type="password"
+            value={settings.apiKeys.alpacaKeySecret}
+            onChange={(e) => updateSettings({ apiKeys: { ...settings.apiKeys, alpacaKeySecret: e.target.value } })}
+            placeholder="Secret..."
+            className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
+                     text-white focus:outline-none focus:border-yellow-500"
+          />
+          <p className="text-xs text-gray-500 mt-2">
+            Paper-Trading-Keys unter{' '}
+            <a
+              href="https://app.alpaca.markets/paper/dashboard/overview"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-yellow-400 hover:underline"
+            >
+              app.alpaca.markets → Paper Dashboard
+            </a>{' '}
+            (API Keys → Generate New Key).
+          </p>
+        </div>
+
+        {/* Connection test */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={testAlpaca}
+            disabled={testingAlpaca || !settings.apiKeys.alpacaKeyId || !settings.apiKeys.alpacaKeySecret}
+            className="flex items-center gap-2 px-4 py-2 bg-yellow-600/20 hover:bg-yellow-600/30 
+                     border border-yellow-600/40 rounded-lg text-yellow-300 text-sm transition-colors
+                     disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {testingAlpaca ? (
+              <span className="animate-spin text-base">⟳</span>
+            ) : (
+              <Zap size={16} />
+            )}
+            Verbindung testen
+          </button>
+          {alpacaTestResult && (
+            <span className={`text-sm ${alpacaTestResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {alpacaTestResult.ok ? '✓' : '✗'} {alpacaTestResult.info}
+            </span>
+          )}
+        </div>
+      </section>
+
+      {/* AI Memory */}
       <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-4">
         <h2 className="text-xl font-semibold text-white flex items-center gap-2">
           <Brain size={20} className="text-purple-500" />
-          KI-Gedächtnis
+          AI Memory
         </h2>
         <p className="text-gray-400 text-sm">
-          Die KI merkt sich die letzten {analysisHistory.length > 0 ? analysisHistory.length : 0} Analysen, um Veränderungen zu erkennen und bessere Empfehlungen zu geben.
-          Wenn du von vorne anfangen möchtest, kannst du das Gedächtnis hier löschen.
+          The AI remembers the last {analysisHistory.length > 0 ? analysisHistory.length : 0} analyses to recognize changes and provide better recommendations.
+          If you want to start fresh, you can clear the memory here.
         </p>
         {analysisHistory.length > 0 && (
           <div className="bg-[#252542] rounded-lg p-3 space-y-1">
             {analysisHistory.map((entry, i) => (
               <div key={entry.id || i} className="text-xs text-gray-400 flex justify-between">
-                <span>{new Date(entry.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                <span className="text-gray-500">{entry.watchlistSymbols?.length || 0} Aktien · {entry.aiProvider}</span>
+                <span>{new Date(entry.date).toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                <span className="text-gray-500">{entry.watchlistSymbols?.length || 0} stocks · {entry.aiProvider}</span>
               </div>
             ))}
           </div>
         )}
         <button
           onClick={() => {
-            if (window.confirm('KI-Gedächtnis wirklich löschen? Die KI startet dann ohne Kontext aus vorherigen Analysen.')) {
+            if (window.confirm('Really clear AI memory? The AI will then start without context from previous analyses.')) {
               clearAnalysisHistory();
               setLastAnalysis(null);
             }
@@ -731,7 +879,7 @@ export function Settings() {
                    text-red-400 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <Trash2 size={18} />
-          KI-Gedächtnis löschen ({analysisHistory.length} Einträge)
+          Clear AI Memory ({analysisHistory.length} entries)
         </button>
       </section>
 
@@ -740,10 +888,10 @@ export function Settings() {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-white flex items-center gap-2">
             <Send size={20} className="text-indigo-500" />
-            Telegram Benachrichtigungen
+            Telegram Notifications
           </h2>
           <div className="flex items-center gap-2">
-            <span className="text-gray-300 text-sm">Aktiviert</span>
+            <span className="text-gray-300 text-sm">Enabled</span>
             <button
               onClick={() => updateSettings({
                 notifications: {
@@ -809,24 +957,24 @@ export function Settings() {
             className="px-4 py-2 bg-[#252542] hover:bg-[#3a3a5a] disabled:opacity-50 
                      text-white rounded-lg transition-colors flex items-center gap-2"
           >
-            {testing ? 'Teste...' : 'Verbindung testen'}
+            {testing ? 'Testing...' : 'Test connection'}
           </button>
           {testResult === 'success' && (
             <span className="text-green-500 flex items-center gap-1">
-              <Check size={16} /> Erfolgreich!
+              <Check size={16} /> Successful!
             </span>
           )}
           {testResult === 'error' && (
             <span className="text-red-500 flex items-center gap-1">
-              <AlertCircle size={16} /> Fehlgeschlagen
+              <AlertCircle size={16} /> Failed
             </span>
           )}
         </div>
 
         <p className="text-xs text-gray-500">
-          1. Erstelle einen Bot via @BotFather auf Telegram<br />
-          2. Sende eine Nachricht an deinen Bot<br />
-          3. Hole deine Chat-ID via @userinfobot
+          1. Create a bot via @BotFather on Telegram<br />
+          2. Send a message to your bot<br />
+          3. Get your chat ID via @userinfobot
         </p>
       </section>
 
@@ -835,10 +983,10 @@ export function Settings() {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-white flex items-center gap-2">
             <Mail size={20} className="text-indigo-500" />
-            E-Mail Benachrichtigungen (EmailJS)
+            Email Notifications (EmailJS)
           </h2>
           <div className="flex items-center gap-2">
-            <span className="text-gray-300 text-sm">Aktiviert</span>
+            <span className="text-gray-300 text-sm">Enabled</span>
             <button
               onClick={() => updateSettings({
                 notifications: {
@@ -860,7 +1008,7 @@ export function Settings() {
 
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            E-Mail Adresse (Empfänger)
+            Email Address (Recipient)
           </label>
           <input
             type="email"
@@ -871,7 +1019,7 @@ export function Settings() {
                 email: { ...settings.notifications.email, address: e.target.value }
               }
             })}
-            placeholder="deine@email.de"
+            placeholder="your@email.com"
             className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                      text-white focus:outline-none focus:border-indigo-500"
           />
@@ -944,31 +1092,31 @@ export function Settings() {
           {testingEmail ? (
             <>
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Teste Verbindung...
+              Testing connection...
             </>
           ) : emailTestResult === 'success' ? (
             <>
               <Check size={20} className="text-green-400" />
-              E-Mail erfolgreich gesendet!
+              Email sent successfully!
             </>
           ) : emailTestResult === 'error' ? (
             <>
               <AlertCircle size={20} className="text-red-400" />
-              Fehler - Prüfe deine Einstellungen
+              Error - Check your settings
             </>
           ) : (
             <>
               <Send size={20} />
-              Test E-Mail senden
+              Send Test Email
             </>
           )}
         </button>
 
         <p className="text-xs text-gray-500">
-          1. Erstelle einen Account auf emailjs.com<br />
-          2. Verbinde deinen E-Mail Dienst (Gmail, Outlook, etc.)<br />
-          3. Erstelle ein Template mit diesen Variablen: to_email, subject, stock_name, stock_symbol, signal_type, price, change, confidence, risk_level, reasoning, target_price, stop_loss, date<br />
-          4. Kopiere Service ID, Template ID und Public Key hierher
+          1. Create an account at emailjs.com<br />
+          2. Connect your email service (Gmail, Outlook, etc.)<br />
+          3. Create a template with these variables: to_email, subject, stock_name, stock_symbol, signal_type, price, change, confidence, risk_level, reasoning, target_price, stop_loss, date<br />
+          4. Copy Service ID, Template ID and Public Key here
         </p>
       </section>
 
@@ -976,23 +1124,23 @@ export function Settings() {
       <section className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542] space-y-4">
         <h2 className="text-xl font-semibold text-white flex items-center gap-2">
           <Download size={20} className="text-indigo-500" />
-          Backup & Wiederherstellung
+          Backup & Restore
         </h2>
         
         <p className="text-gray-400 text-sm">
-          Exportiere <strong className="text-gray-300">alle</strong> deine Daten als JSON-Datei zum Backup oder zum Übertragen auf ein anderes Gerät:
+          Export <strong className="text-gray-300">all</strong> your data as JSON file for backup or to transfer to another device:
         </p>
         <div className="text-xs text-gray-500 grid grid-cols-2 gap-1">
-          <span>• Einstellungen & API-Keys</span>
-          <span>• Cash-Bestand & Startkapital</span>
-          <span>• Portfolio-Positionen</span>
-          <span>• Vorherige Gewinne/Verluste</span>
-          <span>• Watchlist & Preisalarme</span>
-          <span>• Signale & Orders</span>
-          <span>• KI-Analyse & Gedächtnis</span>
-          <span>• Autopilot-Konfiguration</span>
-          <span>• Transaktionsgebühren</span>
-          <span>• Custom Prompt</span>
+          <span>• Settings & API Keys</span>
+          <span>• Cash balance & Initial capital</span>
+          <span>• Portfolio positions</span>
+          <span>• Previous profits/losses</span>
+          <span>• Watchlist & Price alerts</span>
+          <span>• Signals & Orders</span>
+          <span>• AI analysis & Memory</span>
+          <span>• Autopilot configuration</span>
+          <span>• Transaction fees</span>
+          <span>• Custom prompt</span>
         </div>
 
         <div className="flex flex-wrap gap-4">
@@ -1002,13 +1150,13 @@ export function Settings() {
                      text-white rounded-lg transition-colors"
           >
             <Download size={18} />
-            Daten exportieren (JSON)
+            Export Data (JSON)
           </button>
 
           <label className="flex items-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 
                           text-white rounded-lg transition-colors cursor-pointer">
             <Upload size={18} />
-            Backup importieren
+            Import Backup
             <input
               ref={fileInputRef}
               type="file"
@@ -1023,7 +1171,7 @@ export function Settings() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-green-500 text-sm font-medium">
               <Check size={16} />
-              Import erfolgreich! Folgende Daten wurden wiederhergestellt:
+              Import successful! The following data was restored:
             </div>
             {importSummary.length > 0 && (
               <div className="bg-[#252542] rounded-lg p-3 space-y-1">
@@ -1037,7 +1185,7 @@ export function Settings() {
         {importStatus === 'error' && (
           <div className="flex items-center gap-2 text-red-500 text-sm">
             <AlertCircle size={16} />
-            Import fehlgeschlagen. Bitte prüfe die Datei.
+            Import failed. Please check the file.
           </div>
         )}
       </section>
@@ -1051,12 +1199,12 @@ export function Settings() {
         {saved ? (
           <>
             <Check size={20} />
-            Gespeichert!
+            Saved!
           </>
         ) : (
           <>
             <Save size={20} />
-            Einstellungen speichern
+            Save Settings
           </>
         )}
       </button>

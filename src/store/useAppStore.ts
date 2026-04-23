@@ -13,32 +13,33 @@ import type {
   Order,
   OrderSettings,
   AutopilotSettings,
+  AlpacaSettings,
   AutopilotLogEntry,
   AutopilotState,
   TaxTransaction,
   TradeHistoryEntry,
 } from '../types';
 
-// Migration: Alte Daten zu session-spezifischem Key übernehmen.
-// Reihenfolge: ai-invest-storage → vestia-storage → vestia-storage-{sessionId}
-// Die Session-Migration (vestia-storage → session-Key) läuft bereits in utils/session.ts
-// MUSS vor der Store-Erstellung laufen, sonst überschreibt Zustand mit Defaults!
+// Migration: Transfer old data to session-specific key.
+// Order: ai-invest-storage → vestia-storage → vestia-storage-{sessionId}
+// Session migration (vestia-storage → session-key) already runs in utils/session.ts
+// MUST run before store creation, otherwise state gets overwritten with defaults!
 (() => {
   try {
     const oldKey = 'ai-invest-storage';
     const sessionKey = getStorageKey();
     const oldData = localStorage.getItem(oldKey);
     if (oldData && !localStorage.getItem(sessionKey)) {
-      // Uralte Daten direkt zum Session-Key migrieren
+      // Migrate old data directly to session key
       localStorage.setItem(sessionKey, oldData);
       localStorage.removeItem(oldKey);
-      console.log('[Vestia] Daten von ai-invest-storage migriert → ' + sessionKey);
+      console.log('[Vestia] Data migrated from ai-invest-storage → ' + sessionKey);
     } else if (oldData) {
-      // Altes Key aufräumen wenn Session-Key schon existiert
+      // Clean up old key if session key already exists
       localStorage.removeItem(oldKey);
     }
   } catch (e) {
-    console.error('[Vestia] Migration fehlgeschlagen:', e);
+    console.error('[Vestia] Migration failed:', e);
   }
 })();
 
@@ -58,7 +59,7 @@ interface AppState {
   addPortfolio: (portfolio: Portfolio) => void;
   setActivePortfolio: (id: string) => void;
   
-  // User Positions (eigene Aktien)
+  // User Positions (own stocks)
   userPositions: UserPosition[];
   addUserPosition: (position: UserPosition) => void;
   updateUserPosition: (id: string, updates: Partial<UserPosition>) => void;
@@ -88,6 +89,7 @@ interface AppState {
   orders: Order[];
   orderSettings: OrderSettings;
   addOrder: (order: Order) => void;
+  restoreOrder: (order: Order) => void;
   removeOrder: (id: string) => void;
   cancelOrder: (id: string) => void;
   confirmOrder: (id: string) => void;
@@ -105,7 +107,7 @@ interface AppState {
   setAnalyzing: (analyzing: boolean) => void;
   setAnalysisProgress: (progress: { step: string; detail: string; percent: number } | null) => void;
 
-  // Dashboard Analysis (separat vom Portfolio-Analyse-Text)
+  // Dashboard Analysis (separate from Portfolio Analysis text)
   dashboardAnalysisSummary: string | null;
   dashboardAnalysisDate: string | null;
   isDashboardAnalyzing: boolean;
@@ -133,13 +135,17 @@ interface AppState {
   updateAutopilotState: (state: Partial<AutopilotState>) => void;
   resetAutopilotState: () => void;
 
-  // Tax Transactions (realisierte Gewinne/Verluste)
+  // Alpaca
+  alpacaSettings: AlpacaSettings;
+  updateAlpacaSettings: (settings: Partial<AlpacaSettings>) => void;
+
+  // Tax transactions (realized gains/losses)
   taxTransactions: TaxTransaction[];
   addTaxTransaction: (tx: TaxTransaction) => void;
   removeTaxTransaction: (id: string) => void;
   clearTaxTransactions: () => void;
 
-  // Trade History (direkte Portfolio-Käufe/Verkäufe)
+  // Trade History (direct portfolio purchases/sales)
   tradeHistory: TradeHistoryEntry[];
   addTradeHistory: (entry: TradeHistoryEntry) => void;
   clearTradeHistory: () => void;
@@ -169,12 +175,15 @@ const defaultSettings: UserSettings = {
     openai: '',
     gemini: '',
     marketData: '',
+    alpacaKeyId: '',
+    alpacaKeySecret: '',
   },
   aiProvider: 'gemini',
   claudeModel: 'claude-opus-4-6',
   openaiModel: 'gpt-5.4',
   geminiModel: 'gemini-2.5-flash',
   customPrompt: '',
+  aiLanguage: 'en',
 };
 
 const API_KEYS_SESSION_KEY = 'vestia-api-keys-session';
@@ -185,6 +194,8 @@ function getEmptyApiKeys(): UserSettings['apiKeys'] {
     openai: '',
     gemini: '',
     marketData: '',
+    alpacaKeyId: '',
+    alpacaKeySecret: '',
   };
 }
 
@@ -195,6 +206,8 @@ function normalizeApiKeys(apiKeys?: Partial<UserSettings['apiKeys']>): UserSetti
     openai: typeof apiKeys?.openai === 'string' ? apiKeys.openai : empty.openai,
     gemini: typeof apiKeys?.gemini === 'string' ? apiKeys.gemini : empty.gemini,
     marketData: typeof apiKeys?.marketData === 'string' ? apiKeys.marketData : empty.marketData,
+    alpacaKeyId: typeof apiKeys?.alpacaKeyId === 'string' ? apiKeys.alpacaKeyId : empty.alpacaKeyId,
+    alpacaKeySecret: typeof apiKeys?.alpacaKeySecret === 'string' ? apiKeys.alpacaKeySecret : empty.alpacaKeySecret,
   };
 }
 
@@ -211,7 +224,7 @@ function readApiKeysFromSessionStorage(): UserSettings['apiKeys'] {
     const parsed = JSON.parse(raw) as Partial<UserSettings['apiKeys']>;
     return normalizeApiKeys(parsed);
   } catch (e) {
-    console.warn('[Vestia] Session-API-Keys konnten nicht gelesen werden:', e);
+    console.warn('[Vestia] Session API keys could not be read:', e);
     return getEmptyApiKeys();
   }
 }
@@ -221,7 +234,7 @@ function writeApiKeysToSessionStorage(apiKeys: Partial<UserSettings['apiKeys']>)
   try {
     sessionStorage.setItem(API_KEYS_SESSION_KEY, JSON.stringify(normalizeApiKeys(apiKeys)));
   } catch (e) {
-    console.warn('[Vestia] Session-API-Keys konnten nicht gespeichert werden:', e);
+    console.warn('[Vestia] Session API keys could not be saved:', e);
   }
 }
 
@@ -335,16 +348,28 @@ export const useAppStore = create<AppState>()(
       orders: [],
       orderSettings: { autoExecute: false, checkIntervalSeconds: 30, transactionFeeFlat: 0, transactionFeePercent: 0 },
       addOrder: (order) => {
-        // Duplikat-Check über zentrale Funktion
+        // Duplicate check via central function
         const result = checkDuplicateOrder(order);
         if (!result.ok) {
-          console.warn(`[Vestia] Order abgelehnt: ${result.reason}`);
+          console.warn(`[Vestia] Order rejected: ${result.reason}`);
           return;
         }
         set((state) => ({
           orders: [...state.orders, order],
         }));
       },
+      restoreOrder: (order) =>
+        set((state) => {
+          const exists = state.orders.some((o) => o.id === order.id);
+          if (exists) {
+            return {
+              orders: state.orders.map((o) => (o.id === order.id ? order : o)),
+            };
+          }
+          return {
+            orders: [...state.orders, order],
+          };
+        }),
       removeOrder: (id) =>
         set((state) => ({
           orders: state.orders.filter((o) => o.id !== id),
@@ -366,9 +391,9 @@ export const useAppStore = create<AppState>()(
           const order = state.orders.find((o) => o.id === id);
           if (!order || (order.status !== 'active' && order.status !== 'pending')) return state;
 
-          // SICHERHEITS-CHECK: Trigger-Bedingung validieren
-          // Verhindert, dass Orders zu einem ungünstigen Preis ausgeführt werden
-          // (z.B. Stop-Loss bei 210€ soll NICHT bei 227€ auslösen)
+          // SECURITY CHECK: Validate trigger condition
+          // Prevents orders from being executed at an unfavorable price
+          // (e.g. stop-loss at 210€ should NOT trigger at 227€)
           let triggerConditionMet = true;
           switch (order.orderType) {
             case 'limit-buy':
@@ -385,27 +410,27 @@ export const useAppStore = create<AppState>()(
               break;
           }
           if (!triggerConditionMet) {
-            console.warn(`[executeOrder] ⛔ Trigger-Bedingung NICHT erfüllt für ${order.symbol} (${order.orderType}): Preis ${executedPrice.toFixed(2)}€, Trigger ${order.triggerPrice.toFixed(2)}€ – Ausführung verhindert.`);
+            console.warn(`[executeOrder] ⛔ Trigger condition NOT met for ${order.symbol} (${order.orderType}): Price ${executedPrice.toFixed(2)}€, Trigger ${order.triggerPrice.toFixed(2)}€ – Execution prevented.`);
             return state;
           }
 
           const totalCost = executedPrice * order.quantity;
-          // Transaktionsgebühren berechnen
+          // Calculate transaction fees
           const fee = (state.orderSettings.transactionFeeFlat || 0) + totalCost * (state.orderSettings.transactionFeePercent || 0) / 100;
           let newCashBalance = state.cashBalance;
           let newPositions = [...state.userPositions];
 
           if (order.orderType === 'limit-buy' || order.orderType === 'stop-buy') {
-            // Cash-Guard: Genug Cash für Kauf (inkl. Gebühren)?
+            // Cash-Guard: Enough cash for purchase (incl. fees)?
             if (totalCost + fee > state.cashBalance) {
-              console.warn(`[executeOrder] Nicht genug Cash für ${order.symbol}: Benötigt ${(totalCost + fee).toFixed(2)}, Verfügbar ${state.cashBalance.toFixed(2)}`);
+              console.warn(`[executeOrder] Not enough cash for ${order.symbol}: Required ${(totalCost + fee).toFixed(2)}, Available ${state.cashBalance.toFixed(2)}`);
               return {
                 orders: state.orders.map((o) =>
-                  o.id === id ? { ...o, status: 'cancelled' as const, note: (o.note || '') + ' ❌ Storniert: Nicht genug Cash' } : o
+                  o.id === id ? { ...o, status: 'cancelled' as const, note: (o.note || '') + ' ❌ Cancelled: Not enough cash' } : o
                 ),
               };
             }
-            // Kauf: Cash reduzieren (inkl. Gebühren), Position hinzufügen/erweitern
+            // Purchase: Reduce cash (incl. fees), add/extend position
             newCashBalance -= totalCost + fee;
             const existingPos = findCompatibleSymbolMatch(order.symbol, newPositions, (item) => item.symbol);
             if (existingPos) {
@@ -429,23 +454,23 @@ export const useAppStore = create<AppState>()(
               });
             }
           } else {
-            // Verkauf: Cash erhöhen (abzgl. Gebühren), Position reduzieren/entfernen
+            // Sale: Increase cash (minus fees), reduce/remove position
             const existingPos = findCompatibleSymbolMatch(order.symbol, newPositions, (item) => item.symbol);
-            // Guard: Genug Aktien für Verkauf?
+            // Guard: Enough shares for sale?
             if (!existingPos || existingPos.quantity < order.quantity) {
-              console.warn(`[executeOrder] Nicht genug Aktien für ${order.symbol}: Benötigt ${order.quantity}, Verfügbar ${existingPos?.quantity ?? 0}`);
+              console.warn(`[executeOrder] Not enough shares for ${order.symbol}: Required ${order.quantity}, Available ${existingPos?.quantity ?? 0}`);
               return {
                 orders: state.orders.map((o) =>
-                  o.id === id ? { ...o, status: 'cancelled' as const, note: (o.note || '') + ' ❌ Storniert: Nicht genug Aktien' } : o
+                  o.id === id ? { ...o, status: 'cancelled' as const, note: (o.note || '') + ' ❌ Cancelled: Not enough shares' } : o
                 ),
               };
             }
             newCashBalance += totalCost - fee;
 
-            // Steuer-Transaktion erfassen
+            // Record tax transaction
             const sellDate = new Date();
             
-            // Kaufdatum ermitteln: Aus ausgeführten Buy-Orders nachschlagen
+            // Determine purchase date: Look up from executed buy orders
             let buyDate: Date | null = null;
             const executedBuyOrders = state.orders
               .filter(o => o.status === 'executed'
@@ -468,14 +493,14 @@ export const useAppStore = create<AppState>()(
               }
             }
             
-            // Letzter Fallback: Order-Erstellungsdatum
+            // Last fallback: Order creation date
             if (!buyDate) {
               buyDate = new Date(order.createdAt);
             }
             
             const holdingDays = Math.floor((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24));
             const gainLoss = (executedPrice - existingPos.buyPrice) * order.quantity - fee;
-            const taxFree = holdingDays >= 183; // ~6 Monate
+            const taxFree = holdingDays >= 183; // ~6 months
             const taxTx: TaxTransaction = {
               id: crypto.randomUUID(),
               symbol: order.symbol,
@@ -625,7 +650,7 @@ export const useAppStore = create<AppState>()(
         })),
       addAutopilotLog: (entry) =>
         set((state) => ({
-          autopilotLog: [entry, ...state.autopilotLog].slice(0, 200), // Max 200 Einträge
+          autopilotLog: [entry, ...state.autopilotLog].slice(0, 200), // Max 200 entries
         })),
       clearAutopilotLog: () => set({ autopilotLog: [] }),
       updateAutopilotState: (newState) =>
@@ -644,6 +669,16 @@ export const useAppStore = create<AppState>()(
           },
         }),
 
+      // Alpaca
+      alpacaSettings: {
+        enabled: false,
+        paper: true,
+      },
+      updateAlpacaSettings: (newSettings) =>
+        set((state) => ({
+          alpacaSettings: { ...state.alpacaSettings, ...newSettings },
+        })),
+
       // Tax Transactions
       taxTransactions: [],
       addTaxTransaction: (tx) =>
@@ -660,7 +695,7 @@ export const useAppStore = create<AppState>()(
       tradeHistory: [],
       addTradeHistory: (entry) =>
         set((state) => ({
-          tradeHistory: [entry, ...state.tradeHistory].slice(0, 500), // Max 500 Einträge
+          tradeHistory: [entry, ...state.tradeHistory].slice(0, 500), // Max 500 entries
         })),
       clearTradeHistory: () => set({ tradeHistory: [] }),
     }),
@@ -668,17 +703,17 @@ export const useAppStore = create<AppState>()(
       name: getStorageKey(),
       onRehydrateStorage: () => (state, error) => {
         if (error) {
-          console.error('[Vestia] Rehydrate fehlgeschlagen:', error);
+          console.error('[Vestia] Rehydrate failed:', error);
           return;
         }
         if (!state) return;
 
-        // Falls sessionStorage noch Keys hat (Migration von alter Variante), bevorzuge diese
+        // If sessionStorage still has keys (migration from old variant), prefer those
         const sessionApiKeys = readApiKeysFromSessionStorage();
         if (hasAnyApiKey(sessionApiKeys)) {
           state.updateSettings({ apiKeys: sessionApiKeys });
         }
-        // Ansonsten bleiben die aus localStorage rehydrierten Keys direkt erhalten
+        // Otherwise, the rehydrated keys from localStorage remain directly
       },
       partialize: (state) => ({
         settings: state.settings,
@@ -703,6 +738,7 @@ export const useAppStore = create<AppState>()(
         autopilotSettings: state.autopilotSettings,
         autopilotLog: state.autopilotLog,
         autopilotState: state.autopilotState,
+        alpacaSettings: state.alpacaSettings,
         taxTransactions: state.taxTransactions,
         tradeHistory: state.tradeHistory,
       }),
@@ -711,9 +747,9 @@ export const useAppStore = create<AppState>()(
 );
 
 /**
- * Prüft ob eine Order ein Duplikat wäre.
- * Gleiche Richtung (Buy/Sell), gleiches Symbol, ähnlicher Preis (±5%)
- * oder Sell-Menge > verfügbare Position.
+ * Checks if an order would be a duplicate.
+ * Same direction (Buy/Sell), same symbol, similar price (±5%)
+ * or sell quantity > available position.
  */
 export function checkDuplicateOrder(order: Order): { ok: boolean; reason?: string } {
   const state = useAppStore.getState();
@@ -739,7 +775,7 @@ export function checkDuplicateOrder(order: Order): { ok: boolean; reason?: strin
     const direction = isSell ? 'Sell' : 'Buy';
     return {
       ok: false,
-      reason: `Duplikat: ${direction}-Order für ${order.symbol} bei ${order.triggerPrice.toFixed(2)}€ – bereits ${duplicate.orderType.toUpperCase()} @ ${duplicate.triggerPrice.toFixed(2)}€ vorhanden (±5%)`,
+      reason: `Duplicate: ${direction}-Order for ${order.symbol} at ${order.triggerPrice.toFixed(2)}€ – already ${duplicate.orderType.toUpperCase()} @ ${duplicate.triggerPrice.toFixed(2)}€ exists (±5%)`,
     };
   }
 
@@ -749,24 +785,24 @@ export function checkDuplicateOrder(order: Order): { ok: boolean; reason?: strin
     if (position && (totalExistingSellQty + order.quantity) > position.quantity) {
       return {
         ok: false,
-        reason: `Überverkauf: Sells gesamt (${totalExistingSellQty + order.quantity}) > Position (${position.quantity}) für ${order.symbol}`,
+        reason: `Over-selling: Total sells (${totalExistingSellQty + order.quantity}) > Position (${position.quantity}) for ${order.symbol}`,
       };
     }
   }
 
   return { ok: true };
 }
-// Automatisches Backup: Alle 60s eine Sicherheitskopie unter separatem Key speichern
-// Schützt vor Datenverlust bei Storage-Key-Änderungen, Updates oder Bugs
+// Automatic backup: Save a security copy to separate key every 60s
+// Protects against data loss from storage key changes, updates or bugs
 const BACKUP_KEY = 'vestia-auto-backup';
-const BACKUP_INTERVAL = 60_000; // 60 Sekunden
+const BACKUP_INTERVAL = 60_000; // 60 seconds
 
 function saveAutoBackup() {
   try {
     const state = useAppStore.getState();
     const backup = {
       timestamp: new Date().toISOString(),
-      version: '1.10.5',
+      version: '1.11.0',
       data: {
         settings: getSettingsWithoutApiKeys(state.settings),
         portfolios: state.portfolios,
@@ -794,23 +830,23 @@ function saveAutoBackup() {
         tradeHistory: state.tradeHistory,
       },
     };
-    // Nur speichern wenn echte Daten vorhanden (nicht leerer Default-State)
+    // Only save if actual data is present (not empty default state)
     if (state.userPositions.length > 0 || state.cashBalance > 0 || state.watchlist.length > 0) {
       localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
     }
   } catch (e) {
-    console.warn('[Vestia] Auto-Backup fehlgeschlagen:', e);
+    console.warn('[Vestia] Auto-backup failed:', e);
   }
 }
 
-// Duplikat-Orders beim App-Start bereinigen (einmalig nach 3s)
+// Clean up duplicate orders at app startup (once after 3s)
 setTimeout(() => {
   try {
     const state = useAppStore.getState();
     const activeOrders = state.orders.filter(
       o => (o.status === 'active' || o.status === 'pending')
     );
-    // Gruppiere nach Symbol + Richtung
+      // Group by symbol + direction
     const groups = new Map<string, typeof activeOrders>();
     for (const o of activeOrders) {
       const isSell = o.orderType === 'limit-sell' || o.orderType === 'stop-loss';
@@ -822,7 +858,7 @@ setTimeout(() => {
     let cancelled = 0;
     for (const [, groupOrders] of groups) {
       if (groupOrders.length <= 1) continue;
-      // Sortiere: älteste zuerst
+      // Sort: oldest first
       groupOrders.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       const kept: typeof activeOrders = [];
       for (const order of groupOrders) {
@@ -840,18 +876,18 @@ setTimeout(() => {
       }
     }
     if (cancelled > 0) {
-      console.log(`[Vestia] ${cancelled} doppelte Order(s) beim Start bereinigt`);
+      console.log(`[Vestia] ${cancelled} duplicate order(s) cleaned up at startup`);
     }
   } catch (e) {
-    console.warn('[Vestia] Order-Bereinigung fehlgeschlagen:', e);
+    console.warn('[Vestia] Order cleanup failed:', e);
   }
 }, 3000);
 
-// Einmalige Migration: Bereits ausgeführte Sell-Orders als Steuertransaktionen nachimportieren
+// One-time migration: Re-import already executed sell orders as tax transactions
 setTimeout(() => {
   try {
     const state = useAppStore.getState();
-    if (state.taxTransactions.length > 0) return; // Bereits migriert oder manuell erfasst
+    if (state.taxTransactions.length > 0) return; // Already migrated or manually recorded
 
     const executedSells = state.orders.filter(
       o => o.status === 'executed' 
@@ -866,8 +902,8 @@ setTimeout(() => {
       const sellDate = new Date(o.executedAt!);
       const buyDate = new Date(o.createdAt);
       const holdingDays = Math.floor((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24));
-      // Versuche Kaufpreis aus Order-Kontext zu ermitteln (triggerPrice als Annäherung für Sell-Orders ist nicht ideal)
-      // Nutze executedPrice als Verkaufspreis, triggerPrice als Näherung
+      // Try to determine purchase price from order context (triggerPrice as approximation for sell orders is not ideal)
+      // Use executedPrice as sale price, triggerPrice as approximation
       const fee = (state.orderSettings.transactionFeeFlat || 0) + (o.executedPrice! * o.quantity) * (state.orderSettings.transactionFeePercent || 0) / 100;
       const gainLoss = (o.executedPrice! - o.triggerPrice) * o.quantity - fee;
       const taxFree = holdingDays >= 183;
@@ -877,7 +913,7 @@ setTimeout(() => {
         symbol: o.symbol,
         name: o.name,
         quantity: o.quantity,
-        buyPrice: o.triggerPrice, // Trigger-Preis als Näherung (User kann im Steuer-Tab korrigieren)
+        buyPrice: o.triggerPrice, // Trigger price as approximation (user can correct in tax tab)
         sellPrice: o.executedPrice!,
         buyDate: buyDate.toISOString(),
         sellDate: sellDate.toISOString(),
@@ -892,14 +928,14 @@ setTimeout(() => {
       useAppStore.setState((s) => ({
         taxTransactions: [...newTaxTxs, ...s.taxTransactions],
       }));
-      console.log(`[Vestia] ${newTaxTxs.length} historische Sell-Order(s) als Steuertransaktionen importiert`);
+      console.log(`[Vestia] ${newTaxTxs.length} historical sell order(s) imported as tax transactions`);
     }
   } catch (e) {
-    console.warn('[Vestia] Steuer-Migration fehlgeschlagen:', e);
+    console.warn('[Vestia] Tax migration failed:', e);
   }
 }, 4000);
 
-// Einmalige Migration: Bereits ausgeführte Orders als Trade-History nachimportieren
+// One-time migration: Re-import already executed orders as trade history
 setTimeout(() => {
   try {
     const state = useAppStore.getState();
@@ -931,7 +967,7 @@ setTimeout(() => {
     });
 
     if (newTrades.length > 0) {
-      // Sortiere nach Datum (neueste zuerst)
+      // Sort by date (newest first)
       newTrades.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       useAppStore.setState((s) => ({
         tradeHistory: [...newTrades, ...s.tradeHistory].slice(0, 500),
@@ -939,15 +975,15 @@ setTimeout(() => {
       console.log(`[Vestia] ${newTrades.length} historische Order(s) als Trade-History importiert`);
     }
   } catch (e) {
-    console.warn('[Vestia] Trade-History-Migration fehlgeschlagen:', e);
+    console.warn('[Vestia] Trade history migration failed:', e);
   }
 }, 4500);
 
-// Backup beim Start und dann alle 60s
-setTimeout(saveAutoBackup, 5000); // 5s nach Start (damit Daten geladen sind)
+// Backup on startup and then every 60s
+setTimeout(saveAutoBackup, 5000); // 5s after startup (so data is loaded)
 setInterval(saveAutoBackup, BACKUP_INTERVAL);
 
-// Notfall-Wiederherstellung: Wenn der Hauptspeicher leer ist aber ein Backup existiert
+// Emergency restoration: If main storage is empty but a backup exists
 (() => {
   try {
     const mainData = localStorage.getItem('vestia-storage');
@@ -968,14 +1004,14 @@ setInterval(saveAutoBackup, BACKUP_INTERVAL);
       })();
 
       if (!hasMainData && backup.data) {
-        console.warn('[Vestia] Hauptspeicher leer, stelle aus Auto-Backup wieder her (vom', backup.timestamp, ')');
-        // Backup in Zustand-persist Format umwandeln
+        console.warn('[Vestia] Main storage empty, restoring from auto-backup (from', backup.timestamp, ')');
+        // Convert backup to state-persist format
         const restored = { state: backup.data, version: 0 };
         localStorage.setItem('vestia-storage', JSON.stringify(restored));
         window.location.reload();
       }
     }
   } catch (e) {
-    console.error('[Vestia] Backup-Wiederherstellung fehlgeschlagen:', e);
+    console.error('[Vestia] Backup restoration failed:', e);
   }
 })();

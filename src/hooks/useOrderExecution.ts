@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
+import { createAlpacaService } from '../services/alpacaService';
 import { findCompatibleSymbolMatch } from '../utils/symbolMatching';
 
 function buildSymbolCandidates(symbols: string[]): string[] {
@@ -10,7 +11,7 @@ function buildSymbolCandidates(symbols: string[]): string[] {
     if (!symbol) continue;
     expanded.add(symbol);
     if (!symbol.includes('.')) {
-      // Viele EU-ETFs werden bei Yahoo nur mit Exchange-Suffix geliefert (z.B. EUNA.DE).
+      // Many EU ETFs at Yahoo are only available with exchange suffix (e.g., EUNA.DE).
       expanded.add(`${symbol}.DE`);
     }
   }
@@ -18,14 +19,15 @@ function buildSymbolCandidates(symbols: string[]): string[] {
 }
 
 /**
- * Hook für die automatische Ausführung von aktiven Orders.
- * Prüft regelmäßig die aktuellen Marktpreise und führt Orders aus,
- * wenn die Bedingungen erfüllt sind.
+ * Hook for automatic execution of active orders.
+ * Periodically checks current market prices and executes orders when conditions are met.
  */
 export function useOrderExecution() {
   const { 
     orders, 
-    orderSettings, 
+    orderSettings,
+    settings,
+    alpacaSettings,
     executeOrder, 
     updateOrderPrice,
     cancelOrder 
@@ -37,7 +39,7 @@ export function useOrderExecution() {
     const activeOrders = orders.filter((o) => o.status === 'active');
     if (activeOrders.length === 0) return;
 
-    // Sammle alle einzigartigen Symbole inkl. Exchange-Varianten.
+    // Collect all unique symbols including exchange variants.
     const symbols = buildSymbolCandidates(activeOrders.map((o) => o.symbol));
     
     try {
@@ -46,64 +48,82 @@ export function useOrderExecution() {
       for (const order of activeOrders) {
         const quote = findCompatibleSymbolMatch(order.symbol, quotes, (item) => item.symbol);
         if (!quote) {
-          console.warn(`[OrderExecution] Kein Live-Quote für ${order.symbol} gefunden.`);
+          console.warn(`[OrderExecution] No live quote found for ${order.symbol}.`);
           continue;
         }
 
         const currentPrice = quote.price;
 
-        // SCHUTZ 1: Keine Order-Ausführung mit Fallback/Demo-Daten
-        // Demo-Preise sind statisch und spiegeln nicht den echten Markt wider.
-        // Eine Ausführung auf Basis von Demo-Daten kann zu falschen Trades führen.
+        // SAFETY 1: No order execution with fallback/demo data
+        // Demo prices are static and don't reflect the real market.
+        // Executing based on demo data can lead to incorrect trades.
         if (quote.isFallback) {
-          console.warn(`[OrderExecution] ⚠️ Überspringe ${order.symbol}: Preis stammt aus Fallback/Demo-Daten (${currentPrice.toFixed(2)} €), keine automatische Ausführung.`);
+          console.warn(`[OrderExecution] ⚠️ Skipping ${order.symbol}: Price comes from fallback/demo data (${currentPrice.toFixed(2)} €), no auto-execution.`);
           continue;
         }
 
-        // Preis aktualisieren (auch bei Fallback ok, da nur informativ)
+        // Update price (also okay for fallback, since only informational)
         updateOrderPrice(order.id, currentPrice);
 
-        // SCHUTZ 2: Circuit-Breaker bei extremen Preissprüngen (>25%)
-        // Wenn der aktuelle Preis sich drastisch vom letzten bekannten Preis unterscheidet,
-        // könnte das auf einen API-Fehler oder fehlerhafte Daten hindeuten.
+        // SAFETY 2: Circuit-breaker for extreme price jumps (>25%)
+        // If current price differs drastically from last known price,
+        // it could indicate an API error or bad data.
         if (order.currentPrice > 0) {
           const priceChangePercent = Math.abs((currentPrice - order.currentPrice) / order.currentPrice) * 100;
           if (priceChangePercent > 25) {
-            console.warn(`[OrderExecution] ⚠️ Circuit-Breaker für ${order.symbol}: Preissprung von ${order.currentPrice.toFixed(2)} € auf ${currentPrice.toFixed(2)} € (${priceChangePercent.toFixed(1)}% Änderung). Order wird nicht automatisch ausgeführt.`);
+            console.warn(`[OrderExecution] ⚠️ Circuit-breaker for ${order.symbol}: Price jump from ${order.currentPrice.toFixed(2)} € to ${currentPrice.toFixed(2)} € (${priceChangePercent.toFixed(1)}% change). Order will not auto-execute.`);
             continue;
           }
         }
 
-        // Prüfe ob Order abgelaufen
+        // Check if order has expired
         if (order.expiresAt && new Date(order.expiresAt) < new Date()) {
           cancelOrder(order.id);
           continue;
         }
 
-        // Prüfe ob Ausführungsbedingung erfüllt
+        // Check if execution condition is met
         let shouldExecute = false;
 
         switch (order.orderType) {
           case 'limit-buy':
-            // Kaufen wenn Preis unter/gleich Trigger fällt
+            // Buy when price falls to/below trigger
             shouldExecute = currentPrice <= order.triggerPrice;
             break;
           case 'limit-sell':
-            // Verkaufen wenn Preis über/gleich Trigger steigt
+            // Sell when price rises to/above trigger
             shouldExecute = currentPrice >= order.triggerPrice;
             break;
           case 'stop-loss':
-            // Verkaufen wenn Preis unter/gleich Trigger fällt (Verlustbegrenzung)
+            // Sell when price falls to/below trigger (loss limiting)
             shouldExecute = currentPrice <= order.triggerPrice;
             break;
           case 'stop-buy':
-            // Kaufen wenn Preis über/gleich Trigger steigt (Breakout)
+            // Buy when price rises to/above trigger (breakout)
             shouldExecute = currentPrice >= order.triggerPrice;
             break;
         }
 
         if (shouldExecute && orderSettings.autoExecute) {
           executeOrder(order.id, currentPrice);
+
+          // If Alpaca is enabled, submit the order there too (fire & forget)
+          if (alpacaSettings.enabled) {
+            const alpaca = createAlpacaService(
+              settings.apiKeys.alpacaKeyId,
+              settings.apiKeys.alpacaKeySecret,
+              alpacaSettings.paper
+            );
+            if (alpaca) {
+              alpaca.submitOrder(order, currentPrice)
+                .then((result) => {
+                  console.log(`[Alpaca] Order submitted: ${order.symbol} → Alpaca ID ${result.id}`);
+                })
+                .catch((err) => {
+                  console.warn(`[Alpaca] Failed to submit order for ${order.symbol}:`, err?.message ?? err);
+                });
+            }
+          }
         }
       }
     } catch (error) {
@@ -126,7 +146,7 @@ export function useOrderExecution() {
     // Initial check
     checkAndExecuteOrders();
 
-    // Regelmäßige Prüfung
+    // Regular check
     intervalRef.current = setInterval(
       checkAndExecuteOrders,
       orderSettings.checkIntervalSeconds * 1000

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { 
   ShoppingCart,
   Plus, 
@@ -17,21 +17,9 @@ import {
 } from 'lucide-react';
 import { useAppStore, checkDuplicateOrder } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
+import { createAlpacaService } from '../services/alpacaService';
 import type { OrderType, OrderStatus } from '../types';
 import { findCompatibleSymbolMatch, symbolsReferToSameInstrument, sumByEquivalentSymbol } from '../utils/symbolMatching';
-
-function buildSymbolCandidates(symbols: string[]): string[] {
-  const expanded = new Set<string>();
-  for (const raw of symbols) {
-    const symbol = raw.trim().toUpperCase();
-    if (!symbol) continue;
-    expanded.add(symbol);
-    if (!symbol.includes('.')) {
-      expanded.add(`${symbol}.DE`);
-    }
-  }
-  return [...expanded];
-}
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   'limit-buy': 'Limit Buy',
@@ -41,10 +29,10 @@ const ORDER_TYPE_LABELS: Record<OrderType, string> = {
 };
 
 const ORDER_TYPE_DESCRIPTIONS: Record<OrderType, string> = {
-  'limit-buy': 'Kaufen wenn Preis auf oder unter Zielpreis fällt',
-  'limit-sell': 'Verkaufen wenn Preis auf oder über Zielpreis steigt',
-  'stop-loss': 'Verlustbegrenzung – verkaufen wenn Preis fällt',
-  'stop-buy': 'Breakout – kaufen wenn Preis steigt',
+  'limit-buy': 'Buy when price falls to or below target price',
+  'limit-sell': 'Sell when price rises to or above target price',
+  'stop-loss': 'Loss protection – sell when price falls',
+  'stop-buy': 'Breakout – buy when price rises',
 };
 
 const ORDER_TYPE_ICONS: Record<OrderType, React.ReactNode> = {
@@ -63,11 +51,11 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
 };
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
-  pending: 'Warte auf Bestätigung',
-  active: 'Aktiv',
-  executed: 'Ausgeführt',
-  cancelled: 'Storniert',
-  expired: 'Abgelaufen',
+  pending: 'Awaiting Confirmation',
+  active: 'Active',
+  executed: 'Executed',
+  cancelled: 'Cancelled',
+  expired: 'Expired',
 };
 
 export function Orders() {
@@ -77,6 +65,7 @@ export function Orders() {
     addOrder, 
     removeOrder, 
     cancelOrder,
+    restoreOrder,
     executeOrder,
     updateOrderSettings,
     updateOrderPrice,
@@ -84,6 +73,7 @@ export function Orders() {
     cashBalance,
     watchlist
   } = useAppStore();
+  const { settings, alpacaSettings } = useAppStore();
   
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('active');
@@ -93,6 +83,10 @@ export function Orders() {
   const [manualExecuteId, setManualExecuteId] = useState<string | null>(null);
   const [isCheckingNow, setIsCheckingNow] = useState(false);
   const [checkNowFeedback, setCheckNowFeedback] = useState<string | null>(null);
+  const [undoState, setUndoState] = useState<{
+    order: (typeof orders)[number];
+    message: string;
+  } | null>(null);
 
   const [formData, setFormData] = useState({
     symbol: '',
@@ -104,7 +98,15 @@ export function Orders() {
     note: '',
   });
 
-  // Gefilterte Orders
+  useEffect(() => {
+    if (!undoState) return;
+    const timer = window.setTimeout(() => {
+      setUndoState(null);
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [undoState]);
+
+  // Filtered orders
   const filteredOrders = useMemo(() => {
     let filtered = [...orders];
     if (statusFilter !== 'all') {
@@ -124,9 +126,9 @@ export function Orders() {
     return filtered;
   }, [orders, statusFilter, typeFilter]);
 
-  // Filter-Counts kontextbezogen anzeigen:
-  // - Status-Counts berücksichtigen den aktuell gewählten Typ
-  // - Typ-Counts berücksichtigen den aktuell gewählten Status
+  // Filter counts contextually:
+  // - Status counts take into account the currently selected type
+  // - Type counts take into account the currently selected status
   const statusCounts = useMemo(() => {
     const base = typeFilter === 'all'
       ? orders
@@ -167,7 +169,7 @@ export function Orders() {
     return { pending, active, executed, totalExecutedValue };
   }, [orders]);
 
-  // Symbol-Suche mit Debounce
+  // Symbol search with debounce
   const handleSymbolSearch = async (value: string) => {
     setFormData((prev) => ({ ...prev, symbol: value.toUpperCase() }));
     if (value.length < 1) {
@@ -188,24 +190,24 @@ export function Orders() {
   };
 
   const selectSymbol = async (symbol: string, name: string) => {
-    // Bei Sell-Orders automatisch die max. verfügbare Menge eintragen
+    // For sell orders, automatically enter the max available quantity
     const isSell = formData.orderType === 'limit-sell' || formData.orderType === 'stop-loss';
     const position = userPositions.find((p) => symbolsReferToSameInstrument(p.symbol, symbol));
     const autoQuantity = isSell && position ? position.quantity.toString() : '';
     
     setFormData((prev) => ({ ...prev, symbol, name, ...(autoQuantity ? { quantity: autoQuantity } : {}) }));
     setSymbolSuggestions([]);
-    // Aktuellen Preis laden um als Orientierung zu dienen
+    // Load current price to use as reference
     try {
       const quote = await marketDataService.getQuote(symbol);
       if (quote) {
-        // Trigger-Preis vorschlagen basierend auf Order-Typ
+        // Suggest trigger price based on order type
         const type = formData.orderType;
         let suggestedPrice = quote.price;
         if (type === 'limit-buy' || type === 'stop-loss') {
-          suggestedPrice = +(quote.price * 0.95).toFixed(2); // 5% unter aktuellem Preis
+          suggestedPrice = +(quote.price * 0.95).toFixed(2); // 5% below current price
         } else {
-          suggestedPrice = +(quote.price * 1.05).toFixed(2); // 5% über aktuellem Preis
+          suggestedPrice = +(quote.price * 1.05).toFixed(2); // 5% above current price
         }
         setFormData((prev) => ({ ...prev, triggerPrice: suggestedPrice.toString() }));
       }
@@ -221,20 +223,20 @@ export function Orders() {
     const triggerPrice = parseFloat(formData.triggerPrice);
     if (isNaN(quantity) || isNaN(triggerPrice) || quantity <= 0 || triggerPrice <= 0) return;
 
-    // Aktuelle Preis holen
+    // Get current price
     let currentPrice = triggerPrice;
     try {
       const quote = await marketDataService.getQuote(formData.symbol);
       if (quote) currentPrice = quote.price;
     } catch {
-      // Fallback auf triggerPrice
+      // Fallback to triggerPrice
     }
 
-    // Validierung: Genug Cash für Kauf-Orders? (inkl. Gebühren + reserviertes Cash durch aktive Orders)
+    // Validation: Enough cash for buy orders? (incl. fees + reserved cash by active orders)
     if (formData.orderType === 'limit-buy' || formData.orderType === 'stop-buy') {
       const cost = triggerPrice * quantity;
       const fee = (orderSettings.transactionFeeFlat || 0) + cost * (orderSettings.transactionFeePercent || 0) / 100;
-      // Cash der bereits durch aktive/pendende Kauf-Orders reserviert ist
+      // Cash already reserved by active/pending buy orders
       const reservedCash = orders
         .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
         .reduce((sum, o) => {
@@ -244,15 +246,15 @@ export function Orders() {
         }, 0);
       const availableCash = cashBalance - reservedCash;
       if (cost + fee > availableCash) {
-        alert(`Nicht genug Cash! Benötigt: ${(cost + fee).toFixed(2)} € (inkl. ${fee.toFixed(2)} € Gebühren), Verfügbar: ${availableCash.toFixed(2)} € (${reservedCash > 0 ? `${reservedCash.toFixed(2)} € reserviert durch aktive Orders` : 'keine Order-Reservierungen'})`);
+        alert(`Not enough cash! Required: ${(cost + fee).toFixed(2)} € (including ${fee.toFixed(2)} € fees), Available: ${availableCash.toFixed(2)} € (${reservedCash > 0 ? `${reservedCash.toFixed(2)} € reserved by active orders` : 'no order reservations'})`);
         return;
       }
     }
 
-    // Validierung: Genug Stück für Verkauf-Orders? (inkl. reservierte Stücke durch aktive Sell-Orders)
+    // Validation: Enough units for sell orders? (incl. reserved units by active sell orders)
     if (formData.orderType === 'limit-sell' || formData.orderType === 'stop-loss') {
       const position = userPositions.find((p) => symbolsReferToSameInstrument(p.symbol, formData.symbol));
-      // Bereits durch aktive/pendende Verkaufs-Orders reservierte Stücke
+      // Units already reserved by active/pending sell orders
       const reservedQuantity = sumByEquivalentSymbol(
         formData.symbol,
         orders.filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-sell' || o.orderType === 'stop-loss')),
@@ -261,7 +263,7 @@ export function Orders() {
       );
       const availableQuantity = (position?.quantity ?? 0) - reservedQuantity;
       if (!position || availableQuantity < quantity) {
-        alert(`Nicht genug Aktien! Verfügbar: ${availableQuantity} (${reservedQuantity > 0 ? `${reservedQuantity} reserviert durch aktive Orders` : 'gesamt: ' + (position?.quantity ?? 0)})`);
+        alert(`Not enough shares! Available: ${availableQuantity} (${reservedQuantity > 0 ? `${reservedQuantity} reserved by active orders` : 'total: ' + (position?.quantity ?? 0)})`);
         return;
       }
     }
@@ -302,13 +304,29 @@ export function Orders() {
     const order = orders.find((o) => o.id === orderId);
     if (!order || (order.status !== 'active' && order.status !== 'pending')) return;
 
+    let price = order.triggerPrice;
     try {
       const quote = await marketDataService.getQuote(order.symbol);
-      const price = quote?.price ?? order.triggerPrice;
+      price = quote?.price ?? order.triggerPrice;
       executeOrder(orderId, price);
     } catch {
       executeOrder(orderId, order.triggerPrice);
     }
+
+    // Submit to Alpaca if enabled
+    if (alpacaSettings.enabled) {
+      const alpaca = createAlpacaService(
+        settings.apiKeys.alpacaKeyId,
+        settings.apiKeys.alpacaKeySecret,
+        alpacaSettings.paper
+      );
+      if (alpaca) {
+        alpaca.submitOrder(order, price)
+          .then((result) => console.log(`[Alpaca] Manual execute: ${order.symbol} → ${result.id}`))
+          .catch((err) => console.warn(`[Alpaca] Manual execute failed for ${order.symbol}:`, err?.message ?? err));
+      }
+    }
+
     setManualExecuteId(null);
   };
 
@@ -317,15 +335,14 @@ export function Orders() {
 
     const activeOrders = orders.filter(o => o.status === 'active');
     if (activeOrders.length === 0) {
-      setCheckNowFeedback('Keine aktiven Orders zum Pruefen gefunden.');
-      return;
-    }
+        setCheckNowFeedback('No active orders to check.');
+        return;
+      }
 
-    setIsCheckingNow(true);
-    setCheckNowFeedback('Pruefung laeuft...');
-
-    const symbols = buildSymbolCandidates(activeOrders.map(o => o.symbol));
+      setIsCheckingNow(true);
+      setCheckNowFeedback('Checking...');
     try {
+      const symbols = activeOrders.map(o => o.symbol);
       const quotes = await marketDataService.getQuotes(symbols);
       let updated = 0;
       let missing = 0;
@@ -340,13 +357,41 @@ export function Orders() {
         updated++;
       }
 
-      const now = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setCheckNowFeedback(`Geprueft um ${now}: ${updated} aktualisiert, ${missing} ohne Live-Quote.`);
+      const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setCheckNowFeedback(`Checked at ${now}: ${updated} updated, ${missing} without live quotes.`);
     } catch {
-      setCheckNowFeedback('Pruefung fehlgeschlagen: Kursdaten konnten nicht geladen werden.');
+      setCheckNowFeedback('Check failed: Price data could not be loaded.');
     } finally {
       setIsCheckingNow(false);
     }
+  };
+
+  const handleCancelWithUndo = (orderId: string) => {
+    const originalOrder = orders.find((o) => o.id === orderId);
+    if (!originalOrder || (originalOrder.status !== 'active' && originalOrder.status !== 'pending')) return;
+
+    cancelOrder(orderId);
+    setUndoState({
+      order: originalOrder,
+      message: `Order for ${originalOrder.symbol} cancelled.`,
+    });
+  };
+
+  const handleRemoveWithUndo = (orderId: string) => {
+    const originalOrder = orders.find((o) => o.id === orderId);
+    if (!originalOrder) return;
+
+    removeOrder(orderId);
+    setUndoState({
+      order: originalOrder,
+      message: `Order for ${originalOrder.symbol} deleted.`,
+    });
+  };
+
+  const handleUndoLastOrderAction = () => {
+    if (!undoState) return;
+    restoreOrder(undoState.order);
+    setUndoState(null);
   };
 
   // Kombinierte Schnellauswahl: Portfolio + Watchlist (dedupliziert)
@@ -371,7 +416,7 @@ export function Orders() {
     return [...portfolioItems, ...watchlistItems];
   }, [userPositions, watchlist]);
 
-  // Max. verkaufbare Menge für aktuelles Symbol
+  // Max sellable quantity for current symbol
   const maxSellQuantity = useMemo(() => {
     if (!formData.symbol) return 0;
     const position = userPositions.find((p) => symbolsReferToSameInstrument(p.symbol, formData.symbol));
@@ -397,7 +442,7 @@ export function Orders() {
                    text-white rounded-lg transition-colors text-sm md:text-base"
         >
           {showForm ? <X size={16} /> : <Plus size={16} />}
-          {showForm ? 'Abbrechen' : 'Neue Order'}
+          {showForm ? 'Cancel' : 'New Order'}
         </button>
       </div>
 
@@ -406,7 +451,7 @@ export function Orders() {
         {/* Auto-Execute Card */}
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-400">Auto-Ausführung</span>
+            <span className="text-sm text-gray-400">Auto-execution</span>
             <button
               onClick={() => updateOrderSettings({ autoExecute: !orderSettings.autoExecute })}
               className={`toggle-switch relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
@@ -428,14 +473,14 @@ export function Orders() {
               <Pause size={14} className="text-gray-500" />
             )}
             <span className={`text-sm font-medium ${orderSettings.autoExecute ? 'text-green-400' : 'text-gray-500'}`}>
-              {orderSettings.autoExecute ? 'Aktiv' : 'Inaktiv'}
+              {orderSettings.autoExecute ? 'Active' : 'Inactive'}
             </span>
           </div>
           {orderSettings.autoExecute && (
             <div className="mt-2 flex items-center gap-2">
               <Clock size={12} className="text-gray-500" />
               <span className="text-xs text-gray-500">
-                Prüfung alle {orderSettings.checkIntervalSeconds}s
+                Check every {orderSettings.checkIntervalSeconds}s
               </span>
             </div>
           )}
@@ -443,9 +488,9 @@ export function Orders() {
 
         {/* Cash Balance */}
         <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-4 border border-[#252542]">
-          <span className="text-xs md:text-sm text-gray-400">Cash-Bestand</span>
+          <span className="text-xs md:text-sm text-gray-400">Cash Balance</span>
           <p className="text-base md:text-xl font-bold text-white mt-1 truncate">
-            {cashBalance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+            {cashBalance.toLocaleString('en-US', { style: 'currency', currency: 'EUR' })}
           </p>
           {(() => {
             const reservedCash = orders
@@ -460,10 +505,10 @@ export function Orders() {
               return (
                 <div className="mt-1">
                   <p className="text-xs text-orange-400">
-                    {reservedCash.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })} reserviert
+                    {reservedCash.toLocaleString('en-US', { style: 'currency', currency: 'EUR' })} reserved
                   </p>
                   <p className="text-xs text-gray-500">
-                    Frei: {availableCash.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                    Free: {availableCash.toLocaleString('en-US', { style: 'currency', currency: 'EUR' })}
                   </p>
                 </div>
               );
@@ -474,22 +519,22 @@ export function Orders() {
 
         {/* Active Orders */}
         <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-4 border border-[#252542]">
-          <span className="text-xs md:text-sm text-gray-400">Aktive Orders</span>
+          <span className="text-xs md:text-sm text-gray-400">Active Orders</span>
           <p className="text-base md:text-xl font-bold text-blue-400 mt-1">
             {stats.active}
             {stats.pending > 0 && (
-              <span className="text-yellow-400 text-sm ml-2">(+{stats.pending} wartend)</span>
+              <span className="text-yellow-400 text-sm ml-2">(+{stats.pending} pending)</span>
             )}
           </p>
         </div>
 
         {/* Executed Orders */}
         <div className="bg-[#1a1a2e] rounded-xl p-3 md:p-4 border border-[#252542]">
-          <span className="text-xs md:text-sm text-gray-400">Ausgeführt</span>
+          <span className="text-xs md:text-sm text-gray-400">Executed</span>
           <p className="text-base md:text-xl font-bold text-green-400 mt-1">{stats.executed}</p>
           {stats.totalExecutedValue > 0 && (
             <p className="text-xs text-gray-500 mt-1">
-              Volumen: {stats.totalExecutedValue.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+              Volume: {stats.totalExecutedValue.toLocaleString('en-US', { style: 'currency', currency: 'EUR' })}
             </p>
           )}
         </div>
@@ -501,11 +546,11 @@ export function Orders() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Zap size={16} className="text-green-400" />
-              <span className="text-sm font-medium text-green-400">Auto-Ausführung aktiv</span>
+              <span className="text-sm font-medium text-green-400">Auto-execution active</span>
             </div>
             <div className="flex items-center gap-2 md:gap-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400">Intervall:</label>
+                <label className="text-xs text-gray-400">Interval:</label>
                 <select
                   value={orderSettings.checkIntervalSeconds}
                   onChange={(e) => updateOrderSettings({ checkIntervalSeconds: parseInt(e.target.value) })}
@@ -525,13 +570,13 @@ export function Orders() {
                          bg-[#252542] px-2 py-1 rounded disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <RefreshCw size={12} className={isCheckingNow ? 'animate-spin' : ''} />
-                {isCheckingNow ? 'Pruefe...' : 'Jetzt pruefen'}
+                {isCheckingNow ? 'Checking...' : 'Check now'}
               </button>
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            ⚠️ Orders werden automatisch zum Marktpreis ausgeführt wenn der Trigger-Preis erreicht wird. 
-            Cash und Positionen werden sofort angepasst.
+            ⚠️ Orders are automatically executed at market price when...
+            Cash and positions are adjusted immediately.
           </p>
           {checkNowFeedback && (
             <p className="text-xs text-cyan-300 mt-2">{checkNowFeedback}</p>
@@ -542,7 +587,7 @@ export function Orders() {
       {/* Order Form */}
       {showForm && (
         <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-[#252542] mb-4 md:mb-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Neue Order erstellen</h3>
+          <h3 className="text-lg font-semibold text-white mb-4">Create New Order</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Order Type Selection */}
@@ -576,7 +621,7 @@ export function Orders() {
                 type="text"
                 value={formData.symbol}
                 onChange={(e) => handleSymbolSearch(e.target.value)}
-                placeholder="z.B. AAPL, MSFT..."
+                placeholder="e.g. AAPL, MSFT..."
                 className="w-full bg-[#252542] text-white rounded-lg px-3 py-2 border border-[#353560] 
                          focus:border-purple-500 focus:outline-none"
               />
@@ -646,7 +691,7 @@ export function Orders() {
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Aktienname"
+                placeholder="Stock name"
                 className="w-full bg-[#252542] text-white rounded-lg px-3 py-2 border border-[#353560] 
                          focus:border-purple-500 focus:outline-none"
               />
@@ -655,10 +700,10 @@ export function Orders() {
             {/* Quantity */}
             <div>
               <label className="block text-sm text-gray-400 mb-1">
-                Stückzahl
+                Quantity
                 {isSellOrder && maxSellQuantity > 0 && (
                   <span className="ml-2 text-xs text-indigo-400">
-                    (max. {maxSellQuantity} verfügbar)
+                    (max. {maxSellQuantity} available)
                   </span>
                 )}
               </label>
@@ -673,7 +718,7 @@ export function Orders() {
                     }
                     setFormData((prev) => ({ ...prev, quantity: val }));
                   }}
-                  placeholder="z.B. 10"
+                  placeholder="e.g. 10"
                   min="0.01"
                   step="0.01"
                   max={isSellOrder && maxSellQuantity > 0 ? maxSellQuantity : undefined}
@@ -693,19 +738,19 @@ export function Orders() {
               </div>
               {formData.quantity && formData.triggerPrice && (
                 <p className="text-xs text-gray-500 mt-1">
-                  Gesamtwert: {(parseFloat(formData.quantity) * parseFloat(formData.triggerPrice)).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                  Total value: {(parseFloat(formData.quantity) * parseFloat(formData.triggerPrice)).toLocaleString('en-US', { style: 'currency', currency: 'EUR' })}
                 </p>
               )}
             </div>
 
             {/* Trigger Price */}
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Trigger-Preis</label>
+              <label className="block text-sm text-gray-400 mb-1">Trigger Price</label>
               <input
                 type="number"
                 value={formData.triggerPrice}
                 onChange={(e) => setFormData((prev) => ({ ...prev, triggerPrice: e.target.value }))}
-                placeholder="z.B. 150.00"
+                placeholder="e.g. 150.00"
                 min="0.01"
                 step="0.01"
                 className="w-full bg-[#252542] text-white rounded-lg px-3 py-2 border border-[#353560] 
@@ -715,7 +760,7 @@ export function Orders() {
 
             {/* Expiry Date */}
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Gültig bis (optional)</label>
+              <label className="block text-sm text-gray-400 mb-1">Valid until (optional)</label>
               <input
                 type="datetime-local"
                 value={formData.expiresAt}
@@ -727,12 +772,12 @@ export function Orders() {
 
             {/* Note */}
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Notiz (optional)</label>
+              <label className="block text-sm text-gray-400 mb-1">Note (optional)</label>
               <input
                 type="text"
                 value={formData.note}
                 onChange={(e) => setFormData((prev) => ({ ...prev, note: e.target.value }))}
-                placeholder="z.B. Earnings Play..."
+                placeholder="e.g. Earnings play..."
                 className="w-full bg-[#252542] text-white rounded-lg px-3 py-2 border border-[#353560] 
                          focus:border-purple-500 focus:outline-none"
               />
@@ -745,7 +790,7 @@ export function Orders() {
               onClick={() => setShowForm(false)}
               className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
             >
-              Abbrechen
+              Cancel
             </button>
             <button
               onClick={handleSubmit}
@@ -754,7 +799,7 @@ export function Orders() {
                        text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus size={16} />
-              Order erstellen
+              Create Order
             </button>
           </div>
         </div>
@@ -762,28 +807,49 @@ export function Orders() {
 
       {/* Info Box */}
       <div className="bg-[#1a1a2e] rounded-xl p-4 border border-[#252542] mb-4">
-        <h3 className="text-sm font-semibold text-gray-300 mb-2">ℹ️ So funktionieren Orders</h3>
+        <h3 className="text-sm font-semibold text-gray-300 mb-2">ℹ️ How Orders Work</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-500">
           <div className="flex items-start gap-2">
             <ArrowDownCircle size={14} className="text-green-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Limit Buy:</strong> Kauforder wird ausgeführt wenn der Kurs auf oder unter den Trigger-Preis fällt.</span>
+            <span><strong className="text-gray-400">Limit Buy:</strong> Buy order is executed when price falls to or below trigger price.</span>
           </div>
           <div className="flex items-start gap-2">
             <ArrowUpCircle size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Limit Sell:</strong> Verkaufsorder wird ausgeführt wenn der Kurs auf oder über den Trigger-Preis steigt.</span>
+            <span><strong className="text-gray-400">Limit Sell:</strong> Sell order is executed when price rises to or above trigger price.</span>
           </div>
           <div className="flex items-start gap-2">
             <ShieldAlert size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Stop Loss:</strong> Automatischer Verkauf zur Verlustbegrenzung wenn der Kurs unter den Trigger fällt.</span>
+            <span><strong className="text-gray-400">Stop Loss:</strong> Automatic sale to limit loss...</span>
           </div>
           <div className="flex items-start gap-2">
             <Zap size={14} className="text-yellow-400 mt-0.5 flex-shrink-0" />
-            <span><strong className="text-gray-400">Stop Buy:</strong> Kauforder bei Breakout – wird ausgeführt wenn der Kurs über den Trigger steigt.</span>
+            <span><strong className="text-gray-400">Stop Buy:</strong> Buy order on breakout – executed when price rises above trigger.</span>
           </div>
         </div>
       </div>
 
       {/* Filter */}
+      {undoState && (
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-3 mb-4 flex items-center justify-between gap-3">
+          <span className="text-sm text-cyan-200">{undoState.message}</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleUndoLastOrderAction}
+              className="px-3 py-1.5 text-sm bg-cyan-500/20 text-cyan-100 rounded hover:bg-cyan-500/30 transition-colors"
+            >
+              Undo
+            </button>
+            <button
+              onClick={() => setUndoState(null)}
+              className="p-1.5 text-cyan-200 hover:bg-cyan-500/20 rounded transition-colors"
+              title="Dismiss"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <Filter size={14} className="text-gray-500 flex-shrink-0" />
@@ -798,7 +864,7 @@ export function Orders() {
                   : 'bg-[#252542] text-gray-400 hover:bg-[#353560]'
               }`}
             >
-              {status === 'all' ? 'Alle' : STATUS_LABELS[status]}
+              {status === 'all' ? 'All' : STATUS_LABELS[status]}
               {status !== 'all' && (
                 <span className="ml-1">({statusCounts[status]})</span>
               )}
@@ -807,7 +873,7 @@ export function Orders() {
         </div>
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <ShoppingCart size={14} className="text-gray-500 flex-shrink-0" />
-          <span className="text-xs md:text-sm text-gray-500 flex-shrink-0">Typ:</span>
+          <span className="text-xs md:text-sm text-gray-500 flex-shrink-0">Type:</span>
           {(['all', 'limit-buy', 'limit-sell', 'stop-loss', 'stop-buy'] as const).map((type) => (
             <button
               key={type}
@@ -831,8 +897,8 @@ export function Orders() {
       {filteredOrders.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <ShoppingCart size={48} className="mx-auto mb-4 opacity-50" />
-          <p className="text-lg">Keine Orders vorhanden</p>
-          <p className="text-sm mt-1">Erstelle deine erste Order mit dem Button oben</p>
+          <p className="text-lg">No orders yet</p>
+          <p className="text-sm mt-1">Create your first order with the button above</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -842,11 +908,11 @@ export function Orders() {
             const priceDiffPercent = (priceDiff / order.triggerPrice) * 100;
             const totalValue = order.triggerPrice * order.quantity;
 
-            // Fortschrittsanzeige: Wie nah ist der Preis am Trigger?
+            // Progress indicator: How close is the price to trigger?
             let progressPercent = 0;
             if (order.status === 'active' || order.status === 'pending') {
               if (order.orderType === 'limit-buy' || order.orderType === 'stop-loss') {
-                // Preis muss fallen -> Progress steigt wenn Preis näher am Trigger
+                // Price must fall -> Progress increases when price is closer to trigger
                 if (order.currentPrice > order.triggerPrice) {
                   const range = order.currentPrice - order.triggerPrice;
                   const maxRange = order.currentPrice * 0.1; // 10% als max Range
@@ -855,7 +921,7 @@ export function Orders() {
                   progressPercent = 100;
                 }
               } else {
-                // Preis muss steigen
+                // Price must rise
                 if (order.currentPrice < order.triggerPrice) {
                   const range = order.triggerPrice - order.currentPrice;
                   const maxRange = order.triggerPrice * 0.1;
@@ -901,13 +967,13 @@ export function Orders() {
                         <div>
                           <span className="text-gray-500">Trigger: </span>
                           <span className="text-white font-medium">
-                            {order.triggerPrice.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                            {order.triggerPrice.toLocaleString('en-US', { style: 'currency', currency: 'EUR' })}
                           </span>
                         </div>
                         <div>
-                          <span className="text-gray-500">Aktuell: </span>
+                          <span className="text-gray-500">Current: </span>
                           <span className="text-white">
-                            {order.currentPrice.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                            {order.currentPrice.toLocaleString('en-US', { style: 'currency', currency: 'EUR' })}
                           </span>
                         </div>
                         <div>
@@ -920,33 +986,33 @@ export function Orders() {
 
                       <div className="flex items-center gap-4 mt-1 text-sm">
                         <div>
-                          <span className="text-gray-500">Stk: </span>
+                          <span className="text-gray-500">Units: </span>
                           <span className="text-white">{order.quantity}</span>
                         </div>
                         <div>
-                          <span className="text-gray-500">Wert: </span>
+                          <span className="text-gray-500">Value: </span>
                           <span className="text-white">
-                            {totalValue.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                            {totalValue.toLocaleString('en-US', { style: 'currency', currency: 'EUR' })}
                           </span>
                         </div>
                         <div>
-                          <span className="text-gray-500">Erstellt: </span>
+                          <span className="text-gray-500">Created: </span>
                           <span className="text-gray-400">
-                            {new Date(order.createdAt).toLocaleDateString('de-DE', { 
+                            {new Date(order.createdAt).toLocaleDateString('en-US', { 
                               day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' 
                             })}
                           </span>
                         </div>
                       </div>
 
-                      {/* Ausführungsdetails */}
+                      {/* Execution details */}
                       {order.status === 'executed' && order.executedPrice && (
                         <div className="flex items-center gap-2 mt-2 text-sm text-green-400">
                           <Check size={14} />
                           <span>
-                            Ausgeführt zu {order.executedPrice.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                            Executed at {order.executedPrice.toLocaleString('en-US', { style: 'currency', currency: 'EUR' })}
                             {order.executedAt && 
-                              ` am ${new Date(order.executedAt).toLocaleDateString('de-DE', { 
+                              ` on ${new Date(order.executedAt).toLocaleDateString('en-US', { 
                                 day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' 
                               })}`
                             }
@@ -954,12 +1020,12 @@ export function Orders() {
                         </div>
                       )}
 
-                      {/* Ablaufdatum */}
+                      {/* Expiry date */}
                       {order.expiresAt && order.status === 'active' && (
                         <div className="flex items-center gap-1 mt-1 text-xs text-orange-400">
                           <Clock size={12} />
                           <span>
-                            Gültig bis {new Date(order.expiresAt).toLocaleDateString('de-DE', { 
+                            Valid until {new Date(order.expiresAt).toLocaleDateString('en-US', { 
                               day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' 
                             })}
                           </span>
@@ -971,11 +1037,11 @@ export function Orders() {
                         <p className="text-xs text-gray-500 mt-1 italic">📝 {order.note}</p>
                       )}
 
-                      {/* Progress bar für aktive/pending Orders */}
+                      {/* Progress bar for active/pending orders */}
                       {(order.status === 'active' || order.status === 'pending') && (
                         <div className="mt-2 w-48">
                           <div className="flex justify-between text-xs text-gray-500 mb-0.5">
-                            <span>Trigger-Nähe</span>
+                            <span>Trigger Proximity</span>
                             <span>{progressPercent.toFixed(0)}%</span>
                           </div>
                           <div className="h-1.5 bg-[#252542] rounded-full overflow-hidden">
@@ -996,20 +1062,20 @@ export function Orders() {
                   <div className="flex items-center gap-2">
                     {(order.status === 'active' || order.status === 'pending') && (
                       <>
-                        {/* Manuell ausführen */}
+                        {/* Manual execute */}
                         {manualExecuteId === order.id ? (
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => handleManualExecute(order.id)}
                               className="p-1.5 text-green-400 hover:bg-green-400/10 rounded"
-                              title="Bestätigen"
+                              title="Confirm"
                             >
                               <Check size={16} />
                             </button>
                             <button
                               onClick={() => setManualExecuteId(null)}
                               className="p-1.5 text-gray-400 hover:bg-gray-400/10 rounded"
-                              title="Abbrechen"
+                              title="Cancel"
                             >
                               <X size={16} />
                             </button>
@@ -1018,27 +1084,27 @@ export function Orders() {
                           <button
                             onClick={() => setManualExecuteId(order.id)}
                             className="p-1.5 text-blue-400 hover:bg-blue-400/10 rounded"
-                            title="Sofort ausführen"
+                            title="Execute now"
                           >
                             <Play size={16} />
                           </button>
                         )}
-                        {/* Stornieren */}
+                        {/* Cancel */}
                         <button
-                          onClick={() => cancelOrder(order.id)}
+                          onClick={() => handleCancelWithUndo(order.id)}
                           className="p-1.5 text-orange-400 hover:bg-orange-400/10 rounded"
-                          title="Stornieren"
+                          title="Cancel"
                         >
                           <X size={16} />
                         </button>
                       </>
                     )}
-                    {/* Löschen (nur abgeschlossene) */}
+                    {/* Delete (completed orders only) */}
                     {order.status !== 'active' && order.status !== 'pending' && (
                       <button
-                        onClick={() => removeOrder(order.id)}
+                        onClick={() => handleRemoveWithUndo(order.id)}
                         className="p-1.5 text-red-400 hover:bg-red-400/10 rounded"
-                        title="Löschen"
+                        title="Delete"
                       >
                         <Trash2 size={16} />
                       </button>
