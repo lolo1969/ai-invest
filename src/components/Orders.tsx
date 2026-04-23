@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   ShoppingCart,
   Plus, 
@@ -65,7 +65,6 @@ export function Orders() {
     addOrder, 
     removeOrder, 
     cancelOrder,
-    restoreOrder,
     executeOrder,
     updateOrderSettings,
     updateOrderPrice,
@@ -83,10 +82,6 @@ export function Orders() {
   const [manualExecuteId, setManualExecuteId] = useState<string | null>(null);
   const [isCheckingNow, setIsCheckingNow] = useState(false);
   const [checkNowFeedback, setCheckNowFeedback] = useState<string | null>(null);
-  const [undoState, setUndoState] = useState<{
-    order: (typeof orders)[number];
-    message: string;
-  } | null>(null);
 
   const [formData, setFormData] = useState({
     symbol: '',
@@ -97,14 +92,6 @@ export function Orders() {
     expiresAt: '',
     note: '',
   });
-
-  useEffect(() => {
-    if (!undoState) return;
-    const timer = window.setTimeout(() => {
-      setUndoState(null);
-    }, 8000);
-    return () => window.clearTimeout(timer);
-  }, [undoState]);
 
   // Filtered orders
   const filteredOrders = useMemo(() => {
@@ -364,34 +351,6 @@ export function Orders() {
     } finally {
       setIsCheckingNow(false);
     }
-  };
-
-  const handleCancelWithUndo = (orderId: string) => {
-    const originalOrder = orders.find((o) => o.id === orderId);
-    if (!originalOrder || (originalOrder.status !== 'active' && originalOrder.status !== 'pending')) return;
-
-    cancelOrder(orderId);
-    setUndoState({
-      order: originalOrder,
-      message: `Order for ${originalOrder.symbol} cancelled.`,
-    });
-  };
-
-  const handleRemoveWithUndo = (orderId: string) => {
-    const originalOrder = orders.find((o) => o.id === orderId);
-    if (!originalOrder) return;
-
-    removeOrder(orderId);
-    setUndoState({
-      order: originalOrder,
-      message: `Order for ${originalOrder.symbol} deleted.`,
-    });
-  };
-
-  const handleUndoLastOrderAction = () => {
-    if (!undoState) return;
-    restoreOrder(undoState.order);
-    setUndoState(null);
   };
 
   // Kombinierte Schnellauswahl: Portfolio + Watchlist (dedupliziert)
@@ -829,27 +788,6 @@ export function Orders() {
       </div>
 
       {/* Filter */}
-      {undoState && (
-        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-3 mb-4 flex items-center justify-between gap-3">
-          <span className="text-sm text-cyan-200">{undoState.message}</span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleUndoLastOrderAction}
-              className="px-3 py-1.5 text-sm bg-cyan-500/20 text-cyan-100 rounded hover:bg-cyan-500/30 transition-colors"
-            >
-              Undo
-            </button>
-            <button
-              onClick={() => setUndoState(null)}
-              className="p-1.5 text-cyan-200 hover:bg-cyan-500/20 rounded transition-colors"
-              title="Dismiss"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <Filter size={14} className="text-gray-500 flex-shrink-0" />
@@ -1091,7 +1029,7 @@ export function Orders() {
                         )}
                         {/* Cancel */}
                         <button
-                          onClick={() => handleCancelWithUndo(order.id)}
+                          onClick={() => cancelOrder(order.id)}
                           className="p-1.5 text-orange-400 hover:bg-orange-400/10 rounded"
                           title="Cancel"
                         >
@@ -1102,7 +1040,7 @@ export function Orders() {
                     {/* Delete (completed orders only) */}
                     {order.status !== 'active' && order.status !== 'pending' && (
                       <button
-                        onClick={() => handleRemoveWithUndo(order.id)}
+                        onClick={() => removeOrder(order.id)}
                         className="p-1.5 text-red-400 hover:bg-red-400/10 rounded"
                         title="Delete"
                       >

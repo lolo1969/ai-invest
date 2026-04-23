@@ -89,7 +89,6 @@ interface AppState {
   orders: Order[];
   orderSettings: OrderSettings;
   addOrder: (order: Order) => void;
-  restoreOrder: (order: Order) => void;
   removeOrder: (id: string) => void;
   cancelOrder: (id: string) => void;
   confirmOrder: (id: string) => void;
@@ -358,18 +357,6 @@ export const useAppStore = create<AppState>()(
           orders: [...state.orders, order],
         }));
       },
-      restoreOrder: (order) =>
-        set((state) => {
-          const exists = state.orders.some((o) => o.id === order.id);
-          if (exists) {
-            return {
-              orders: state.orders.map((o) => (o.id === order.id ? order : o)),
-            };
-          }
-          return {
-            orders: [...state.orders, order],
-          };
-        }),
       removeOrder: (id) =>
         set((state) => ({
           orders: state.orders.filter((o) => o.id !== id),
