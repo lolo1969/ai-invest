@@ -6,7 +6,7 @@ import { useOrderExecution } from './hooks/useOrderExecution';
 import { useServerSync } from './hooks/useServerSync';
 import { AlertCircle, X, Loader2, RefreshCw, Brain } from 'lucide-react';
 
-// Lazy-loaded components für Code-Splitting
+// Lazy-loaded components for code splitting
 const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
 const Settings = lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })));
 const Signals = lazy(() => import('./components/Signals').then(m => ({ default: m.Signals })));
@@ -42,7 +42,7 @@ function App() {
     window.location.hash = view;
   }, []);
 
-  // Auf Browser-Back/Forward reagieren (Hash-Änderung)
+  // React to browser back/forward (hash change)
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
@@ -54,7 +54,7 @@ function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Warnung bei Reload wenn Analyse läuft
+  // Warning when reloading if analysis is running
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isAnalyzing) {
@@ -65,10 +65,10 @@ function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isAnalyzing]);
 
-  // Autopilot-Hook auf App-Ebene, damit er persistent läuft
+  // Autopilot hook at app level so it runs persistently
   useAutopilot();
 
-  // Order-Execution-Hook auf App-Ebene, damit Orders im Hintergrund geprüft werden
+  // Order-execution hook at app level so orders are checked in background
   useOrderExecution();
 
   // Server-Sync: State mit Backend-Server synchronisieren (falls vorhanden)
@@ -113,7 +113,7 @@ function App() {
                 <Brain size={16} className="text-cyan-300" />
                 <RefreshCw size={14} className="animate-spin" />
                 <span className="text-sm font-semibold">
-                  {analysisProgress?.step ? `Analyse läuft: ${analysisProgress.step}` : 'Portfolio-Analyse läuft im Hintergrund'}
+                  {analysisProgress?.step ? `Analysis running: ${analysisProgress.step}` : 'Portfolio analysis running in background'}
                 </span>
               </div>
               {analysisProgress && (

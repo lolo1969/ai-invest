@@ -74,7 +74,7 @@ export function Dashboard() {
     return result;
   }, [fetchedStocks, allWatchlistSymbols, cachedWatchlist]);
 
-  // Watchlist-Anzeige: NUR settings.watchlist — identisch mit der Watchlist-Seite
+  // Watchlist display: ONLY settings.watchlist — identical to Watchlist page
   const watchlistStocks = useMemo(() => {
     const watchlistSet = new Set(settings.watchlist);
     return stocks.filter(s => watchlistSet.has(s.symbol));
@@ -122,18 +122,18 @@ export function Dashboard() {
         Symbol: pos.symbol,
         Name: pos.name.substring(0, 25),
         Stk: pos.quantity,
-        Währung: pos.currency || '?',
-        'Kauf €': pos.buyPrice.toFixed(2),
-        'Gespeichert €': pos.currentPrice.toFixed(2),
-        'Yahoo €': livePrice > 0 ? livePrice.toFixed(2) : '❌ FEHLT',
-        'Wert (gespeichert)': storedValue.toFixed(2),
-        'Wert (Yahoo)': livePrice > 0 ? liveValue.toFixed(2) : '-',
-        'Differenz €': livePrice > 0 ? diff.toFixed(2) : '?',
+        Currency: pos.currency || '?',
+        'Purchase €': pos.buyPrice.toFixed(2),
+        'Stored €': pos.currentPrice.toFixed(2),
+        'Yahoo €': livePrice > 0 ? livePrice.toFixed(2) : '❌ MISSING',
+        'Value (stored)': storedValue.toFixed(2),
+        'Value (Yahoo)': livePrice > 0 ? liveValue.toFixed(2) : '-',
+        'Difference €': livePrice > 0 ? diff.toFixed(2) : '?',
         'Auto-Update': pos.useYahooPrice ? '✅' : '❌',
       };
     });
     
-    console.log('%c[Portfolio-Vergleich] Alle Positionen:', 'font-weight:bold;font-size:14px;color:#4f46e5');
+    console.log('%c[Portfolio Comparison] All Positions:', 'font-weight:bold;font-size:14px;color:#4f46e5');
     console.table(comparisonData);
     
     // Summary
@@ -147,17 +147,17 @@ export function Dashboard() {
     const initCap = useAppStore.getState().initialCapital;
     const prevProf = useAppStore.getState().previousProfit || 0;
     console.log(
-      `%c[Portfolio-Zusammenfassung]\n` +
-      `  Investiert:        ${totalInvested.toFixed(2)} €\n` +
-      `  Gespeichert:       ${totalStoredValue.toFixed(2)} €\n` +
+      `%c[Portfolio Summary]\n` +
+      `  Invested:          ${totalInvested.toFixed(2)} €\n` +
+      `  Stored:            ${totalStoredValue.toFixed(2)} €\n` +
       `  Yahoo Live:        ${totalLiveValue.toFixed(2)} €\n` +
-      `  Differenz:         ${(totalLiveValue - totalStoredValue).toFixed(2)} €\n` +
+      `  Difference:        ${(totalLiveValue - totalStoredValue).toFixed(2)} €\n` +
       `  Cash:              ${cash.toFixed(2)} €\n` +
-      `  Startkapital:      ${initCap.toFixed(2)} €\n` +
-      `  Vorh. Gewinn:      ${prevProf.toFixed(2)} €\n` +
-      `  Gesamtvermögen:    ${(totalLiveValue + cash).toFixed(2)} €\n` +
-      `  Akt. Gewinn:       ${(totalLiveValue + cash - initCap).toFixed(2)} €\n` +
-      `  Gesamtgewinn:      ${(totalLiveValue + cash - initCap + prevProf).toFixed(2)} €`,
+      `  Initial Capital:   ${initCap.toFixed(2)} €\n` +
+      `  Prev. Profit:      ${prevProf.toFixed(2)} €\n` +
+      `  Total Wealth:      ${(totalLiveValue + cash).toFixed(2)} €\n` +
+      `  Current Profit:    ${(totalLiveValue + cash - initCap).toFixed(2)} €\n` +
+      `  Total Profit:      ${(totalLiveValue + cash - initCap + prevProf).toFixed(2)} €`,
       'font-weight:bold;color:#059669'
     );
     
@@ -173,8 +173,8 @@ export function Dashboard() {
         notFound.push(pos.symbol);
       }
     }
-    if (updated.length > 0) console.log('[Dashboard] Preise aktualisiert:', updated);
-    if (notFound.length > 0) console.warn('[Dashboard] ⚠️ Keine Live-Preise gefunden für:', notFound, '— Diese Symbole evtl. anpassen (z.B. SAP → SAP.DE)');
+    if (updated.length > 0) console.log('[Dashboard] Prices updated:', updated);
+    if (notFound.length > 0) console.warn('[Dashboard] ⚠️ No live prices found for:', notFound, '— These symbols may need to be adjusted (e.g., SAP → SAP.DE)');
   }, [fetchedStocks, updateUserPosition]);
 
   // Sync: remove cached watchlist entries that are no longer in settings.watchlist
@@ -193,51 +193,51 @@ export function Dashboard() {
     const providerName = settings.aiProvider === 'openai' ? 'OpenAI' : settings.aiProvider === 'gemini' ? 'Google Gemini' : 'Claude';
     
     if (!activeApiKey) {
-      setError(`Bitte füge deinen ${providerName} API-Schlüssel in den Einstellungen hinzu.`);
+      setError(`Please add your ${providerName} API key in settings.`);
       return;
     }
 
     if (stocks.length === 0) {
-      setError('Keine Aktien in der Watchlist. Bitte warte bis die Kurse geladen sind oder füge Aktien hinzu.');
+      setError('No stocks in watchlist. Please wait for prices to load or add stocks.');
       return;
     }
 
     setDashboardAnalyzing(true);
     try {
-      // Live-News-Kontext fuer tagesaktuelle Makro-/Geopolitik-Signale
+      // Live news context for current macro/geopolitical signals
       let liveNewsPromptContext = `
 ═══════════════════════════════════════
-LIVE-NEWS-SNAPSHOT (Dashboard-Schnellanalyse)
+LIVE-NEWS-SNAPSHOT (Dashboard Quick Analysis)
 ═══════════════════════════════════════
-Keine Live-News verfügbar.
+No live news available.
 
-STRIKT VERBOTEN:
-- Erfinde KEINE geopolitischen Ereignisse, Kriege, Konflikte oder Makro-Entwicklungen.
-- Behaupte NICHT, dass bestimmte Kriege andauern, Zentralbanken bestimmte Entscheidungen getroffen haben, oder geopolitische Spannungen bestehen – du hast KEINE aktuellen Informationen darüber.
-- Schreibe im marketSummary EXPLIZIT: "Hinweis: Keine aktuellen Nachrichten verfügbar. Die Analyse basiert ausschließlich auf technischen Indikatoren und Kursdaten. Geopolitische/makroökonomische Einschätzungen können nicht gegeben werden."
-- Beschränke die Analyse auf technische Indikatoren, Kursdaten und Chartmuster.
+STRICTLY FORBIDDEN:
+- Do NOT invent geopolitical events, wars, conflicts, or macro developments.
+- Do NOT claim that certain wars are ongoing, central banks have made specific decisions, or geopolitical tensions exist – you have NO current information about these.
+- Write in marketSummary EXPLICITLY: "Note: No current news available. Analysis is based solely on technical indicators and price data. Geopolitical/macroeconomic assessments cannot be provided."
+- Restrict analysis to technical indicators, price data, and chart patterns.
 `;
 
       try {
-        // News-Abruf: versucht Finnhub (mit Key) oder Yahoo Finance (ohne Key)
+        // News retrieval: tries Finnhub (with key) or Yahoo Finance (without key)
         marketDataService.setApiKey(settings.apiKeys.marketData || '');
         const rawNews = await marketDataService.getMarketNews();
 
-        // Scoring: Boost für offensichtlich marktrelevante News, aber ALLE Headlines
-        // werden berücksichtigt – die KI entscheidet selbst was relevant ist.
+        // Scoring: Boost for obviously market-relevant news, but ALL headlines
+        // are considered – the AI decides itself what is relevant.
         const highRelevancePattern = /(krieg|war|conflict|sanktion|inflat|zins|rate|rezession|börse|stock|oil|öl|fed|ecb|ezb|gdp|bip|trade|zoll|tariff|crash|rally|default|schulden|debt|bank|energy|energie|nuclear|nuklear|attack|angriff|pandem|climate|klima)/i;
 
         const normalizedNews = (rawNews || [])
           .map((n: any) => {
             const headline = (n?.headline || n?.title || '').replace(/\s+/g, ' ').trim();
             const summary = (n?.summary || '').replace(/\s+/g, ' ').trim();
-            const source = (n?.source || 'Unbekannt').toString();
+            const source = (n?.source || 'Unknown').toString();
             const epoch = typeof n?.datetime === 'number' ? n.datetime * 1000 : NaN;
             const date = Number.isFinite(epoch) ? new Date(epoch) : new Date();
-            const dateLabel = date.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const dateLabel = date.toLocaleString('en-US', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
             const text = `${headline} ${summary}`.trim();
-            // Booste offensichtlich relevante News, aber schließe andere nicht aus
-            let score = 1; // Basis-Score: Jede Headline hat Chance
+            // Boost obviously relevant news, but don't exclude others
+            let score = 1; // Base score: Each headline has a chance
             if (highRelevancePattern.test(text)) score += 3;
             return { headline, source, dateLabel, text, score };
           })
@@ -250,20 +250,20 @@ STRIKT VERBOTEN:
 
             liveNewsPromptContext = `
 ═══════════════════════════════════════
-LIVE-NEWS-SNAPSHOT (Dashboard-Schnellanalyse)
+LIVE-NEWS-SNAPSHOT (Dashboard Quick Analysis)
 ═══════════════════════════════════════
 ${newsLines}
 
-VERBINDLICH:
-- Nutze diese Headlines als primaere Ereignisbasis fuer Makro/Geopolitik.
-- Nenne die wichtigsten Konflikte/Ereignisse explizit beim Namen (nicht nur "geopolitische Spannungen").
-- Wenn ein Ereignis im Snapshot enthalten ist, das das Portfolio beeinflusst (z.B. Energie, Handel, Lieferketten, regionale Konflikte), MUSS es im Markt-/Makro-Abschnitt konkret erwähnt werden.
-- Erwähne NUR Geopolitik/Makro-Ereignisse die in den obigen Headlines belegt sind. Erfinde KEINE zusätzlichen Konflikte oder Entwicklungen!
-- Trenne Fakten aus Headlines klar von Portfolio-Schlussfolgerungen.
+MANDATORY:
+- Use these headlines as the primary basis of events for macro/geopolitics.
+- Name the most important conflicts/events explicitly by name (not just "geopolitical tensions").
+- If an event in the snapshot affects the portfolio (e.g., energy, trade, supply chains, regional conflicts), it MUST be mentioned specifically in the market/macro section.
+- Only mention geopolitics/macro events that are documented in the headlines above. Do NOT invent additional conflicts or developments!
+- Clearly separate facts from headlines from portfolio conclusions.
 `;
           }
       } catch (e) {
-        console.warn('[Dashboard] Live-News konnten nicht geladen werden, fahre ohne News-Snapshot fort:', e);
+        console.warn('[Dashboard] Live news could not be loaded, continuing without news snapshot:', e);
       }
 
       // Convert userPositions to Position format for AI analysis
@@ -307,7 +307,7 @@ VERBINDLICH:
       const profitPctVal = (initialCapital || 0) > 0 ? (combinedProfit / (initialCapital || 1)) * 100 : 0;
       const { orderSettings: os } = useAppStore.getState();
 
-      // Verfügbares Cash berechnen (abzgl. reserviertes Cash durch aktive Kauf-Orders)
+      // Available cash calculation (minus reserved cash from active buy orders)
       const activeOrders = useAppStore.getState().orders;
       const reservedCash = activeOrders
         .filter(o => (o.status === 'active' || o.status === 'pending') && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy'))
@@ -322,6 +322,7 @@ VERBINDLICH:
         stocks,
         strategy: settings.strategy,
         riskTolerance: settings.riskTolerance,
+        aiLanguage: settings.aiLanguage || 'en',
         budget: availableCash,
         currentPositions,
         previousSignals: signals.slice(0, 10),
@@ -340,12 +341,12 @@ VERBINDLICH:
         previousProfit: prevProfitVal !== 0 ? prevProfitVal : undefined,
       });
 
-      setDashboardAnalysisSummary(response.marketSummary || 'Analyse abgeschlossen.');
+      setDashboardAnalysisSummary(response.marketSummary || 'Analysis complete.');
 
       // Process AI-suggested orders: override existing orders for same symbol
       if (response.suggestedOrders && response.suggestedOrders.length > 0) {
         for (const suggested of response.suggestedOrders) {
-          // Storniere bestehende aktive KI-Orders für dieses Symbol/Typ (manuelle bleiben)
+          // Cancel existing active AI orders for this symbol/type (manual orders remain)
           const existingOrders = orders.filter(
             o => o.status === 'active' && symbolsReferToSameInstrument(o.symbol, suggested.symbol) && o.orderType === suggested.orderType && o.note?.startsWith('🤖 KI:')
           );
@@ -355,7 +356,7 @@ VERBINDLICH:
 
           const stockMatch = findCompatibleSymbolMatch(suggested.symbol, stocks, (item) => item.symbol);
 
-          // Duplikat-Check: Erstelle nur wenn keine ähnliche Order existiert
+          // Duplicate check: Create only if no similar order exists
           const newOrder = {
             id: crypto.randomUUID(),
             symbol: suggested.symbol,
@@ -373,7 +374,7 @@ VERBINDLICH:
           if (dupCheck.ok) {
             addOrder(newOrder);
           } else {
-            console.log(`[Vestia] KI-Order übersprungen: ${dupCheck.reason}`);
+            console.log(`[Vestia] AI order skipped: ${dupCheck.reason}`);
           }
         }
       }
@@ -413,7 +414,7 @@ VERBINDLICH:
   const buySignals = signals.filter(s => s.signal === 'BUY').length;
   const sellSignals = signals.filter(s => s.signal === 'SELL').length;
 
-  // Gesamtvermögen & Gewinn berechnen — mit aktuellen Yahoo-Preisen wenn verfügbar
+  // Total assets & profit calculation — with current Yahoo prices when available
   const portfolioValue = userPositions.reduce((sum, p) => {
     const liveStock = fetchedStocks.find(s => s.symbol === p.symbol);
     const currentPrice = liveStock?.price && liveStock.price > 0 ? liveStock.price : p.currentPrice;
@@ -423,7 +424,7 @@ VERBINDLICH:
   const totalAssets = cashBalance + portfolioValue;
   const unrealizedProfit = portfolioValue - totalInvested;
   const prevProfit = previousProfit || 0;
-  // Gesamtgewinn = Gesamtvermögen − Startkapital + vorhergehende Gewinne
+  // Total profit = Total assets − Starting capital + Previous profits
   const currentProfit = (initialCapital || 0) > 0 ? totalAssets - (initialCapital || 0) : unrealizedProfit;
   const totalProfit = currentProfit + prevProfit;
   const totalProfitPercent = (initialCapital || 0) > 0 ? (totalProfit / (initialCapital || 1)) * 100 : 0;
@@ -436,7 +437,7 @@ VERBINDLICH:
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-white">Dashboard</h1>
-          <p className="text-sm md:text-base text-gray-400">Dein KI-Investment-Überblick (Schnellanalyse)</p>
+          <p className="text-sm md:text-base text-gray-400">Your AI Investment Overview (Quick Analysis)</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -444,7 +445,7 @@ VERBINDLICH:
             disabled={isRefetching}
             className="flex items-center justify-center gap-2 px-3 md:px-4 py-2.5 md:py-3 bg-[#252542] hover:bg-[#3a3a5a] 
                        disabled:opacity-50 text-white rounded-lg transition-colors"
-            title="Kurse aktualisieren"
+            title="Update Prices"
           >
             <RefreshCw className={isRefetching ? 'animate-spin' : ''} size={18} />
           </button>
@@ -457,12 +458,12 @@ VERBINDLICH:
             {isDashboardAnalyzing ? (
               <>
                 <RefreshCw className="animate-spin" size={18} />
-                <span className="text-sm md:text-base">Analysiere...</span>
+                <span className="text-sm md:text-base">Analyzing...</span>
               </>
             ) : (
               <>
                 <Brain size={18} />
-                <span className="text-sm md:text-base">Schnellanalyse starten</span>
+                <span className="text-sm md:text-base">Start Quick Analysis</span>
               </>
             )}
           </button>
@@ -473,7 +474,7 @@ VERBINDLICH:
         <div className="bg-[#1a1a2e] rounded-xl p-4 border border-indigo-500/30">
           <div className="flex items-center gap-3 text-indigo-300">
             <RefreshCw className="animate-spin" size={18} />
-            <span className="text-sm">Dashboard-Schnellanalyse läuft im Hintergrund weiter. Du kannst die Seite wechseln und später zurückkommen.</span>
+            <span className="text-sm">Dashboard quick analysis continues running in the background. You can switch pages and return later.</span>
           </div>
         </div>
       )}
@@ -483,11 +484,11 @@ VERBINDLICH:
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg md:text-xl font-semibold text-white flex items-center gap-2">
               <Brain size={20} className="text-indigo-500" />
-              Dashboard-Schnellanalyse
+              Dashboard Quick Analysis
             </h2>
             {dashboardAnalysisDate && (
               <span className="text-xs text-gray-500">
-                {new Date(dashboardAnalysisDate).toLocaleDateString('de-DE', {
+                {new Date(dashboardAnalysisDate).toLocaleDateString('en-US', {
                   day: '2-digit',
                   month: '2-digit',
                   year: 'numeric',
@@ -504,59 +505,59 @@ VERBINDLICH:
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4">
         <StatCard
-          title="Gesamtvermögen"
-          value={`${totalAssets.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
+          title="Total Assets"
+          value={`${totalAssets.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
           icon={<Wallet size={24} />}
           color="indigo"
         />
         <StatCard
-          title="Verfügbares Cash"
-          value={`${cashBalance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
+          title="Available Cash"
+          value={`${cashBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
           icon={<Wallet size={24} />}
           color="yellow"
         />
         <StatCard
-          title="Portfolio-Wert"
-          value={`${portfolioValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
+          title="Portfolio Value"
+          value={`${portfolioValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
           icon={<Target size={24} />}
           color="blue"
         />
         <StatCard
-          title={hasInitialCapital ? 'Gesamtgewinn' : 'Unrealisierter Gewinn'}
-          value={`${totalProfit >= 0 ? '+' : ''}${totalProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €${hasInitialCapital ? ` (${totalProfitPercent >= 0 ? '+' : ''}${totalProfitPercent.toFixed(1)}%)` : ''}`}
-          subtitle={hasPreviousProfit ? `Davon vorh. Portfolios: ${prevProfit >= 0 ? '+' : ''}${prevProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : undefined}
+          title={hasInitialCapital ? 'Total Profit' : 'Unrealized Profit'}
+          value={`${totalProfit >= 0 ? '+' : ''}${totalProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €${hasInitialCapital ? ` (${totalProfitPercent >= 0 ? '+' : ''}${totalProfitPercent.toFixed(1)}%)` : ''}`}
+          subtitle={hasPreviousProfit ? `Including previous portfolios: ${prevProfit >= 0 ? '+' : ''}${prevProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : undefined}
           icon={totalProfit >= 0 ? <TrendingUp size={24} /> : <TrendingDown size={24} />}
           color={totalProfit >= 0 ? 'green' : 'red'}
         />
         <StatCard
-          title="Kaufsignale"
+          title="Buy Signals"
           value={buySignals.toString()}
           icon={<TrendingUp size={24} />}
           color="green"
         />
         <StatCard
-          title="Verkaufssignale"
+          title="Sell Signals"
           value={sellSignals.toString()}
           icon={<TrendingDown size={24} />}
           color="red"
         />
       </div>
 
-      {/* Portfolio-Diagnose (aufklappbar) */}
+      {/* Portfolio Diagnosis (collapsible) */}
       {(() => {
         const positionsDetail = userPositions.map(p => {
           const liveStock = fetchedStocks.find(s => s.symbol === p.symbol);
           const usedPrice = liveStock?.price && liveStock.price > 0 ? liveStock.price : p.currentPrice;
           const value = p.quantity * usedPrice;
-          const priceSource = liveStock?.price && liveStock.price > 0 ? 'Yahoo' : 'Gespeichert';
+          const priceSource = liveStock?.price && liveStock.price > 0 ? 'Yahoo' : 'Saved';
           return { ...p, usedPrice, value, priceSource, livePrice: liveStock?.price || 0 };
         }).sort((a, b) => b.value - a.value);
         const total = positionsDetail.reduce((s, p) => s + p.value, 0);
         return (
           <details className="bg-[#1a1a2e] rounded-xl border border-[#252542] overflow-hidden">
             <summary className="px-6 py-3 cursor-pointer text-sm text-gray-400 hover:text-white transition-colors flex items-center justify-between">
-              <span>🔍 Portfolio-Diagnose ({userPositions.length} Positionen)</span>
-              <span className="text-white font-mono">{total.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+              <span>🔍 Portfolio Diagnosis ({userPositions.length} Positions)</span>
+              <span className="text-white font-mono">{total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
             </summary>
             <div className="px-6 pb-4 overflow-x-auto">
               <table className="w-full text-sm">
@@ -566,9 +567,9 @@ VERBINDLICH:
                     <th className="pb-2">Name</th>
                     <th className="pb-2 text-right">Stk</th>
                     <th className="pb-2 text-right">Kauf €</th>
-                    <th className="pb-2 text-right">Aktuell €</th>
+                    <th className="pb-2 text-right">Current €</th>
                     <th className="pb-2 text-right">Quelle</th>
-                    <th className="pb-2 text-right">Wert €</th>
+                    <th className="pb-2 text-right">Value €</th>
                     <th className="pb-2 text-right">G/V €</th>
                   </tr>
                 </thead>
@@ -583,28 +584,28 @@ VERBINDLICH:
                         <td className="py-1.5 text-right text-gray-400 font-mono">{p.buyPrice.toFixed(2)}</td>
                         <td className="py-1.5 text-right text-white font-mono">{p.usedPrice.toFixed(2)}</td>
                         <td className={`py-1.5 text-right text-xs ${p.priceSource === 'Yahoo' ? 'text-green-400' : 'text-orange-400'}`}>{p.priceSource}</td>
-                        <td className="py-1.5 text-right text-white font-mono font-semibold">{p.value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        <td className={`py-1.5 text-right font-mono ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="py-1.5 text-right text-white font-mono font-semibold">{p.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className={`py-1.5 text-right font-mono ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                     );
                   })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-[#252542] font-semibold">
-                    <td colSpan={6} className="pt-2 text-gray-300">Summe Portfolio</td>
-                    <td className="pt-2 text-right text-white font-mono">{total.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td colSpan={6} className="pt-2 text-gray-300">Portfolio Total</td>
+                    <td className="pt-2 text-right text-white font-mono">{total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className={`pt-2 text-right font-mono ${(total - totalInvested) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {(total - totalInvested) >= 0 ? '+' : ''}{(total - totalInvested).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {(total - totalInvested) >= 0 ? '+' : ''}{(total - totalInvested).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                   </tr>
                   <tr>
                     <td colSpan={6} className="pt-1 text-gray-500 text-xs">+ Cash</td>
-                    <td className="pt-1 text-right text-gray-400 font-mono text-xs">{cashBalance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="pt-1 text-right text-gray-400 font-mono text-xs">{cashBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td></td>
                   </tr>
                   <tr>
-                    <td colSpan={6} className="pt-1 text-indigo-400 font-semibold">= Gesamtvermögen</td>
-                    <td className="pt-1 text-right text-indigo-400 font-mono font-semibold">{(total + cashBalance).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td colSpan={6} className="pt-1 text-indigo-400 font-semibold">= Total Assets</td>
+                    <td className="pt-1 text-right text-indigo-400 font-mono font-semibold">{(total + cashBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -633,8 +634,8 @@ VERBINDLICH:
                   <tr className="text-left text-gray-400 text-sm border-b border-[#252542]">
                     <th className="pb-3">Symbol</th>
                     <th className="pb-3">Name</th>
-                    <th className="pb-3 text-right">Preis</th>
-                    <th className="pb-3 text-right">Änderung</th>
+                    <th className="pb-3 text-right">Price</th>
+                    <th className="pb-3 text-right">Change</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -664,11 +665,11 @@ VERBINDLICH:
         <div className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-[#252542]">
           <h2 className="text-lg md:text-xl font-semibold text-white mb-3 md:mb-4 flex items-center gap-2">
             <AlertTriangle size={20} className="text-yellow-500" />
-            Letzte Signale
+            Latest Signals
           </h2>
           {latestSignals.length === 0 ? (
             <p className="text-gray-400 text-center py-8">
-              Noch keine Signale. Starte eine KI-Analyse!
+              No signals yet. Start an AI analysis!
             </p>
           ) : (
             <div className="space-y-3">
@@ -732,15 +733,15 @@ function SignalCard({ signal }: { signal: InvestmentSignal }) {
       signal.signal === 'BUY' ? 'pulse-buy' : signal.signal === 'SELL' ? 'pulse-sell' : ''
     }`}>
       <div className="flex items-center justify-between mb-2">
-        <span className="font-bold">{signal.stock.symbol}</span>
+        <span className="font-bold">{signal.stock.name} ({signal.stock.symbol})</span>
         <span className="text-xs font-medium px-2 py-1 rounded bg-black/20">
           {signal.signal}
         </span>
       </div>
       <p className="text-xs opacity-80 line-clamp-2">{signal.reasoning}</p>
       <div className="flex items-center justify-between mt-2 text-xs opacity-60">
-        <span>Konfidenz: {signal.confidence}%</span>
-        <span>{new Date(signal.createdAt).toLocaleTimeString('de-DE')}</span>
+        <span>Confidence: {signal.confidence}%</span>
+        <span>{new Date(signal.createdAt).toLocaleTimeString('en-US')}</span>
       </div>
     </div>
   );

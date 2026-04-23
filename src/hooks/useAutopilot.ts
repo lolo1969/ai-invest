@@ -3,9 +3,9 @@ import { useAppStore } from '../store/useAppStore';
 import { runAutopilotCycle } from '../services/autopilotService';
 
 /**
- * Hook für den Autopilot-Timer.
- * Startet/stoppt den Interval basierend auf den Autopilot-Settings.
- * Wird in App.tsx verwendet, damit er persistent läuft (nicht bei Navigation neu startet).
+ * Hook for autopilot timer.
+ * Starts/stops the interval based on autopilot settings.
+ * Used in App.tsx so it runs persistently (doesn't restart on navigation).
  */
 export function useAutopilot() {
   const { 
@@ -19,7 +19,7 @@ export function useAutopilot() {
   const isRunningRef = useRef(false);
 
   const startCycle = useCallback(async () => {
-    // Verhindere parallele Zyklen
+    // Prevent parallel cycles
     if (isRunningRef.current) return;
     isRunningRef.current = true;
     
@@ -28,7 +28,7 @@ export function useAutopilot() {
     } finally {
       isRunningRef.current = false;
       
-      // Nächsten Lauf berechnen
+      // Calculate next run
       const store = useAppStore.getState();
       if (store.autopilotSettings.enabled) {
         const nextRun = new Date(Date.now() + store.autopilotSettings.intervalMinutes * 60 * 1000);
@@ -37,7 +37,7 @@ export function useAutopilot() {
     }
   }, [updateAutopilotState]);
 
-  // Manuellen Zyklus auslösen
+  // Trigger manual cycle
   const triggerManualCycle = useCallback(async () => {
     if (isRunningRef.current) return;
     
@@ -45,13 +45,13 @@ export function useAutopilot() {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       type: 'info',
-      message: '🔧 Manueller Zyklus gestartet',
+      message: '🔧 Manual cycle started',
     });
     
     await startCycle();
   }, [startCycle, addAutopilotLog]);
 
-  // Timer starten/stoppen
+  // Start/stop timer
   useEffect(() => {
     if (!autopilotSettings.enabled) {
       if (intervalRef.current) {
@@ -62,10 +62,10 @@ export function useAutopilot() {
       return;
     }
 
-    // Regelmäßiger Interval
+    // Regular interval
     const intervalMs = autopilotSettings.intervalMinutes * 60 * 1000;
 
-    // lastRunAt direkt aus dem Store lesen (vermeidet stale Closure)
+    // Read lastRunAt directly from store (avoids stale closure)
     const currentLastRunAt = useAppStore.getState().autopilotState.lastRunAt;
     const lastRun = currentLastRunAt ? new Date(currentLastRunAt).getTime() : 0;
     const timeSinceLastRun = Date.now() - lastRun;
@@ -73,13 +73,13 @@ export function useAutopilot() {
 
     let initialTimeout: ReturnType<typeof setTimeout> | null = null;
     if (shouldRunNow) {
-      // Erster Lauf nach 5s wenn letzter Lauf lang genug her
+      // First run after 5s if last run was long enough ago
       initialTimeout = setTimeout(() => {
         startCycle();
       }, 5000);
       updateAutopilotState({ nextRunAt: new Date(Date.now() + 5000).toISOString() });
     } else {
-      // Letzter Lauf war kürzlich — nächsten Lauf auf Intervall-Ende setzen
+      // Last run was recent — set next run to interval end
       const nextRunTime = lastRun + intervalMs;
       const delay = Math.max(nextRunTime - Date.now(), 5000);
       initialTimeout = setTimeout(() => {

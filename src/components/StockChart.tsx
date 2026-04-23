@@ -107,7 +107,7 @@ export function StockChart({ stock, onClose }: StockChartProps) {
           </div>
         ) : isError || chartData.length === 0 ? (
           <div className="h-full flex items-center justify-center text-gray-400">
-            Keine Daten verfügbar
+            No data available
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -222,12 +222,12 @@ export function MiniChart({ symbol, isPositive = true }: MiniChartProps) {
 
 function formatDate(date: Date, range: TimeRange): string {
   if (range === '1d') {
-    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   } else if (range === '5d') {
-    return date.toLocaleDateString('de-DE', { weekday: 'short' });
+    return date.toLocaleDateString('en-US', { weekday: 'short' });
   } else if (range === '1mo') {
-    return date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
+    return date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
   } else {
-    return date.toLocaleDateString('de-DE', { month: 'short', year: '2-digit' });
+    return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
   }
 }

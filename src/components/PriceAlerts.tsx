@@ -50,7 +50,7 @@ export function PriceAlerts() {
             triggerPriceAlert(alert.id);
             
             // Send notification
-            const message = `🔔 Preisalarm: ${alert.symbol} ist jetzt bei ${quote.price.toFixed(2)} EUR (${alert.condition === 'above' ? 'über' : 'unter'} ${alert.targetPrice.toFixed(2)} EUR)`;
+            const message = `🔔 Price Alert: ${alert.symbol} is now at ${quote.price.toFixed(2)} EUR (${alert.condition === 'above' ? 'above' : 'below'} ${alert.targetPrice.toFixed(2)} EUR)`;
             
             if (settings.notifications.telegram.enabled) {
               await notificationService.sendTelegramMessage(
@@ -101,8 +101,8 @@ export function PriceAlerts() {
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-12 lg:pt-0">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-white">Preisalarme</h1>
-          <p className="text-sm text-gray-400">Werde benachrichtigt, wenn Kurse bestimmte Werte erreichen</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-white">Price Alerts</h1>
+          <p className="text-sm text-gray-400">Get notified when prices reach certain levels</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -110,7 +110,7 @@ export function PriceAlerts() {
                    text-white rounded-lg transition-colors text-sm md:text-base"
         >
           {showForm ? <X size={16} /> : <Plus size={16} />}
-          {showForm ? 'Abbrechen' : 'Neuer Alarm'}
+          {showForm ? 'Cancel' : 'New Alert'}
         </button>
       </div>
 
@@ -119,7 +119,7 @@ export function PriceAlerts() {
         <form onSubmit={handleSubmit} className="bg-[#1a1a2e] rounded-xl p-4 md:p-6 border border-[#252542]">
           <h2 className="text-base md:text-lg font-semibold text-white mb-3 md:mb-4 flex items-center gap-2">
             <Bell size={16} className="text-indigo-500" />
-            Neuen Preisalarm erstellen
+            Create New Price Alert
           </h2>
           
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
@@ -131,7 +131,7 @@ export function PriceAlerts() {
                 className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                          text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="">Wähle eine Aktie...</option>
+                <option value="">Select a stock...</option>
                 {watchlist.map(stock => (
                   <option key={stock.symbol} value={stock.symbol}>
                     {stock.symbol} - {stock.name} ({stock.price.toFixed(2)} €)
@@ -141,20 +141,20 @@ export function PriceAlerts() {
             </div>
 
             <div>
-              <label className="block text-sm text-gray-400 mb-2">Bedingung</label>
+              <label className="block text-sm text-gray-400 mb-2">Condition</label>
               <select
                 value={formData.condition}
                 onChange={(e) => setFormData({ ...formData, condition: e.target.value as AlertCondition })}
                 className="w-full px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                          text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="below">Fällt unter</option>
-                <option value="above">Steigt über</option>
+                <option value="below">Falls below</option>
+                <option value="above">Rises above</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-sm text-gray-400 mb-2">Zielpreis (EUR)</label>
+              <label className="block text-sm text-gray-400 mb-2">Target Price (EUR)</label>
               <input
                 type="number"
                 step="0.01"
@@ -174,7 +174,7 @@ export function PriceAlerts() {
                          text-white rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Bell size={18} />
-                Alarm erstellen
+                Create Alert
               </button>
             </div>
           </div>
@@ -186,15 +186,15 @@ export function PriceAlerts() {
         <div className="p-4 md:p-6 border-b border-[#252542]">
           <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
             <Bell size={16} className="text-yellow-500" />
-            Aktive Alarme ({activeAlerts.length})
+            Active Alerts ({activeAlerts.length})
           </h2>
         </div>
 
         {activeAlerts.length === 0 ? (
           <div className="p-6 md:p-12 text-center">
             <Bell size={40} className="mx-auto text-gray-500 mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">Keine aktiven Alarme</h3>
-            <p className="text-gray-400">Erstelle einen Alarm, um bei Kursbewegungen benachrichtigt zu werden.</p>
+            <h3 className="text-xl font-semibold text-white mb-2">No Active Alerts</h3>
+            <p className="text-gray-400">Create an alert to be notified of price movements.</p>
           </div>
         ) : (
           <div className="divide-y divide-[#252542]">
@@ -211,7 +211,7 @@ export function PriceAlerts() {
           <div className="p-6 border-b border-[#252542]">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
               <Check size={18} className="text-green-500" />
-              Ausgelöste Alarme ({triggeredAlerts.length})
+              Triggered Alerts ({triggeredAlerts.length})
             </h2>
           </div>
           <div className="divide-y divide-[#252542]">
@@ -227,9 +227,9 @@ export function PriceAlerts() {
         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 flex items-start gap-3">
           <AlertCircle size={20} className="text-yellow-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-yellow-400 font-medium">Telegram nicht konfiguriert</p>
+            <p className="text-yellow-400 font-medium">Telegram Not Configured</p>
             <p className="text-yellow-400/80 text-sm">
-              Aktiviere Telegram in den Einstellungen, um Benachrichtigungen für ausgelöste Alarme zu erhalten.
+              Enable Telegram in Settings to receive notifications for triggered alerts.
             </p>
           </div>
         </div>
@@ -266,16 +266,16 @@ function AlertCard({
             <span className="text-gray-400 text-sm truncate">{alert.name}</span>
             {triggered && (
               <span className="px-2 py-0.5 text-xs bg-green-500/20 text-green-400 rounded">
-                Ausgelöst
+                Triggered
               </span>
             )}
           </div>
           <p className="text-sm text-gray-400">
-            {alert.condition === 'above' ? 'Steigt über' : 'Fällt unter'}{' '}
+            {alert.condition === 'above' ? 'Rises above' : 'Falls below'}{' '}
             <span className="text-white font-medium">{alert.targetPrice.toFixed(2)} EUR</span>
             {alert.triggeredAt && (
               <span className="ml-2">
-                • Ausgelöst am {new Date(alert.triggeredAt).toLocaleDateString('de-DE')}
+                • Triggered on {new Date(alert.triggeredAt).toLocaleDateString('en-US')}
               </span>
             )}
           </p>

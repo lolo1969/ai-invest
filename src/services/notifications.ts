@@ -18,19 +18,19 @@ export class NotificationService {
 ${emoji} *${signal.signal} Signal*
 
 *${signal.stock.name}* (${signal.stock.symbol})
-💰 Aktueller Preis: ${signal.stock.price.toFixed(2)} ${signal.stock.currency}
-📊 Änderung: ${signal.stock.changePercent >= 0 ? '+' : ''}${signal.stock.changePercent.toFixed(2)}%
+💰 Current Price: ${signal.stock.price.toFixed(2)} ${signal.stock.currency}
+📊 Change: ${signal.stock.changePercent >= 0 ? '+' : ''}${signal.stock.changePercent.toFixed(2)}%
 
-🎯 Konfidenz: ${signal.confidence}%
-⚠️ Risiko: ${signal.riskLevel}
+🎯 Confidence: ${signal.confidence}%
+⚠️ Risk: ${signal.riskLevel}
 
-📝 *Begründung:*
+📝 *Reasoning:*
 ${signal.reasoning}
 
-${signal.targetPrice ? `🎯 Zielpreis: ${signal.targetPrice.toFixed(2)} ${signal.stock.currency}` : ''}
+${signal.targetPrice ? `🎯 Target Price: ${signal.targetPrice.toFixed(2)} ${signal.stock.currency}` : ''}
 ${signal.stopLoss ? `🛑 Stop-Loss: ${signal.stopLoss.toFixed(2)} ${signal.stock.currency}` : ''}
 
-_Vestia - ${new Date().toLocaleString('de-DE')}_
+_Vestia - ${new Date().toLocaleString('en-US')}_
     `.trim();
 
     try {
@@ -115,9 +115,9 @@ _Vestia - ${new Date().toLocaleString('de-DE')}_
         confidence: `${signal.confidence}%`,
         risk_level: signal.riskLevel,
         reasoning: signal.reasoning,
-        target_price: signal.targetPrice ? `${signal.targetPrice.toFixed(2)} ${signal.stock.currency}` : 'Nicht gesetzt',
-        stop_loss: signal.stopLoss ? `${signal.stopLoss.toFixed(2)} ${signal.stock.currency}` : 'Nicht gesetzt',
-        date: new Date().toLocaleString('de-DE'),
+        target_price: signal.targetPrice ? `${signal.targetPrice.toFixed(2)} ${signal.stock.currency}` : 'Not set',
+        stop_loss: signal.stopLoss ? `${signal.stopLoss.toFixed(2)} ${signal.stock.currency}` : 'Not set',
+        date: new Date().toLocaleString('en-US'),
       };
 
       const response = await emailjs.send(serviceId, templateId, templateParams, publicKey);
@@ -170,18 +170,18 @@ _Vestia - ${new Date().toLocaleString('de-DE')}_
     try {
       const templateParams = {
         to_email: to,
-        subject: '✅ Vestia E-Mail Verbindung erfolgreich!',
+        subject: '✅ Vestia Email Connection Successful!',
         stock_name: 'Test',
         stock_symbol: 'TEST',
         signal_type: 'INFO',
         price: '0.00 EUR',
         change: '0.00%',
         confidence: '100%',
-        risk_level: 'Niedrig',
-        reasoning: 'Dies ist eine Testnachricht. Deine E-Mail-Benachrichtigungen sind jetzt eingerichtet!',
+        risk_level: 'Low',
+        reasoning: 'This is a test message. Your email notifications are now set up!',
         target_price: '-',
         stop_loss: '-',
-        date: new Date().toLocaleString('de-DE'),
+        date: new Date().toLocaleString('en-US'),
       };
 
       const response = await emailjs.send(serviceId, templateId, templateParams, publicKey);
@@ -202,7 +202,7 @@ _Vestia - ${new Date().toLocaleString('de-DE')}_
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: '✅ Vestia Verbindung erfolgreich!\n\nDu wirst ab jetzt Investment-Signale erhalten.',
+            text: '✅ Vestia connection successful!\n\nYou will now receive investment signals.',
             parse_mode: 'Markdown',
           }),
         }

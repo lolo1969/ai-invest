@@ -91,7 +91,7 @@ export function parseQuantity(quantity: string): number {
 
 // Format price for display
 export function formatPrice(price: number, currency = 'EUR'): string {
-  return new Intl.NumberFormat('de-DE', {
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -130,27 +130,27 @@ export function validatePositionForm(data: {
   currentPrice: string;
 }): ValidationResult {
   if (!data.symbol && !data.isin) {
-    return { isValid: false, error: 'Symbol oder ISIN ist erforderlich' };
+    return { isValid: false, error: 'Symbol or ISIN is required' };
   }
 
   if (data.symbol && !isValidSymbol(data.symbol)) {
-    return { isValid: false, error: 'Ungültiges Symbol-Format' };
+    return { isValid: false, error: 'Invalid symbol format' };
   }
 
   if (data.isin && !isValidISIN(data.isin)) {
-    return { isValid: false, error: 'Ungültiges ISIN-Format' };
+    return { isValid: false, error: 'Invalid ISIN format' };
   }
 
   if (!isValidQuantity(data.quantity)) {
-    return { isValid: false, error: 'Ungültige Anzahl (muss größer als 0 sein)' };
+    return { isValid: false, error: 'Invalid quantity (must be greater than 0)' };
   }
 
   if (!isValidPrice(data.buyPrice)) {
-    return { isValid: false, error: 'Ungültiger Kaufpreis' };
+    return { isValid: false, error: 'Invalid purchase price' };
   }
 
   if (!isValidPrice(data.currentPrice)) {
-    return { isValid: false, error: 'Ungültiger aktueller Preis' };
+    return { isValid: false, error: 'Invalid current price' };
   }
 
   return { isValid: true };
@@ -162,11 +162,11 @@ export function validatePriceAlertForm(data: {
   targetPrice: string;
 }): ValidationResult {
   if (!data.symbol || !isValidSymbol(data.symbol)) {
-    return { isValid: false, error: 'Bitte wähle eine gültige Aktie' };
+    return { isValid: false, error: 'Please select a valid stock' };
   }
 
   if (!isValidPrice(data.targetPrice) || parsePrice(data.targetPrice) <= 0) {
-    return { isValid: false, error: 'Bitte gib einen gültigen Zielpreis ein' };
+    return { isValid: false, error: 'Please enter a valid target price' };
   }
 
   return { isValid: true };

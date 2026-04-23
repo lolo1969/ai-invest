@@ -1,63 +1,63 @@
 import type { HistoricalData } from '../types';
 
 /**
- * Technische Indikatoren berechnet aus historischen Kursdaten.
- * Diese werden der KI als Entscheidungsgrundlage übergeben.
+ * Technical indicators calculated from historical price data.
+ * These are passed to the AI as decision basis.
  */
 
 export interface TechnicalIndicators {
-  // RSI (Relative Strength Index) - 14 Tage
+  // RSI (Relative Strength Index) - 14 days
   rsi14: number | null;
   
   // Moving Averages
-  sma20: number | null;   // Simple Moving Average 20 Tage
-  sma50: number | null;   // Simple Moving Average 50 Tage
-  sma200: number | null;  // Simple Moving Average 200 Tage
-  ema12: number | null;   // Exponential Moving Average 12 Tage
-  ema26: number | null;   // Exponential Moving Average 26 Tage
+  sma20: number | null;   // Simple Moving Average 20 days
+  sma50: number | null;   // Simple Moving Average 50 days
+  sma200: number | null;  // Simple Moving Average 200 days
+  ema12: number | null;   // Exponential Moving Average 12 days
+  ema26: number | null;   // Exponential Moving Average 26 days
   
   // MACD (Moving Average Convergence Divergence)
-  macd: number | null;         // MACD-Linie (EMA12 - EMA26)
-  macdSignal: number | null;   // Signal-Linie (EMA9 von MACD)
-  macdHistogram: number | null; // MACD-Histogramm
+  macd: number | null;         // MACD line (EMA12 - EMA26)
+  macdSignal: number | null;   // Signal line (EMA9 of MACD)
+  macdHistogram: number | null; // MACD histogram
   
-  // Bollinger Bands (20 Tage, 2 Std-Abweichungen)
+  // Bollinger Bands (20 days, 2 standard deviations)
   bollingerUpper: number | null;
   bollingerMiddle: number | null;  // = SMA20
   bollingerLower: number | null;
-  bollingerPercentB: number | null; // Position im Band (0-1, >1 = über oberem Band)
+  bollingerPercentB: number | null; // Position in band (0-1, >1 = above upper band)
   
-  // 52-Wochen-Daten
+  // 52-week data
   week52High: number | null;
   week52Low: number | null;
-  week52PositionPercent: number | null; // 0-100%, wo der Kurs im 52W-Bereich steht
+  week52PositionPercent: number | null; // 0-100%, where the price is in the 52W range
   
-  // Volumen-Indikatoren
-  avgVolume20: number | null;    // Durchschnittsvolumen 20 Tage
-  volumeRatio: number | null;    // Aktuelles Volumen / Avg (>1 = überdurchschnittlich)
+  // Volume indicators
+  avgVolume20: number | null;    // Average volume 20 days
+  volumeRatio: number | null;    // Current volume / Average (>1 = above average)
   
   // Trends
-  priceChange5d: number | null;   // Kursänderung 5 Tage in %
-  priceChange20d: number | null;  // Kursänderung 20 Tage in %
-  priceChange60d: number | null;  // Kursänderung 60 Tage in %
+  priceChange5d: number | null;   // Price change 5 days in %
+  priceChange20d: number | null;  // Price change 20 days in %
+  priceChange60d: number | null;  // Price change 60 days in %
   
-  // Volatilität
-  atr14: number | null;          // Average True Range 14 Tage
-  volatility20: number | null;   // Annualisierte Volatilität (20-Tage Std)
+  // Volatility
+  atr14: number | null;          // Average True Range 14 days
+  volatility20: number | null;   // Annualized volatility (20-day std)
 }
 
-/** Berechnet den Simple Moving Average */
+/** Calculates the Simple Moving Average */
 function calculateSMA(data: number[], period: number): number | null {
   if (data.length < period) return null;
   const slice = data.slice(-period);
   return slice.reduce((sum, v) => sum + v, 0) / period;
 }
 
-/** Berechnet den Exponential Moving Average */
+/** Calculates the Exponential Moving Average */
 function calculateEMA(data: number[], period: number): number | null {
   if (data.length < period) return null;
   const k = 2 / (period + 1);
-  // Start mit SMA der ersten 'period' Werte
+  // Start with SMA of first 'period' values
   let ema = data.slice(0, period).reduce((sum, v) => sum + v, 0) / period;
   for (let i = period; i < data.length; i++) {
     ema = data[i] * k + ema * (1 - k);
@@ -65,7 +65,7 @@ function calculateEMA(data: number[], period: number): number | null {
   return ema;
 }
 
-/** Berechnet die vollständige EMA-Serie (für MACD-Signal) */
+/** Calculates complete EMA series (for MACD signal) */
 function calculateEMASeries(data: number[], period: number): number[] {
   if (data.length < period) return [];
   const k = 2 / (period + 1);
@@ -79,17 +79,17 @@ function calculateEMASeries(data: number[], period: number): number[] {
   return result;
 }
 
-/** Berechnet den RSI (Relative Strength Index) */
+/** Calculates the RSI (Relative Strength Index) */
 function calculateRSI(closePrices: number[], period = 14): number | null {
   if (closePrices.length < period + 1) return null;
   
-  // Berechne Preisänderungen
+  // Calculate price changes
   const changes: number[] = [];
   for (let i = 1; i < closePrices.length; i++) {
     changes.push(closePrices[i] - closePrices[i - 1]);
   }
   
-  // Erste Average Gain/Loss (SMA der ersten 'period' Werte)
+  // First Average Gain/Loss (SMA of first 'period' values)
   let avgGain = 0;
   let avgLoss = 0;
   for (let i = 0; i < period; i++) {
@@ -112,7 +112,7 @@ function calculateRSI(closePrices: number[], period = 14): number | null {
   return 100 - (100 / (1 + rs));
 }
 
-/** Berechnet MACD (12, 26, 9) */
+/** Calculates MACD (12, 26, 9) */
 function calculateMACD(closePrices: number[]): { macd: number | null; signal: number | null; histogram: number | null } {
   if (closePrices.length < 35) return { macd: null, signal: null, histogram: null };
   
@@ -123,7 +123,7 @@ function calculateMACD(closePrices: number[]): { macd: number | null; signal: nu
     return { macd: null, signal: null, histogram: null };
   }
   
-  // MACD-Linie = EMA12 - EMA26 (aligniere die Serien)
+  // MACD line = EMA12 - EMA26 (align the series)
   const offset = ema12Series.length - ema26Series.length;
   const macdSeries: number[] = [];
   for (let i = 0; i < ema26Series.length; i++) {
@@ -132,7 +132,7 @@ function calculateMACD(closePrices: number[]): { macd: number | null; signal: nu
   
   if (macdSeries.length === 0) return { macd: null, signal: null, histogram: null };
   
-  // Signal-Linie = EMA9 der MACD-Serie
+  // Signal line = EMA9 of MACD series
   const signalSeries = calculateEMASeries(macdSeries, 9);
   
   const macd = macdSeries[macdSeries.length - 1];
@@ -142,7 +142,7 @@ function calculateMACD(closePrices: number[]): { macd: number | null; signal: nu
   return { macd, signal, histogram };
 }
 
-/** Berechnet Bollinger Bands (20 Tage, 2 Std-Abweichungen) */
+/** Calculates Bollinger Bands (20 days, 2 standard deviations) */
 function calculateBollingerBands(closePrices: number[], period = 20, stdDev = 2): {
   upper: number | null;
   middle: number | null;
@@ -165,7 +165,7 @@ function calculateBollingerBands(closePrices: number[], period = 20, stdDev = 2)
   return { upper, middle, lower, percentB };
 }
 
-/** Berechnet den Average True Range (14 Tage) */
+/** Calculates Average True Range (14 days) */
 function calculateATR(data: HistoricalData[], period = 14): number | null {
   if (data.length < period + 1) return null;
   
@@ -182,7 +182,7 @@ function calculateATR(data: HistoricalData[], period = 14): number | null {
     trueRanges.push(tr);
   }
   
-  // Wilder's smoothing für ATR
+  // Wilder's smoothing for ATR
   let atr = trueRanges.slice(0, period).reduce((sum, v) => sum + v, 0) / period;
   for (let i = period; i < trueRanges.length; i++) {
     atr = (atr * (period - 1) + trueRanges[i]) / period;
@@ -191,7 +191,7 @@ function calculateATR(data: HistoricalData[], period = 14): number | null {
   return atr;
 }
 
-/** Berechnet die annualisierte Volatilität */
+/** Calculates annualized volatility */
 function calculateVolatility(closePrices: number[], period = 20): number | null {
   if (closePrices.length < period + 1) return null;
   
@@ -208,16 +208,16 @@ function calculateVolatility(closePrices: number[], period = 20): number | null 
   const mean = returns.reduce((sum, v) => sum + v, 0) / returns.length;
   const variance = returns.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / (returns.length - 1);
   
-  // Annualisieren (252 Handelstage)
-  return Math.sqrt(variance * 252) * 100; // in Prozent
+  // Annualize (252 trading days)
+  return Math.sqrt(variance * 252) * 100; // in percent
 }
 
 /**
- * Berechnet alle technischen Indikatoren aus historischen Kursdaten.
- * Benötigt mindestens 200+ Tage Daten für zuverlässige Ergebnisse.
+ * Calculates all technical indicators from historical price data.
+ * Requires at least 200+ days of data for reliable results.
  */
 export function calculateTechnicalIndicators(historicalData: HistoricalData[]): TechnicalIndicators {
-  // Filtere ungültige Daten
+  // Filter invalid data
   const validData = historicalData.filter(d => d.close > 0 && d.high > 0 && d.low > 0);
   
   if (validData.length < 15) {
@@ -246,7 +246,7 @@ export function calculateTechnicalIndicators(historicalData: HistoricalData[]): 
   // Bollinger Bands
   const bollinger = calculateBollingerBands(closePrices);
   
-  // 52-Wochen-Daten
+  // 52-week data
   const week52High = highs.length > 0 ? Math.max(...highs) : null;
   const week52Low = lows.length > 0 ? Math.min(...lows.filter(l => l > 0)) : null;
   let week52PositionPercent: number | null = null;
@@ -254,12 +254,12 @@ export function calculateTechnicalIndicators(historicalData: HistoricalData[]): 
     week52PositionPercent = ((currentPrice - week52Low) / (week52High - week52Low)) * 100;
   }
   
-  // Volumen
+  // Volume
   const avgVolume20 = calculateSMA(volumes, 20);
   const currentVolume = volumes[volumes.length - 1];
   const volumeRatio = avgVolume20 && avgVolume20 > 0 ? currentVolume / avgVolume20 : null;
   
-  // Kurstrends
+  // Price trends
   const priceChange5d = closePrices.length >= 6 
     ? ((currentPrice - closePrices[closePrices.length - 6]) / closePrices[closePrices.length - 6]) * 100 
     : null;
@@ -270,7 +270,7 @@ export function calculateTechnicalIndicators(historicalData: HistoricalData[]): 
     ? ((currentPrice - closePrices[closePrices.length - 61]) / closePrices[closePrices.length - 61]) * 100 
     : null;
   
-  // ATR & Volatilität
+  // ATR & Volatility
   const atr14 = calculateATR(validData, 14);
   const volatility20 = calculateVolatility(closePrices, 20);
   
@@ -330,7 +330,7 @@ function createEmptyIndicators(): TechnicalIndicators {
 }
 
 /**
- * Formatiert technische Indikatoren als lesbare Zusammenfassung für die KI.
+ * Formats technical indicators as readable summary for the AI.
  */
 export function formatIndicatorsForAI(_symbol: string, price: number, indicators: TechnicalIndicators): string {
   const lines: string[] = [];
@@ -339,15 +339,15 @@ export function formatIndicatorsForAI(_symbol: string, price: number, indicators
   if (indicators.rsi14 !== null) {
     const rsiValue = indicators.rsi14.toFixed(1);
     let rsiLabel = '';
-    if (indicators.rsi14 > 70) rsiLabel = ' (ÜBERKAUFT)';
-    else if (indicators.rsi14 > 60) rsiLabel = ' (leicht überkauft)';
-    else if (indicators.rsi14 < 30) rsiLabel = ' (ÜBERVERKAUFT)';
-    else if (indicators.rsi14 < 40) rsiLabel = ' (leicht überverkauft)';
+    if (indicators.rsi14 > 70) rsiLabel = ' (OVERBOUGHT)';
+    else if (indicators.rsi14 > 60) rsiLabel = ' (slightly overbought)';
+    else if (indicators.rsi14 < 30) rsiLabel = ' (OVERSOLD)';
+    else if (indicators.rsi14 < 40) rsiLabel = ' (slightly oversold)';
     else rsiLabel = ' (neutral)';
     lines.push(`  RSI(14): ${rsiValue}${rsiLabel}`);
   }
   
-  // Moving Averages vs. aktueller Kurs
+  // Moving Averages vs. current price
   const maLines: string[] = [];
   if (indicators.sma20 !== null) {
     const diff = ((price - indicators.sma20) / indicators.sma20 * 100).toFixed(1);
@@ -368,9 +368,9 @@ export function formatIndicatorsForAI(_symbol: string, price: number, indicators
   // Golden Cross / Death Cross
   if (indicators.sma50 !== null && indicators.sma200 !== null) {
     if (indicators.sma50 > indicators.sma200) {
-      lines.push(`  Trend: SMA50 > SMA200 → Bullish (Golden Cross Umfeld)`);
+      lines.push(`  Trend: SMA50 > SMA200 → Bullish (Golden Cross context)`);
     } else {
-      lines.push(`  Trend: SMA50 < SMA200 → Bearish (Death Cross Umfeld)`);
+      lines.push(`  Trend: SMA50 < SMA200 → Bearish (Death Cross context)`);
     }
   }
   
@@ -387,44 +387,44 @@ export function formatIndicatorsForAI(_symbol: string, price: number, indicators
   if (indicators.bollingerUpper !== null && indicators.bollingerLower !== null && indicators.bollingerPercentB !== null) {
     const pBStr = (indicators.bollingerPercentB * 100).toFixed(0);
     let bbLabel = '';
-    if (indicators.bollingerPercentB > 1) bbLabel = ' – ÜBER oberem Band!';
-    else if (indicators.bollingerPercentB > 0.8) bbLabel = ' – nahe oberem Band';
-    else if (indicators.bollingerPercentB < 0) bbLabel = ' – UNTER unterem Band!';
-    else if (indicators.bollingerPercentB < 0.2) bbLabel = ' – nahe unterem Band';
+    if (indicators.bollingerPercentB > 1) bbLabel = ' – ABOVE upper band!';
+    else if (indicators.bollingerPercentB > 0.8) bbLabel = ' – near upper band';
+    else if (indicators.bollingerPercentB < 0) bbLabel = ' – BELOW lower band!';
+    else if (indicators.bollingerPercentB < 0.2) bbLabel = ' – near lower band';
     lines.push(`  Bollinger Bands: ${indicators.bollingerLower.toFixed(2)} – ${indicators.bollingerUpper.toFixed(2)} (%B: ${pBStr}%${bbLabel})`);
   }
   
-  // 52-Wochen
+  // 52-week
   if (indicators.week52High !== null && indicators.week52Low !== null) {
     const posStr = indicators.week52PositionPercent?.toFixed(0) ?? '–';
-    lines.push(`  52W-Bereich: ${indicators.week52Low.toFixed(2)} – ${indicators.week52High.toFixed(2)} (Position: ${posStr}%)`);
+    lines.push(`  52W range: ${indicators.week52Low.toFixed(2)} – ${indicators.week52High.toFixed(2)} (Position: ${posStr}%)`);
   }
   
-  // Kurstrends
+  // Price trends
   const trends: string[] = [];
-  if (indicators.priceChange5d !== null) trends.push(`5T: ${indicators.priceChange5d >= 0 ? '+' : ''}${indicators.priceChange5d.toFixed(1)}%`);
-  if (indicators.priceChange20d !== null) trends.push(`20T: ${indicators.priceChange20d >= 0 ? '+' : ''}${indicators.priceChange20d.toFixed(1)}%`);
-  if (indicators.priceChange60d !== null) trends.push(`60T: ${indicators.priceChange60d >= 0 ? '+' : ''}${indicators.priceChange60d.toFixed(1)}%`);
+  if (indicators.priceChange5d !== null) trends.push(`5D: ${indicators.priceChange5d >= 0 ? '+' : ''}${indicators.priceChange5d.toFixed(1)}%`);
+  if (indicators.priceChange20d !== null) trends.push(`20D: ${indicators.priceChange20d >= 0 ? '+' : ''}${indicators.priceChange20d.toFixed(1)}%`);
+  if (indicators.priceChange60d !== null) trends.push(`60D: ${indicators.priceChange60d >= 0 ? '+' : ''}${indicators.priceChange60d.toFixed(1)}%`);
   if (trends.length > 0) {
-    lines.push(`  Kurstrend: ${trends.join(' | ')}`);
+    lines.push(`  Price trend: ${trends.join(' | ')}`);
   }
   
-  // Volumen
+  // Volume
   if (indicators.volumeRatio !== null) {
-    const volLabel = indicators.volumeRatio > 1.5 ? ' (HOHES Volumen!)' : indicators.volumeRatio < 0.5 ? ' (niedriges Volumen)' : '';
-    lines.push(`  Volumen-Ratio: ${indicators.volumeRatio.toFixed(2)}x Durchschnitt${volLabel}`);
+    const volLabel = indicators.volumeRatio > 1.5 ? ' (HIGH volume!)' : indicators.volumeRatio < 0.5 ? ' (low volume)' : '';
+    lines.push(`  Volume ratio: ${indicators.volumeRatio.toFixed(2)}x average${volLabel}`);
   }
   
-  // Volatilität
+  // Volatility
   if (indicators.volatility20 !== null) {
-    const volLabel = indicators.volatility20 > 50 ? ' (SEHR HOCH)' : indicators.volatility20 > 30 ? ' (hoch)' : indicators.volatility20 < 15 ? ' (niedrig)' : '';
-    lines.push(`  Volatilität (20T ann.): ${indicators.volatility20.toFixed(1)}%${volLabel}`);
+    const volLabel = indicators.volatility20 > 50 ? ' (VERY HIGH)' : indicators.volatility20 > 30 ? ' (high)' : indicators.volatility20 < 15 ? ' (low)' : '';
+    lines.push(`  Volatility (20D ann.): ${indicators.volatility20.toFixed(1)}%${volLabel}`);
   }
   
   // ATR
   if (indicators.atr14 !== null) {
     const atrPercent = (indicators.atr14 / price * 100).toFixed(1);
-    lines.push(`  ATR(14): ${indicators.atr14.toFixed(2)} (${atrPercent}% des Kurses)`);
+    lines.push(`  ATR(14): ${indicators.atr14.toFixed(2)} (${atrPercent}% of price)`);
   }
   
   return lines.join('\n');

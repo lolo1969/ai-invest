@@ -89,7 +89,7 @@ export function Watchlist() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white">Watchlist</h1>
-          <p className="text-gray-400">Beobachte deine favorisierten Aktien</p>
+          <p className="text-gray-400">Monitor your favorite stocks</p>
         </div>
         <button
           onClick={refreshWatchlist}
@@ -98,7 +98,7 @@ export function Watchlist() {
                    text-white rounded-lg transition-colors disabled:opacity-50"
         >
           <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
-          Aktualisieren
+          Refresh
         </button>
       </div>
 
@@ -111,7 +111,7 @@ export function Watchlist() {
       <div className="bg-[#1a1a2e] rounded-xl p-6 border border-[#252542]">
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Search size={18} className="text-indigo-500" />
-          Aktie hinzufügen
+          Add Stock
         </h2>
         
         <div className="flex gap-2">
@@ -120,7 +120,7 @@ export function Watchlist() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="Suche nach Symbol oder Name (z.B. AAPL, Tesla)..."
+            placeholder="Search by symbol or name (e.g., AAPL, Tesla)..."
             className="flex-1 px-4 py-3 bg-[#252542] border border-[#3a3a5a] rounded-lg 
                      text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
           />
@@ -135,7 +135,7 @@ export function Watchlist() {
             ) : (
               <Search size={18} />
             )}
-            Suchen
+            Search
           </button>
         </div>
 
@@ -183,15 +183,15 @@ export function Watchlist() {
         <div className="p-4 md:p-6 border-b border-[#252542]">
           <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
             <TrendingUp size={18} className="text-indigo-500" />
-            Deine Watchlist ({watchlist.length} Aktien)
+            Your Watchlist ({watchlist.length} stocks)
           </h2>
         </div>
 
         {watchlist.length === 0 ? (
           <div className="p-12 text-center">
             <Search size={48} className="mx-auto text-gray-500 mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">Keine Aktien in der Watchlist</h3>
-            <p className="text-gray-400">Suche oben nach Aktien, um sie hinzuzufügen.</p>
+            <h3 className="text-xl font-semibold text-white mb-2">No stocks in watchlist</h3>
+            <p className="text-gray-400">Search above for stocks to add them.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -200,11 +200,11 @@ export function Watchlist() {
                 <tr className="text-left text-gray-400 text-sm bg-[#252542]/50">
                   <th className="px-3 md:px-6 py-3 md:py-4">Symbol</th>
                   <th className="px-3 md:px-6 py-3 md:py-4 hidden sm:table-cell">Name</th>
-                  <th className="px-3 md:px-6 py-3 md:py-4 text-right">Preis</th>
-                  <th className="px-3 md:px-6 py-3 md:py-4 text-right">Änderung</th>
-                  <th className="px-3 md:px-6 py-3 md:py-4 text-right hidden md:table-cell">Börse</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-right">Price</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-right">Change</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-right hidden md:table-cell">Exchange</th>
                   <th className="px-3 md:px-6 py-3 md:py-4 text-center">Chart</th>
-                  <th className="px-3 md:px-6 py-3 md:py-4 text-center">Aktion</th>
+                  <th className="px-3 md:px-6 py-3 md:py-4 text-center">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -241,7 +241,7 @@ export function Watchlist() {
                       <button
                         onClick={() => setSelectedStock(stock)}
                         className="p-2 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors"
-                        title="Chart anzeigen"
+                        title="Show chart"
                       >
                         <BarChart3 size={18} />
                       </button>

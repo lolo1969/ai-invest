@@ -4,7 +4,7 @@
  * Jeder Browser bekommt automatisch eine eigene Session-ID (via utils/session.ts).
  * Damit sind die Portfolios zwischen verschiedenen Browsern komplett isoliert.
  * 
- * Session-ID wird als Authorization-Header bei jedem API-Call mitgeschickt.
+ * Session ID is sent as Authorization header in every API call.
  */
 
 import { getSessionId } from '../utils/session';
@@ -20,7 +20,7 @@ let pushTimeout: ReturnType<typeof setTimeout> | null = null;
 // Optimistic Locking
 let knownServerVersion = 0;
 
-// Letzter gepushter State für sendBeacon bei Unload
+// Last pushed state for sendBeacon on unload
 let lastPendingState: any = null;
 
 export function getCurrentSessionId(): string {
@@ -28,8 +28,8 @@ export function getCurrentSessionId(): string {
 }
 
 /**
- * Auth-Headers für alle API-Requests.
- * Session-ID wird als Bearer-Token gesendet (nicht als URL-Parameter).
+ * Auth headers for all API requests.
+ * Session ID is sent as Bearer token (not as URL parameter).
  */
 function authHeaders(): Record<string, string> {
   return {
@@ -49,7 +49,7 @@ export function getKnownServerVersion(): number {
 }
 
 /**
- * Prüft ob der Backend-Server erreichbar ist
+ * Checks if the backend server is reachable
  */
 export async function checkServerStatus(): Promise<{
   running: boolean;
@@ -101,7 +101,7 @@ export async function pullState(): Promise<{ state: any; stateVersion: number } 
 }
 
 /**
- * Schickt den State zum Server (Push) mit Versionsnummer für Conflict Detection.
+ * Sends the state to the server (push) with version number for conflict detection.
  * Returns the server response including conflict info and merged state.
  */
 export async function pushState(state: any): Promise<{
@@ -155,7 +155,7 @@ export function debouncedPushState(state: any): void {
     pushState(state).then(result => {
       if (result.ok) {
         if (result.conflict && result.mergedState && onConflictCallback) {
-          console.log('[Sync] ⚠️ Konflikt erkannt – übernehme gemergten State vom Server');
+          console.log('[Sync] ⚠️ Conflict detected – using merged state from server');
           onConflictCallback(result.mergedState);
         } else {
           console.log('[Sync] State zum Server gepusht ✅');
@@ -167,7 +167,7 @@ export function debouncedPushState(state: any): void {
 
 /**
  * Sofort-Push via sendBeacon – wird bei Page-Unload aufgerufen,
- * damit kein State verloren geht wenn der User die Seite schließt/neulädt.
+ * to prevent state loss when the user closes/reloads the page.
  */
 export function flushPendingState(): void {
   if (!lastPendingState || !serverAvailable) return;
@@ -177,7 +177,7 @@ export function flushPendingState(): void {
   const url = `${apiUrl('/api/state')}${separator}session=${getSessionId()}`;
   const body = JSON.stringify({ state: lastPendingState, stateVersion: knownServerVersion });
   
-  // sendBeacon ist für genau diesen Zweck gedacht: Daten beim Unload senden
+  // sendBeacon is designed for exactly this: send data on unload
   const sent = navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
   if (sent) {
     console.log('[Sync] State via sendBeacon geflusht ✅');
@@ -186,7 +186,7 @@ export function flushPendingState(): void {
 }
 
 /**
- * Manuellen Autopilot-Zyklus auf dem Server auslösen
+ * Trigger manual autopilot cycle on the server
  */
 export async function triggerServerCycle(): Promise<boolean> {
   if (!serverAvailable) return false;
@@ -204,7 +204,7 @@ export async function triggerServerCycle(): Promise<boolean> {
 }
 
 /**
- * Manuellen Order-Check auf dem Server auslösen
+ * Trigger manual order check on the server
  */
 export async function triggerServerOrderCheck(): Promise<boolean> {
   if (!serverAvailable) return false;
@@ -222,7 +222,7 @@ export async function triggerServerOrderCheck(): Promise<boolean> {
 }
 
 /**
- * Startet die periodische Synchronisation
+ * Starts periodic synchronization
  */
 export function startSync(onServerState: (state: any) => void): () => void {
   // Initial-Check
@@ -230,14 +230,14 @@ export function startSync(onServerState: (state: any) => void): () => void {
     if (status.running) {
       console.log('[Sync] Backend-Server gefunden ✅', status);
     } else {
-      console.log('[Sync] Kein Backend-Server gefunden – App läuft client-seitig');
+      console.log('[Sync] No backend server found – app runs client-side');
     }
   });
 
   // Periodisch State vom Server holen
   syncInterval = setInterval(async () => {
     if (!serverAvailable) {
-      // Regelmäßig prüfen ob Server wieder da ist
+      // Periodically check if server is back
       await checkServerStatus();
       return;
     }
@@ -262,7 +262,7 @@ export function startSync(onServerState: (state: any) => void): () => void {
 }
 
 /**
- * Gibt zurück ob der Server erreichbar ist
+ * Returns whether the server is reachable
  */
 export function isServerAvailable(): boolean {
   return serverAvailable;

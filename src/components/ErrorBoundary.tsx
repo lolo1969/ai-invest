@@ -43,15 +43,15 @@ export class ErrorBoundary extends Component<Props, State> {
               <AlertTriangle size={32} className="text-red-500" />
             </div>
             <h2 className="text-xl font-bold text-white mb-2">
-              Etwas ist schiefgelaufen
+              Something went wrong
             </h2>
             <p className="text-gray-400 mb-4">
-              Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut.
+              An unexpected error occurred. Please try again.
             </p>
             {this.state.error && (
               <details className="text-left mb-4">
                 <summary className="text-gray-500 cursor-pointer hover:text-gray-400 text-sm">
-                  Technische Details
+                  Technical Details
                 </summary>
                 <pre className="mt-2 p-3 bg-[#0f0f23] rounded text-red-400 text-xs overflow-auto">
                   {this.state.error.message}
@@ -64,7 +64,7 @@ export class ErrorBoundary extends Component<Props, State> {
                        text-white rounded-lg transition-colors mx-auto"
             >
               <RefreshCw size={18} />
-              Erneut versuchen
+              Try Again
             </button>
           </div>
         </div>

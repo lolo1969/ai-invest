@@ -32,14 +32,14 @@ interface SidebarProps {
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
   { id: 'autopilot', label: 'Autopilot', icon: <Bot size={20} /> },
-  { id: 'signals', label: 'Signale', icon: <TrendingUp size={20} /> },
+  { id: 'signals', label: 'Signals', icon: <TrendingUp size={20} /> },
   { id: 'portfolio', label: 'Portfolio', icon: <Briefcase size={20} /> },
   { id: 'watchlist', label: 'Watchlist', icon: <Search size={20} /> },
   { id: 'orders', label: 'Orders', icon: <ShoppingCart size={20} /> },
-  { id: 'taxes', label: 'Steuern', icon: <Landmark size={20} /> },
-  { id: 'price-alerts', label: 'Preisalarme', icon: <BellRing size={20} /> },
+  { id: 'taxes', label: 'Taxes', icon: <Landmark size={20} /> },
+  { id: 'price-alerts', label: 'Price Alerts', icon: <BellRing size={20} /> },
   { id: 'notifications', label: 'Alerts', icon: <Bell size={20} /> },
-  { id: 'settings', label: 'Einstellungen', icon: <Settings size={20} /> },
+  { id: 'settings', label: 'Settings', icon: <Settings size={20} /> },
 ];
 
 function ServerStatusBadge() {
@@ -60,12 +60,12 @@ function ServerStatusBadge() {
           : 'text-gray-500 bg-gray-500/10 border border-gray-500/10'
       }`} 
       title={connected 
-        ? 'Backend-Server verbunden – Autopilot & Orders laufen auch ohne Browser' 
-        : 'Kein Backend-Server – Autopilot nur im Browser aktiv. Starte den Server mit: npm run server'
+        ? 'Backend server connected – Autopilot & Orders run without browser' 
+        : 'No backend server – Autopilot active in browser only. Start server with: npm run server'
       }
     >
       <Server size={12} />
-      <span>{connected ? 'Server aktiv' : 'Nur Browser'}</span>
+      <span>{connected ? 'Server Active' : 'Browser Only'}</span>
       <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
     </div>
   );
@@ -102,8 +102,8 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
       {/* Sidebar - Desktop */}
       <aside
         className={`
-          fixed lg:static inset-y-0 left-0 z-40
-          w-64 bg-[#1a1a2e] border-r border-[#252542]
+          fixed lg:sticky lg:top-0 lg:self-start inset-y-0 left-0 z-40
+          w-64 h-screen bg-[#1a1a2e] border-r border-[#252542]
           transform transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}

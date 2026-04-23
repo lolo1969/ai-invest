@@ -48,6 +48,143 @@ function isMarketOpen(): array {
     return ['open' => false];
 }
 
+function resolveBootstrapUniverse(?string $market): array {
+    $us = ['SPY', 'VTI', 'QQQ', 'AAPL', 'MSFT', 'JPM', 'XOM', 'JNJ', 'PG', 'KO'];
+    $eu = ['EXS1.DE', 'EUNL.DE', 'IUSQ.DE', 'SAP.DE', 'SIE.DE', 'ALV.DE', 'ASML.AS', 'AIR.PA', 'MC.PA', 'BNP.PA'];
+    $mixed = ['SPY', 'VTI', 'EXS1.DE', 'EUNL.DE', 'SAP.DE', 'ASML.AS', 'JPM', 'JNJ', 'PG', 'XOM'];
+
+    if ($market === 'EU (Xetra)') return $eu;
+    if ($market === 'US (NYSE)') return $us;
+    return $mixed;
+}
+
+function getBootstrapUniverseSequence(?string $market): array {
+    $us = ['SPY', 'VTI', 'QQQ', 'AAPL', 'MSFT', 'JPM', 'XOM', 'JNJ', 'PG', 'KO'];
+    $eu = ['EXS1.DE', 'EUNL.DE', 'IUSQ.DE', 'SAP.DE', 'SIE.DE', 'ALV.DE', 'ASML.AS', 'AIR.PA', 'MC.PA', 'BNP.PA'];
+    $mixed = ['SPY', 'VTI', 'EXS1.DE', 'EUNL.DE', 'SAP.DE', 'ASML.AS', 'JPM', 'JNJ', 'PG', 'XOM'];
+
+    if ($market === 'EU (Xetra)') return [$eu, $mixed, $us];
+    if ($market === 'US (NYSE)') return [$us, $mixed, $eu];
+    return [$mixed, $us, $eu];
+}
+
+function normalizeBootstrapSuggestedOrders(
+    array $suggestedOrders,
+    array $stocks,
+    float $availableCash,
+    float $minCashReservePercent,
+    int $maxTradesPerCycle,
+    float $maxPositionPercent
+): array {
+    if ($availableCash <= 0) return [];
+
+    $reserveAmount = $availableCash * ($minCashReservePercent / 100.0);
+    $investableCash = max(0.0, $availableCash - $reserveAmount);
+    if ($investableCash <= 0) return [];
+
+    $tradeSlots = max(1, min($maxTradesPerCycle, 3));
+    $maxPerPositionByRisk = $availableCash * ($maxPositionPercent / 100.0);
+    $budgetPerTrade = $investableCash / $tradeSlots;
+
+    $buyCandidates = [];
+    foreach ($suggestedOrders as $o) {
+        $type = $o['orderType'] ?? '';
+        if ($type !== 'limit-buy' && $type !== 'stop-buy') continue;
+
+        $symbol = $o['symbol'] ?? '';
+        if ($symbol === '') continue;
+
+        $stockPrice = 0.0;
+        foreach ($stocks as $s) {
+            if (($s['symbol'] ?? '') === $symbol) {
+                $stockPrice = (float)($s['price'] ?? 0);
+                break;
+            }
+        }
+
+        $trigger = (float)($o['triggerPrice'] ?? 0);
+        if ($trigger <= 0) $trigger = $stockPrice;
+        if ($trigger <= 0) continue;
+
+        $buyCandidates[] = [
+            'symbol' => $symbol,
+            'orderType' => 'limit-buy',
+            'quantity' => (int)($o['quantity'] ?? 0),
+            'triggerPrice' => $trigger,
+            'reasoning' => $o['reasoning'] ?? '',
+        ];
+
+        if (count($buyCandidates) >= $tradeSlots) break;
+    }
+
+    $normalized = [];
+    foreach ($buyCandidates as $candidate) {
+        $usableBudget = max(0.0, min($budgetPerTrade, $maxPerPositionByRisk));
+        $maxAffordableQty = (int)floor($usableBudget / max(0.0001, $candidate['triggerPrice']));
+        if ($maxAffordableQty < 1) continue;
+
+        $qty = $candidate['quantity'] > 0
+            ? max(1, min($candidate['quantity'], $maxAffordableQty))
+            : $maxAffordableQty;
+
+        $normalized[] = [
+            'symbol' => $candidate['symbol'],
+            'orderType' => 'limit-buy',
+            'quantity' => $qty,
+            'triggerPrice' => round((float)$candidate['triggerPrice'], 2),
+            'reasoning' => $candidate['reasoning'] ?: 'Bootstrap-Kauf: KI-Signal cash-basiert normalisiert.',
+        ];
+    }
+
+    return $normalized;
+}
+
+function generateBootstrapBuySuggestions(
+    array $stocks,
+    float $availableCash,
+    float $minCashReservePercent,
+    int $maxTradesPerCycle,
+    float $maxPositionPercent
+): array {
+    if ($availableCash <= 0) return [];
+
+    $reserveAmount = $availableCash * ($minCashReservePercent / 100.0);
+    $investableCash = max(0.0, $availableCash - $reserveAmount);
+    if ($investableCash <= 0) return [];
+
+    $tradeSlots = max(1, min($maxTradesPerCycle, 3));
+    $maxPerPositionByRisk = $availableCash * ($maxPositionPercent / 100.0);
+    $budgetPerTrade = $tradeSlots > 0 ? ($investableCash / $tradeSlots) : 0;
+
+    $rankedStocks = $stocks;
+    usort($rankedStocks, function ($a, $b) {
+        $aFallback = !empty($a['isFallback']) ? 1 : 0;
+        $bFallback = !empty($b['isFallback']) ? 1 : 0;
+        if ($aFallback !== $bFallback) return $aFallback - $bFallback;
+        return ($b['changePercent'] ?? 0) <=> ($a['changePercent'] ?? 0);
+    });
+
+    $orders = [];
+    foreach (array_slice($rankedStocks, 0, $tradeSlots) as $stock) {
+        $price = (float)($stock['price'] ?? 0);
+        if ($price <= 0) continue;
+
+        $usableBudget = max(0.0, min($budgetPerTrade, $maxPerPositionByRisk));
+        $qty = (int)floor($usableBudget / $price);
+        if ($qty < 1) continue;
+
+        $orders[] = [
+            'symbol' => $stock['symbol'],
+            'orderType' => 'limit-buy',
+            'quantity' => $qty,
+            'triggerPrice' => round($price, 2),
+            'reasoning' => 'Bootstrap-Kauf: Automatisch erstellt (leere Watchlist/Portfolio, cash-basiertes Initialinvestment).',
+        ];
+    }
+
+    return $orders;
+}
+
 // ─── AI Service (direkte API-Calls) ──────────────────
 
 function callAI(string $prompt, array $appSettings): string {
@@ -409,7 +546,7 @@ function applySafetyRules(array $suggestedOrders, array $currentState, array &$l
             continue;
         }
 
-        if ($isBuy && empty($settings['allowNewPositions'])) {
+        if ($isBuy && empty($settings['allowNewPositions']) && empty($currentState['_autopilotBootstrapMode'])) {
             $existing = array_filter($userPositions, fn($p) => $p['symbol'] === $order['symbol']);
             if (empty($existing)) {
                 $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Neue Positionen nicht erlaubt", null, $order['symbol']);
@@ -419,6 +556,8 @@ function applySafetyRules(array $suggestedOrders, array $currentState, array &$l
 
         if (!empty($settings['watchlistOnly'])) {
             $watchlistSymbols = $currentState['settings']['watchlist'] ?? [];
+            $runtimeWatchlistSymbols = array_column($currentState['watchlist'] ?? [], 'symbol');
+            $watchlistSymbols = array_values(array_unique(array_merge($watchlistSymbols, $runtimeWatchlistSymbols)));
             $portfolioSymbols = array_column($userPositions, 'symbol');
             if (!in_array($order['symbol'], $watchlistSymbols) && !in_array($order['symbol'], $portfolioSymbols)) {
                 $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Nicht in Watchlist/Portfolio", null, $order['symbol']);
@@ -595,16 +734,14 @@ function runAutopilotCycle(string $sessionId): void {
         $logEntries[] = createLogEntry('info', '📊 Lade aktuelle Kursdaten...');
 
         $portfolioSymbols = array_column($currentState['userPositions'], 'symbol');
+        $isBootstrapCycle = empty($currentState['userPositions']) && empty($currentState['watchlist']);
         $watchlistSymbols = $currentState['settings']['watchlist'] ?? [];
         $allSymbols = array_values(array_unique(array_merge($portfolioSymbols, $watchlistSymbols)));
 
         if (empty($allSymbols)) {
-            $logEntries[] = createLogEntry('warning', '⚠️ Keine Aktien in Watchlist oder Portfolio');
-            $currentState['autopilotState']['isRunning'] = false;
-            $currentState['autopilotState']['lastRunAt'] = gmdate('Y-m-d\TH:i:s\Z');
-            $currentState['autopilotLog'] = array_slice(array_merge($logEntries, $currentState['autopilotLog']), 0, 200);
-            saveState($currentState, $sessionId);
-            return;
+            $allSymbols = getBootstrapUniverseSequence($marketStatus['market'] ?? null)[0];
+            $marketLabel = $marketStatus['market'] ?? 'mixed';
+            $logEntries[] = createLogEntry('info', '🌱 Bootstrap-Modus: Starter-Universum marktbasiert ermittelt (' . $marketLabel . '): ' . implode(', ', $allSymbols));
         }
 
         $stocks = getQuotesWithRange($allSymbols);
@@ -732,6 +869,39 @@ function runAutopilotCycle(string $sessionId): void {
         // 5. Order-Vorschläge verarbeiten
         $suggestedOrders = $analysisResponse['suggestedOrders'] ?? [];
 
+        if ($isBootstrapCycle && !empty($settings['allowBuy'])) {
+            $reservePct = (float)($settings['minCashReservePercent'] ?? 10);
+            $maxTrades = max(1, min((int)($settings['maxTradesPerCycle'] ?? 3), 3));
+            $maxPosPct = (float)($settings['maxPositionPercent'] ?? 20);
+
+            $normalizedBootstrapOrders = normalizeBootstrapSuggestedOrders(
+                $suggestedOrders,
+                $stocks,
+                (float)$availCash,
+                $reservePct,
+                $maxTrades,
+                $maxPosPct
+            );
+
+            if (!empty($normalizedBootstrapOrders)) {
+                $suggestedOrders = $normalizedBootstrapOrders;
+                $logEntries[] = createLogEntry('info', '🌱 Bootstrap: KI-Vorschlaege in cash-basierte BUY-Orders normalisiert');
+            } else {
+                $bootstrapOrders = generateBootstrapBuySuggestions(
+                    $stocks,
+                    (float)$availCash,
+                    $reservePct,
+                    $maxTrades,
+                    $maxPosPct
+                );
+
+                if (!empty($bootstrapOrders)) {
+                    $suggestedOrders = $bootstrapOrders;
+                    $logEntries[] = createLogEntry('info', '🌱 Bootstrap-Fallback: cash-basierte Kauforders wurden erzeugt');
+                }
+            }
+        }
+
         // Fix-up: SELL-Orders mit quantity 0
         foreach ($suggestedOrders as &$order) {
             if (($order['quantity'] ?? 0) === 0) {
@@ -751,7 +921,69 @@ function runAutopilotCycle(string $sessionId): void {
         if (empty($suggestedOrders)) {
             $logEntries[] = createLogEntry('info', '📝 Keine Order-Vorschläge von der KI');
         } else {
+            $currentState['_autopilotBootstrapMode'] = $isBootstrapCycle;
             $approvedOrders = applySafetyRules($suggestedOrders, $currentState, $logEntries);
+            unset($currentState['_autopilotBootstrapMode']);
+            $stocksForApprovedOrders = $stocks;
+
+            if (empty($approvedOrders) && $isBootstrapCycle && !empty($settings['allowBuy'])) {
+                $universeSequence = getBootstrapUniverseSequence($marketStatus['market'] ?? null);
+                $initialUniverseKey = $allSymbols;
+                sort($initialUniverseKey);
+                $initialUniverseKey = implode('|', $initialUniverseKey);
+
+                $retryUniverses = [];
+                foreach ($universeSequence as $universe) {
+                    $universeKey = $universe;
+                    sort($universeKey);
+                    if (implode('|', $universeKey) !== $initialUniverseKey) {
+                        $retryUniverses[] = $universe;
+                    }
+                }
+                $retryUniverses = array_slice($retryUniverses, 0, 2);
+
+                $reservePct = (float)($settings['minCashReservePercent'] ?? 10);
+                $maxTrades = max(1, min((int)($settings['maxTradesPerCycle'] ?? 3), 3));
+                $maxPosPct = (float)($settings['maxPositionPercent'] ?? 20);
+
+                foreach ($retryUniverses as $retrySymbols) {
+                    $logEntries[] = createLogEntry('info', '🔁 Bootstrap-Retry: alternatives Kandidaten-Universum wird getestet (' . implode(', ', $retrySymbols) . ')');
+                    $retryStocks = getQuotesWithRange($retrySymbols);
+                    if (empty($retryStocks)) {
+                        $logEntries[] = createLogEntry('warning', '⚠️ Bootstrap-Retry übersprungen: keine Kursdaten für Kandidaten-Universum');
+                        continue;
+                    }
+
+                    foreach ($retryStocks as $stock) {
+                        $idx = array_search($stock['symbol'], array_column($currentState['watchlist'], 'symbol'));
+                        if ($idx !== false) {
+                            $currentState['watchlist'][$idx] = $stock;
+                        } else {
+                            $currentState['watchlist'][] = $stock;
+                        }
+                    }
+
+                    $retrySuggestions = generateBootstrapBuySuggestions(
+                        $retryStocks,
+                        (float)$availCash,
+                        $reservePct,
+                        $maxTrades,
+                        $maxPosPct
+                    );
+                    if (empty($retrySuggestions)) continue;
+
+                    $currentState['_autopilotBootstrapMode'] = true;
+                    $retryApproved = applySafetyRules($retrySuggestions, $currentState, $logEntries);
+                    unset($currentState['_autopilotBootstrapMode']);
+
+                    if (!empty($retryApproved)) {
+                        $approvedOrders = $retryApproved;
+                        $stocksForApprovedOrders = $retryStocks;
+                        $logEntries[] = createLogEntry('info', '✅ Bootstrap-Retry erfolgreich: Orders aus alternativem Universum freigegeben');
+                        break;
+                    }
+                }
+            }
 
             if (empty($approvedOrders)) {
                 $logEntries[] = createLogEntry('info', '🛡️ Alle Vorschläge von Safety-Regeln abgelehnt');
@@ -815,7 +1047,7 @@ function runAutopilotCycle(string $sessionId): void {
                         unset($o);
 
                         $stockData = null;
-                        foreach ($stocks as $s) {
+                        foreach ($stocksForApprovedOrders as $s) {
                             if ($s['symbol'] === $suggested['symbol']) {
                                 $stockData = $s;
                                 break;

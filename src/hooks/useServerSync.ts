@@ -1,10 +1,10 @@
 /**
- * Hook für die Synchronisation mit dem Backend-Server.
+ * Hook for synchronization with the backend server.
  * 
- * - Beim Laden: Prüft ob Server verfügbar ist
- * - Pusht State-Änderungen zum Server (debounced, mit Versionsnummer)
- * - Holt periodisch State vom Server (falls Server Autopilot/Orders ausgeführt hat)
- * - Conflict Resolution: Bei Konflikten wird der gemergte Server-State übernommen
+ * - On load: Checks if server is available
+ * - Pushes state changes to server (debounced, with version number)
+ * - Periodically fetches state from server (if server executed autopilot/orders)
+ * - Conflict resolution: On conflicts, merged server state is used
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -30,7 +30,7 @@ export function useServerSync() {
   const [serverInfo, setServerInfo] = useState<any>(null);
   const skipNextPushRef = useRef(false);
 
-  // Initial: Server checken und Sync starten
+  // Initial: Check server and start sync
   useEffect(() => {
     let cleanup: (() => void) | undefined;
 
@@ -41,33 +41,33 @@ export function useServerSync() {
 
       if (status.running) {
         // Conflict-Callback registrieren: Wenn ein Push einen Konflikt erzeugt,
-        // übernehmen wir den Server-gemergten State
+        // we use the server-merged state
         setOnConflictCallback((mergedState) => {
           skipNextPushRef.current = true;
           useAppStore.setState({
             ...mergedState,
-            // UI-State nicht überschreiben
+            // don't overwrite UI state
             isLoading: useAppStore.getState().isLoading,
             isAnalyzing: useAppStore.getState().isAnalyzing,
             error: useAppStore.getState().error,
           });
-          console.log('[ServerSync] ⚠️ Konflikt aufgelöst – gemergten State übernommen');
+          console.log('[ServerSync] ⚠️ Conflict resolved – using merged state');
         });
 
-        // State-Sync starten: Wenn Server einen neueren State hat, übernehmen
+        // Start state sync: If server has a newer state, use it
         cleanup = startSync((serverState) => {
           if (!serverState) return;
 
-          // Vergleiche Timestamps um zu entscheiden wer aktueller ist
+          // Compare timestamps to decide who is more current
           const currentState = useAppStore.getState();
           
-          // Autopilot-State vom Server hat Vorrang (er führt die Zyklen aus)
+          // Server autopilot state takes precedence (it runs the cycles)
           const serverLastRun = serverState.autopilotState?.lastRunAt;
           const localLastRun = currentState.autopilotState?.lastRunAt;
           
           if (serverLastRun && (!localLastRun || new Date(serverLastRun) > new Date(localLastRun))) {
-            // Server hat neuere Autopilot-Daten → mergen
-            skipNextPushRef.current = true; // Verhindere Push-Schleife
+            // Server has newer autopilot data → merge
+            skipNextPushRef.current = true; // Prevent push loop
             
             useAppStore.setState({
               autopilotState: serverState.autopilotState,
@@ -81,16 +81,16 @@ export function useServerSync() {
               analysisHistory: serverState.analysisHistory,
             });
             
-            console.log('[ServerSync] State vom Server übernommen (neuere Autopilot-Daten)');
+            console.log('[ServerSync] Adopted state from server (newer autopilot data)');
           }
         });
 
-        // Initialer Sync:
-        // 1) Immer zuerst Server-State laden
-        // 2) Wenn Server Daten hat, Server als Source of Truth verwenden
-        // 3) Nur wenn Server leer ist, lokalen State initial pushen
-        // Dadurch wird verhindert, dass ein frisch eingespieltes Server-Backup
-        // beim Reload durch alten lokalen State überschrieben wird.
+        // Initial sync:
+        // 1) Always load server state first
+        // 2) If server has data, use server as source of truth
+        // 3) Only if server is empty, initially push local state
+        // This prevents a freshly restored server backup
+        // from being overwritten by old local state on reload.
         const currentState = useAppStore.getState();
         const localHasData = currentState.userPositions?.length > 0
           || currentState.cashBalance > 0
@@ -119,12 +119,12 @@ export function useServerSync() {
                 isAnalyzing: currentState.isAnalyzing,
                 error: currentState.error,
               });
-              console.log('[ServerSync] Lokale Analyse war neuer – Konflikt-Merge übernommen ✅');
+              console.log('[ServerSync] Local analysis was newer – conflict merge adopted ✅');
             } else if (pushResult.ok) {
-              console.log('[ServerSync] Lokale Analyse war neuer – lokalen State auf Server gepusht ✅');
+              console.log('[ServerSync] Local analysis was newer – pushed local state to server ✅');
             } else {
-              // Fallback: lokal beibehalten statt auf ältere Serverdaten zurückzufallen
-              console.warn('[ServerSync] Lokale Analyse war neuer, Push fehlgeschlagen – lokaler State bleibt aktiv');
+              // Fallback: keep local instead of falling back to older server data
+              console.warn('[ServerSync] Local analysis was newer, push failed – local state remains active');
             }
           } else {
             skipNextPushRef.current = true;
@@ -134,7 +134,7 @@ export function useServerSync() {
               isAnalyzing: currentState.isAnalyzing,
               error: currentState.error,
             });
-            console.log('[ServerSync] Initialer State vom Server geladen (Server hat Vorrang) ✅');
+            console.log('[ServerSync] Initial state loaded from server (server takes precedence) ✅');
           }
         } else if (localHasData) {
           // Server leer → lokalen State pushen
@@ -148,9 +148,9 @@ export function useServerSync() {
               isAnalyzing: currentState.isAnalyzing,
               error: currentState.error,
             });
-            console.log('[ServerSync] Initialer Merge – gemergten State übernommen ✅');
+            console.log('[ServerSync] Initial merge – merged state adopted ✅');
           } else if (pushResult.ok) {
-            console.log('[ServerSync] Initialer State-Push erfolgreich ✅');
+            console.log('[ServerSync] Initial state push successful 🙋');
           }
         }
       }
@@ -169,12 +169,12 @@ export function useServerSync() {
     };
   }, []);
 
-  // State-Änderungen zum Server pushen (subscribe auf Store)
+  // Push state changes to server (subscribe to store)
   useEffect(() => {
     if (!serverConnected) return;
 
     const unsubscribe = useAppStore.subscribe((state) => {
-      // Skip um Push-Schleifen zu vermeiden
+      // Skip to avoid push loops
       if (skipNextPushRef.current) {
         skipNextPushRef.current = false;
         return;
@@ -186,7 +186,7 @@ export function useServerSync() {
     return unsubscribe;
   }, [serverConnected]);
 
-  // Periodisch Server-Status prüfen
+  // Periodically check server status
   useEffect(() => {
     const interval = setInterval(async () => {
       const status = await checkServerStatus();
@@ -201,7 +201,7 @@ export function useServerSync() {
 }
 
 /**
- * Extrahiert die sync-relevanten Felder aus dem Store-State
+ * Extracts the sync-relevant fields from the store state
  */
 function extractSyncState(state: any) {
   return {

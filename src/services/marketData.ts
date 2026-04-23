@@ -58,7 +58,7 @@ export class MarketDataService {
     this.apiKey = apiKey;
   }
 
-  // Retry-Wrapper für Netzwerkfehler (ENETDOWN, ECONNRESET, ETIMEDOUT etc.)
+  // Retry wrapper for network errors (ENETDOWN, ECONNRESET, ETIMEDOUT etc.)
   private async fetchWithRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 1500): Promise<T> {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
@@ -77,7 +77,7 @@ export class MarketDataService {
         
         if (isNetworkError && attempt < retries) {
           const wait = delayMs * Math.pow(2, attempt);
-          console.warn(`[Retry ${attempt + 1}/${retries}] Netzwerkfehler, warte ${wait}ms...`, error?.code || error?.message);
+          console.warn(`[Retry ${attempt + 1}/${retries}] Network error, waiting ${wait}ms...`, error?.code || error?.message);
           await new Promise(resolve => setTimeout(resolve, wait));
           continue;
         }
@@ -240,14 +240,14 @@ export class MarketDataService {
     if (symbols.length === 0) return [];
     
     const symbolsStr = symbols.join(',');
-    console.log(`[MarketData] Batch-Quote für ${symbols.length} Symbole: ${symbolsStr}`);
+    console.log(`[MarketData] Batch quotes for ${symbols.length} symbols: ${symbolsStr}`);
     
     try {
       const url = buildYahooUrl(`/v7/finance/quote?symbols=${encodeURIComponent(symbolsStr)}&fields=symbol,shortName,longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency,fullExchangeName`);
       const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 15000 }));
       
       const quotes = response.data?.quoteResponse?.result || [];
-      console.log(`[MarketData] Batch-Quote: ${quotes.length}/${symbols.length} erhalten`);
+      console.log(`[MarketData] Batch-Quote: ${quotes.length}/${symbols.length} received`);
       
       if (quotes.length === 0) {
         console.warn('[MarketData] Batch-Quote leer, fallback auf Einzel-Requests');
@@ -291,13 +291,13 @@ export class MarketDataService {
             exchange: q.fullExchangeName || 'Unknown',
           });
         } catch (err) {
-          console.warn(`[MarketData] Fehler bei ${q.symbol}:`, err);
+          console.warn(`[MarketData] Error with ${q.symbol}:`, err);
         }
       }
       
       return stocks;
     } catch (error) {
-      console.warn('[MarketData] Batch-Quote fehlgeschlagen, fallback auf Einzel-Requests:', error);
+      console.warn('[MarketData] Batch quote failed, falling back to individual requests:', error);
       return this.getQuotesFallback(symbols);
     }
   }
@@ -444,9 +444,9 @@ export class MarketDataService {
   // Strategy: First load ALL basic quotes in 1 batch request, then enrich with historical data
   async getQuotesWithRange(symbols: string[]): Promise<Stock[]> {
     // Step 1: Load ALL basic quotes in a single batch request (1 HTTP call!)
-    console.log(`[MarketData] Lade ${symbols.length} Aktien (Batch-Modus)...`);
+    console.log(`[MarketData] Loading ${symbols.length} stocks (batch mode)...`);
     const basicQuotes = await this.getQuotesBatch(symbols);
-    console.log(`[MarketData] ${basicQuotes.length}/${symbols.length} Basis-Quotes geladen`);
+    console.log(`[MarketData] ${basicQuotes.length}/${symbols.length} basic quotes loaded`);
     
     if (basicQuotes.length === 0) return [];
 
@@ -481,7 +481,7 @@ export class MarketDataService {
             }
             return quote;
           } catch (error) {
-            console.warn(`[MarketData] History für ${quote.symbol} fehlgeschlagen, nutze Basis-Quote`, error);
+            console.warn(`[MarketData] History for ${quote.symbol} failed, using basic quote`, error);
             return quote; // Return basic quote even if history fails
           }
         })
@@ -494,7 +494,7 @@ export class MarketDataService {
       }
     }
     
-    console.log(`[MarketData] ${enrichedResults.length}/${symbols.length} Aktien erfolgreich geladen (davon ${enrichedResults.filter(s => s.technicalIndicators).length} mit Indikatoren)`);
+    console.log(`[MarketData] ${enrichedResults.length}/${symbols.length} stocks loaded successfully (${enrichedResults.filter(s => s.technicalIndicators).length} with indicators)`);
     return enrichedResults;
   }
 
@@ -556,10 +556,10 @@ export class MarketDataService {
     }
 
     if (allNews.length > 0) {
-      console.log(`[MarketData] ${allNews.length} Google-News geladen (kein API-Key benötigt)`);
+      console.log(`[MarketData] ${allNews.length} Google News loaded (no API key required)`);
     }
 
-    // 2) Finnhub als optionale Ergänzung (nur wenn API key vorhanden)
+    // 2) Finnhub as optional supplement (only if API key available)
     if (this.apiKey) {
       try {
         const response = await axios.get(`${FINNHUB_API}/news`, {
@@ -572,14 +572,14 @@ export class MarketDataService {
               allNews.push(n);
             }
           }
-          console.log(`[MarketData] +${Math.min(10, response.data.length)} Finnhub-News ergänzt`);
+          console.log(`[MarketData] +${Math.min(10, response.data.length)} Finnhub news added`);
         }
       } catch (error) {
         console.warn('[MarketData] Finnhub-News fehlgeschlagen:', error);
       }
     }
 
-    // 3) Yahoo Finance Search als letzter Fallback (wenn Google News fehlschlägt)
+    // 3) Yahoo Finance search as last fallback (if Google News fails)
     if (allNews.length === 0) {
       const searchQueries = ['war conflict geopolitical', 'federal reserve interest rate inflation', 'stock market economy'];
       for (const query of searchQueries) {
@@ -603,11 +603,11 @@ export class MarketDataService {
     }
 
     if (allNews.length > 0) {
-      console.log(`[MarketData] Gesamt: ${allNews.length} News-Headlines geladen`);
+      console.log(`[MarketData] Total: ${allNews.length} news headlines loaded`);
       return allNews.slice(0, 20);
     }
 
-    console.warn('[MarketData] Keine News-Quelle verfügbar');
+    console.warn('[MarketData] No news sources available');
     return [];
   }
 }

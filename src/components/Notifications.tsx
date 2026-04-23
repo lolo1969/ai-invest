@@ -22,8 +22,8 @@ export function Notifications() {
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="pt-12 lg:pt-0">
-        <h1 className="text-2xl md:text-3xl font-bold text-white">Benachrichtigungen</h1>
-        <p className="text-sm text-gray-400">Übersicht deiner Investment-Alerts</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Notifications</h1>
+        <p className="text-sm text-gray-400">Overview of your investment alerts</p>
       </div>
 
       {/* Status Cards */}
@@ -42,7 +42,7 @@ export function Notifications() {
             <div>
               <h3 className="font-semibold text-white">Telegram</h3>
               <p className={telegramEnabled ? 'text-green-400' : 'text-gray-500'}>
-                {telegramEnabled ? 'Aktiviert' : 'Deaktiviert'}
+                {telegramEnabled ? 'Enabled' : 'Disabled'}
               </p>
             </div>
             {telegramEnabled ? (
@@ -65,9 +65,9 @@ export function Notifications() {
               <Mail size={24} className={emailEnabled ? 'text-green-500' : 'text-gray-500'} />
             </div>
             <div>
-              <h3 className="font-semibold text-white">E-Mail</h3>
+              <h3 className="font-semibold text-white">Email</h3>
               <p className={emailEnabled ? 'text-green-400' : 'text-gray-500'}>
-                {emailEnabled ? 'Aktiviert' : 'Deaktiviert'}
+                {emailEnabled ? 'Enabled' : 'Disabled'}
               </p>
             </div>
             {emailEnabled ? (
@@ -85,10 +85,10 @@ export function Notifications() {
           <div className="flex items-start gap-4">
             <BellOff size={24} className="text-yellow-500 flex-shrink-0 mt-1" />
             <div>
-              <h3 className="font-semibold text-yellow-500">Keine Benachrichtigungen aktiv</h3>
+              <h3 className="font-semibold text-yellow-500">No Notifications Active</h3>
               <p className="text-gray-400 mt-1">
-                Aktiviere Telegram oder E-Mail Benachrichtigungen in den Einstellungen, 
-                um Echtzeit-Alerts für Kauf- und Verkaufssignale zu erhalten.
+                Enable Telegram or Email notifications in Settings 
+                to receive real-time alerts for buy and sell signals.
               </p>
             </div>
           </div>
@@ -100,16 +100,16 @@ export function Notifications() {
         <div className="p-4 md:p-6 border-b border-[#252542]">
           <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
             <Clock size={16} className="text-indigo-500" />
-            Letzte Signale
+            Recent Signals
           </h2>
         </div>
 
         {recentNotifications.length === 0 ? (
           <div className="p-12 text-center">
             <Bell size={48} className="mx-auto text-gray-500 mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">Keine Signale</h3>
+            <h3 className="text-xl font-semibold text-white mb-2">No Signals</h3>
             <p className="text-gray-400">
-              Starte eine KI-Analyse, um Investment-Signale zu generieren.
+              Start an AI analysis to generate investment signals.
             </p>
           </div>
         ) : (
@@ -134,7 +134,7 @@ export function Notifications() {
                           ? 'bg-green-500 text-white' 
                           : 'bg-red-500 text-white'
                       }`}>
-                        {signal.signal === 'BUY' ? 'KAUFEN' : 'VERKAUFEN'}
+                        {signal.signal === 'BUY' ? 'BUY' : 'SELL'}
                       </span>
                     </div>
                     <p className="text-sm text-gray-400 line-clamp-1">{signal.reasoning}</p>
@@ -142,7 +142,7 @@ export function Notifications() {
                   <div className="text-right text-sm">
                     <p className="text-white">{signal.stock.price.toFixed(2)} {signal.stock.currency}</p>
                     <p className="text-gray-500">
-                      {new Date(signal.createdAt).toLocaleTimeString('de-DE')}
+                      {new Date(signal.createdAt).toLocaleTimeString('en-US')}
                     </p>
                   </div>
                 </div>

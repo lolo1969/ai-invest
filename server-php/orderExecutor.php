@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/stateManager.php';
 require_once __DIR__ . '/marketData.php';
+require_once __DIR__ . '/alpacaService.php';
 
 /**
  * Prüft alle aktiven Orders und führt sie aus wenn die Bedingungen erfüllt sind.
@@ -88,6 +89,19 @@ function checkAndExecuteOrders(string $sessionId): void {
 
                 // State wird intern gespeichert durch executeOrder
                 executeOrder($order['id'], $currentPrice, $sessionId);
+
+                // Alpaca Paper Trading (wenn aktiviert)
+                $alpacaSettings = $currentState['alpacaSettings'] ?? [];
+                if (!empty($alpacaSettings['enabled'])) {
+                    $apiKeys = $currentState['settings']['apiKeys'] ?? [];
+                    $keyId     = (string)($apiKeys['alpacaKeyId']     ?? '');
+                    $keySecret = (string)($apiKeys['alpacaKeySecret'] ?? '');
+                    $paper     = (bool)($alpacaSettings['paper'] ?? true);
+                    if ($keyId !== '' && $keySecret !== '') {
+                        submitAlpacaOrder($order, $currentPrice, $keyId, $keySecret, $paper);
+                    }
+                }
+
                 $stateChanged = false;
 
                 // Log-Eintrag
