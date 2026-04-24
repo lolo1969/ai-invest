@@ -155,7 +155,7 @@ export class MarketDataService {
         return rate;
       }
     } catch (error) {
-      console.error(`[FX] Failed to fetch ${currency}→EUR rate:`, error);
+      console.debug(`[FX] Failed to fetch ${currency}→EUR rate:`, error);
     }
 
     // Fallback rates
@@ -172,7 +172,7 @@ export class MarketDataService {
       'HKD': 0.118,
     };
     const fallback = fallbackRates[currency] || 1;
-    console.warn(`[FX] Using fallback rate: 1 ${currency} = ${fallback} EUR`);
+    // Silent fallback rate usage
     return fallback;
   }
 
@@ -351,7 +351,7 @@ export class MarketDataService {
         volume: quote.volume?.[i] || 0,
       }));
     } catch (error) {
-      console.error(`Failed to fetch historical data for ${symbol}:`, error);
+      // Silent fail - return empty array
       return [];
     }
   }
@@ -367,8 +367,7 @@ export class MarketDataService {
         name: q.shortname || q.longname || q.symbol,
       }));
     } catch (error) {
-      console.error('Search failed:', error);
-      // Return some popular stocks as fallback
+      // Silent fail - return fallback stocks
       const fallbackStocks = [
         { symbol: 'AAPL', name: 'Apple Inc.' },
         { symbol: 'MSFT', name: 'Microsoft Corporation' },
@@ -435,7 +434,7 @@ export class MarketDataService {
       
       return quote;
     } catch (error) {
-      console.error(`Failed to fetch extended quote for ${symbol}:`, error);
+      // Silent fail - fallback to basic quote
       return this.getQuote(symbol);
     }
   }
@@ -551,7 +550,7 @@ export class MarketDataService {
           }
         }
       } catch (error) {
-        console.warn(`[MarketData] Google News RSS fehlgeschlagen:`, error);
+        // Silent fail for Google News
       }
     }
 
@@ -575,7 +574,7 @@ export class MarketDataService {
           console.log(`[MarketData] +${Math.min(10, response.data.length)} Finnhub news added`);
         }
       } catch (error) {
-        console.warn('[MarketData] Finnhub-News fehlgeschlagen:', error);
+        // Silent fail for Finnhub
       }
     }
 
@@ -597,7 +596,7 @@ export class MarketDataService {
             }
           }
         } catch (error) {
-          console.warn(`[MarketData] Yahoo-News "${query}" fehlgeschlagen:`, error);
+          // Silent fail for Yahoo News
         }
       }
     }
@@ -607,7 +606,7 @@ export class MarketDataService {
       return allNews.slice(0, 20);
     }
 
-    console.warn('[MarketData] No news sources available');
+    // Silent fail - return empty array if no news available
     return [];
   }
 }
