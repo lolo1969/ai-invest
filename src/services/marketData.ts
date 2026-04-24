@@ -36,6 +36,11 @@ const RATE_CACHE_DURATION = 3600000; // 1 hour
 // Cache for all currency → EUR rates
 const cachedFxRates: Record<string, { rate: number; timestamp: number }> = {};
 
+// Circuit breaker: if Yahoo returns 401/403, skip API calls and use demo data directly
+let yahooCircuitBreakerOpen = false;
+let yahooCircuitBreakerAt = 0;
+const CIRCUIT_BREAKER_COOLDOWN = 3600000; // 1 hour
+
 // Fallback demo data when API fails
 const DEMO_STOCKS: Record<string, Stock> = {
   'AAPL': { symbol: 'AAPL', name: 'Apple Inc.', price: 165.00, change: 2.30, changePercent: 1.31, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
@@ -186,6 +191,18 @@ export class MarketDataService {
 
   // Fetch a single quote using Yahoo Finance chart endpoint - always returns EUR
   async getQuote(symbol: string): Promise<Stock | null> {
+    // Check if circuit breaker is still open
+    if (yahooCircuitBreakerOpen) {
+      const timeSinceTriggered = Date.now() - yahooCircuitBreakerAt;
+      if (timeSinceTriggered < CIRCUIT_BREAKER_COOLDOWN) {
+        // Circuit breaker still open, use demo data directly
+        return DEMO_STOCKS[symbol] || null;
+      } else {
+        // Reset circuit breaker after cooldown
+        yahooCircuitBreakerOpen = false;
+      }
+    }
+
     try {
       const url = buildYahooUrl(`/v8/finance/chart/${symbol}?interval=1d&range=1d`);
       console.log('Fetching stock:', symbol);
@@ -228,8 +245,13 @@ export class MarketDataService {
         exchange: meta.exchangeName || 'Unknown',
       };
     } catch (error: any) {
-      // Silent fail for 404/401 errors (symbol not found or auth issues)
-      // Return demo data or null without logging to reduce console spam
+      // Detect 401/403 and open circuit breaker
+      if (error?.response?.status === 401 || error?.response?.status === 403) {
+        yahooCircuitBreakerOpen = true;
+        yahooCircuitBreakerAt = Date.now();
+        console.warn('[MarketData] Yahoo Finance API blocked (401/403) - using demo data for 1 hour');
+      }
+      // Silent fail for other errors - return demo data or null
       return DEMO_STOCKS[symbol] || null;
     }
   }
@@ -238,6 +260,18 @@ export class MarketDataService {
   // This uses 1 HTTP request for ALL symbols instead of 1 per symbol!
   async getQuotesBatch(symbols: string[]): Promise<Stock[]> {
     if (symbols.length === 0) return [];
+    
+    // Check if circuit breaker is still open
+    if (yahooCircuitBreakerOpen) {
+      const timeSinceTriggered = Date.now() - yahooCircuitBreakerAt;
+      if (timeSinceTriggered < CIRCUIT_BREAKER_COOLDOWN) {
+        // Circuit breaker still open, use demo data directly
+        return symbols.map(s => DEMO_STOCKS[s]).filter((s): s is Stock => s !== undefined);
+      } else {
+        // Reset circuit breaker after cooldown
+        yahooCircuitBreakerOpen = false;
+      }
+    }
     
     const symbolsStr = symbols.join(',');
     console.log(`[MarketData] Batch quotes for ${symbols.length} symbols: ${symbolsStr}`);
@@ -297,7 +331,15 @@ export class MarketDataService {
       
       return stocks;
     } catch (error: any) {
-      // Silent fail for 404/401 errors, use fallback
+      // Detect 401/403 and open circuit breaker
+      if (error?.response?.status === 401 || error?.response?.status === 403) {
+        yahooCircuitBreakerOpen = true;
+        yahooCircuitBreakerAt = Date.now();
+        console.warn('[MarketData] Yahoo Finance API blocked (401/403) - using demo data for 1 hour');
+        // Return demo data for requested symbols
+        return symbols.map(s => DEMO_STOCKS[s]).filter((s): s is Stock => s !== undefined);
+      }
+      // Silent fail for other errors, use fallback
       return this.getQuotesFallback(symbols);
     }
   }
