@@ -18,6 +18,8 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     addTaxTransaction,
     taxTransactions,
     orderSettings,
+    cashBalance,
+    setCashBalance,
   } = useAppStore();
     const { clearUserPositions, clearTradeHistory, clearTaxTransactions } = useAppStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -28,7 +30,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
   const [selectedPositions, setSelectedPositions] = useState<Set<number>>(new Set());
   const [showSkipped, setShowSkipped] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
-  const [importedSummary, setImportedSummary] = useState({ positions: 0, trades: 0, taxes: 0 });
+  const [importedSummary, setImportedSummary] = useState({ positions: 0, trades: 0, taxes: 0, cash: 0 });
   const [fetchingPrices, setFetchingPrices] = useState(false);
   const [priceResults, setPriceResults] = useState<Record<string, number>>({});
   const [resolvedSymbols, setResolvedSymbols] = useState<Record<string, string>>({});
@@ -44,7 +46,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     setSelectedPositions(new Set());
     setShowSkipped(false);
     setImportProgress(0);
-    setImportedSummary({ positions: 0, trades: 0, taxes: 0 });
+    setImportedSummary({ positions: 0, trades: 0, taxes: 0, cash: 0 });
     setFetchingPrices(false);
     setPriceResults({});
     setResolvedSymbols({});
@@ -284,7 +286,8 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     const selectedIndices = Array.from(selectedPositions).sort((a, b) => a - b);
     const selectedList = importResult.positions.filter((_, i) => selectedPositions.has(i));
     const userPos = toUserPositions(selectedList);
-    const totalOperations = userPos.length + importResult.tradeHistory.length + importResult.taxTransactions.length || 1;
+    const hasCashImport = importResult.totalCashIn > 0 || importResult.totalCashOut > 0;
+    const totalOperations = userPos.length + importResult.tradeHistory.length + importResult.taxTransactions.length + (hasCashImport ? 1 : 0) || 1;
     let processed = 0;
     
     // Apply fetched prices and resolved symbols
@@ -388,8 +391,19 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
       processed++;
       setImportProgress(Math.round((processed / totalOperations) * 100));
     }
+
+    let appliedCash = 0;
+    if (hasCashImport) {
+      const nextCashBalance = importMode === 'overwrite'
+        ? importResult.netCashChange
+        : cashBalance + importResult.netCashChange;
+      setCashBalance(nextCashBalance);
+      appliedCash = importResult.netCashChange;
+      processed++;
+      setImportProgress(Math.round((processed / totalOperations) * 100));
+    }
     
-    setImportedSummary({ positions: importedPositions, trades: importedTrades, taxes: importedTaxes });
+    setImportedSummary({ positions: importedPositions, trades: importedTrades, taxes: importedTaxes, cash: appliedCash });
     setStep('done');
   };
 
@@ -566,6 +580,25 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
                 </div>
               </div>
 
+              {(importResult.totalCashIn > 0 || importResult.totalCashOut > 0) && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
+                    <p className="text-lg font-bold text-emerald-400">+{importResult.totalCashIn.toFixed(2)} EUR</p>
+                    <p className="text-xs text-gray-400">Cash In</p>
+                  </div>
+                  <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg p-3 text-center">
+                    <p className="text-lg font-bold text-rose-400">-{importResult.totalCashOut.toFixed(2)} EUR</p>
+                    <p className="text-xs text-gray-400">Cash Out</p>
+                  </div>
+                  <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-3 text-center">
+                    <p className={`text-lg font-bold ${importResult.netCashChange >= 0 ? 'text-indigo-300' : 'text-orange-300'}`}>
+                      {importResult.netCashChange >= 0 ? '+' : ''}{importResult.netCashChange.toFixed(2)} EUR
+                    </p>
+                    <p className="text-xs text-gray-400">Net Cash Change</p>
+                  </div>
+                </div>
+              )}
+
               <div className="bg-[#0d0d1a] rounded-lg border border-[#252542] p-3 text-sm text-gray-300">
                 {importResult.mode === 'positions' && 'This file contains a holdings snapshot. Only current portfolio positions will be imported.'}
                 {importResult.mode === 'transactions' && (() => {
@@ -680,6 +713,11 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
               <p className="text-white text-2xl font-bold mb-2">Import completed!</p>
               <p className="text-gray-400">
                 {importedSummary.positions} {importedSummary.positions === 1 ? 'Position' : 'Positions'}, {importedSummary.trades} {importedSummary.trades === 1 ? 'Trade' : 'Trades'} and {importedSummary.taxes} {importedSummary.taxes === 1 ? 'Tax transaction' : 'Tax transactions'} imported.
+                {importedSummary.cash !== 0 && (
+                  <span className="text-indigo-300">
+                    {' '}Cash {importedSummary.cash > 0 ? 'increased' : 'decreased'} by {Math.abs(importedSummary.cash).toFixed(2)} EUR.
+                  </span>
+                )}
                 {importResult && selectedPositions.size - importedSummary.positions > 0 && (
                   <span className="text-yellow-400">
                     {' '}({selectedPositions.size - importedSummary.positions} position duplicates skipped)

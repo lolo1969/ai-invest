@@ -38,6 +38,9 @@ export interface ImportResult {
   warnings: string[];
   totalBuyTransactions: number;
   totalSellTransactions: number;
+  totalCashIn: number;
+  totalCashOut: number;
+  netCashChange: number;
 }
 
 // Known column name mappings for Trade Republic and generic German broker CSVs
@@ -50,6 +53,8 @@ const COLUMN_MAPS: Record<string, string[]> = {
   fees: ['gebühr', 'gebuehr', 'gebühren', 'gebuehren', 'fee', 'fees', 'kosten', 'spesen'],
   tax: ['steuer', 'tax', 'quellensteuer', 'withholding', 'kapitalertragsteuer'],
   type: ['typ', 'type', 'art', 'transaktion', 'transaktionstyp', 'aktion', 'order', 'seite', 'side'],
+  category: ['kategorie', 'category'],
+  description: ['beschreibung', 'description', 'verwendungszweck', 'text'],
   date: ['datum', 'date', 'zeit', 'zeitpunkt', 'buchungsdatum', 'ausführungsdatum', 'valuta', 'datetime'],
   currency: ['währung', 'waehrung', 'currency', 'cur'],
   symbol: ['symbol', 'ticker', 'kürzel', 'kuerzel'],
@@ -118,7 +123,7 @@ function detectTransactionType(value: string): ParsedTransaction['type'] {
   if (['kauf', 'buy', 'kauforder', 'market_buy', 'limit_buy', 'buy order', 'sparplan', 'sparplanausführung'].some(k => lower.includes(k))) return 'buy';
   if (['verkauf', 'sell', 'verkaufsorder', 'market_sell', 'limit_sell', 'sell order', 'stop sell', 'stop-loss'].some(k => lower.includes(k))) return 'sell';
   if (['dividende', 'dividend', 'ausschüttung', 'ausschuettung', 'dividend_payment'].some(k => lower.includes(k))) return 'dividend';
-  if (['zinsen', 'interest', '2 % p.a.', '2% p.a.', 'interest_payment'].some(k => lower.includes(k))) return 'interest';
+  if (['zinsen', 'zins', 'interest', '2 % p.a.', '2% p.a.', '2 % p. a.', '2% p. a.', 'interest_payment', 'interest payout', 'verzinsung'].some(k => lower.includes(k))) return 'interest';
   if (['einzahlung', 'cash in', 'completed', 'transfer_inbound', 'transfer_instant_inbound', 'customer_inpayment'].some(k => lower.includes(k))) return 'cash-in';
   if (['auszahlung', 'sent', 'cash out', 'transfer_outbound', 'transfer_instant_outbound'].some(k => lower.includes(k))) return 'cash-out';
   if (['sonstiges', 'card_transaction', 'card_ordering_fee'].some(k => lower.includes(k))) return 'other';
@@ -443,7 +448,7 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
   const { headers, rows } = parseCSVRows(content, separator);
   
   if (headers.length === 0 || rows.length === 0) {
-    return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings: ['No data found in the CSV file.'], totalBuyTransactions: 0, totalSellTransactions: 0 };
+    return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings: ['No data found in the CSV file.'], totalBuyTransactions: 0, totalSellTransactions: 0, totalCashIn: 0, totalCashOut: 0, netCashChange: 0 };
   }
   
   // Map headers to known columns
@@ -468,12 +473,12 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
   
   if (!hasName && !reverseMap.isin) {
     warnings.push('No column for name or ISIN detected. Detected columns: ' + headers.join(', '));
-    return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings, totalBuyTransactions: 0, totalSellTransactions: 0 };
+    return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings, totalBuyTransactions: 0, totalSellTransactions: 0, totalCashIn: 0, totalCashOut: 0, netCashChange: 0 };
   }
   
   if (!hasQuantity && !hasTotal) {
     warnings.push('No column for quantity or amount detected.');
-    return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings, totalBuyTransactions: 0, totalSellTransactions: 0 };
+    return { mode: 'unsupported', positions: [], tradeHistory: [], taxTransactions: [], skipped: [], warnings, totalBuyTransactions: 0, totalSellTransactions: 0, totalCashIn: 0, totalCashOut: 0, netCashChange: 0 };
   }
 
   const hasPrice = !!reverseMap.price;
@@ -504,7 +509,10 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
     const fees = Math.abs(parseNumber(getValue('fees')));
     const withholdingTax = Math.abs(parseNumber(getValue('tax')));
     const typeStr = getValue('type');
-    const type = typeStr ? detectTransactionType(typeStr) : 'buy';
+    const categoryStr = getValue('category');
+    const descriptionStr = getValue('description');
+    const typeContext = [typeStr, categoryStr, descriptionStr, name].filter(Boolean).join(' ');
+    const type = typeStr ? detectTransactionType(typeContext) : 'buy';
     const date = parseDate(getValue('date'));
     const currency = getValue('currency') || 'EUR';
     
@@ -553,6 +561,9 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
       warnings,
       totalBuyTransactions: 0,
       totalSellTransactions: 0,
+      totalCashIn: 0,
+      totalCashOut: 0,
+      netCashChange: 0,
     };
   }
 
@@ -571,6 +582,9 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
       warnings,
       totalBuyTransactions: 0,
       totalSellTransactions: 0,
+      totalCashIn: 0,
+      totalCashOut: 0,
+      netCashChange: 0,
     };
   }
 
@@ -585,6 +599,9 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
       warnings,
       totalBuyTransactions: 0,
       totalSellTransactions: 0,
+      totalCashIn: 0,
+      totalCashOut: 0,
+      netCashChange: 0,
     };
   }
 
@@ -600,6 +617,56 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
   const tradeTransactions = transactions.filter((tx) => tx.type === 'buy' || tx.type === 'sell');
   const totalBuy = tradeTransactions.filter((tx) => tx.type === 'buy').length;
   const totalSell = tradeTransactions.filter((tx) => tx.type === 'sell').length;
+  const totalCashIn = Math.round(
+    transactions
+      .filter((tx) => tx.type === 'cash-in')
+      .reduce((sum, tx) => sum + Math.abs(tx.totalAmount || 0), 0) * 100,
+  ) / 100;
+  const totalCashOut = Math.round(
+    transactions
+      .filter((tx) => tx.type === 'cash-out')
+      .reduce((sum, tx) => sum + Math.abs(tx.totalAmount || 0), 0) * 100,
+  ) / 100;
+  // Net cash effect of all transactions, assuming a starting balance of 0.
+  // This allows overwrite-imports to set the imported end cash balance.
+  const netCashChange = Math.round(
+    transactions.reduce((sum, tx) => {
+      const signedRowAmount = parseNumber(tx.raw[reverseMap.total] || '');
+      const signedRowFee = parseNumber(tx.raw[reverseMap.fees] || '');
+      const signedRowTax = parseNumber(tx.raw[reverseMap.tax] || '');
+
+      // Prefer raw signed CSV cash components when available.
+      // For Trade Republic style exports this mirrors account cash movements exactly.
+      if (signedRowAmount !== 0 || signedRowFee !== 0 || signedRowTax !== 0) {
+        return sum + signedRowAmount + signedRowFee + signedRowTax;
+      }
+
+      const amount = Math.abs(tx.totalAmount || 0);
+      const fees = Math.abs(tx.fees || 0);
+      const withholdingTax = Math.abs(tx.withholdingTax || 0);
+
+      switch (tx.type) {
+        case 'buy':
+          return sum - amount - fees - withholdingTax;
+        case 'sell':
+          return sum + amount - fees - withholdingTax;
+        case 'dividend':
+        case 'interest':
+          return sum + amount - fees - withholdingTax;
+        case 'cash-in':
+          return sum + amount;
+        case 'cash-out':
+          return sum - amount;
+        case 'other':
+        case 'unknown':
+          // Fallback: for non-trade cash-moving rows (e.g. card transactions),
+          // use the signed CSV amount directly.
+          return sum + signedRowAmount;
+        default:
+          return sum;
+      }
+    }, 0) * 100,
+  ) / 100;
   const positions = aggregateTransactionsToPositions(transactions, warnings);
   const tradeHistory = buildTradeHistory(transactions);
   const taxTransactions = buildTaxTransactions(transactions, warnings);
@@ -625,6 +692,9 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
     warnings,
     totalBuyTransactions: totalBuy,
     totalSellTransactions: totalSell,
+    totalCashIn,
+    totalCashOut,
+    netCashChange,
   };
 }
 
