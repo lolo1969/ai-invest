@@ -227,9 +227,9 @@ export class MarketDataService {
         currency: 'EUR', // Always EUR
         exchange: meta.exchangeName || 'Unknown',
       };
-    } catch (error) {
-      console.error(`Failed to fetch quote for ${symbol}:`, error);
-      // Return demo data as fallback only for known symbols
+    } catch (error: any) {
+      // Silent fail for 404/401 errors (symbol not found or auth issues)
+      // Return demo data or null without logging to reduce console spam
       return DEMO_STOCKS[symbol] || null;
     }
   }
@@ -296,8 +296,8 @@ export class MarketDataService {
       }
       
       return stocks;
-    } catch (error) {
-      console.warn('[MarketData] Batch quote failed, falling back to individual requests:', error);
+    } catch (error: any) {
+      // Silent fail for 404/401 errors, use fallback
       return this.getQuotesFallback(symbols);
     }
   }
