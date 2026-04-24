@@ -121,6 +121,11 @@ export class AlpacaService {
    * limit / stop price so Alpaca mirrors the same trigger.
    */
   async submitOrder(order: Order, executedPrice: number): Promise<AlpacaOrderResult> {
+    // Alpaca only supports US-listed symbols (no exchange suffixes like .DE, .L, .PA, .F, .MI etc.)
+    if (order.symbol.includes('.')) {
+      return Promise.reject(new Error(`Alpaca: symbol "${order.symbol}" is not a US stock – skipped`));
+    }
+
     const { side, type } = mapOrderType(order.orderType);
     const price = executedPrice > 0 ? executedPrice : order.triggerPrice;
 

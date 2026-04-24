@@ -196,6 +196,7 @@ export class MarketDataService {
       const timeSinceTriggered = Date.now() - yahooCircuitBreakerAt;
       if (timeSinceTriggered < CIRCUIT_BREAKER_COOLDOWN) {
         // Circuit breaker still open, use demo data directly
+        // For unknown symbols (EU stocks), return a null - caller keeps existing price
         return DEMO_STOCKS[symbol] || null;
       } else {
         // Reset circuit breaker after cooldown
