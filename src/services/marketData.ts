@@ -52,6 +52,21 @@ const DEMO_STOCKS: Record<string, Stock> = {
   'META': { symbol: 'META', name: 'Meta Platforms Inc.', price: 355.00, change: 4.50, changePercent: 1.18, currency: 'EUR', exchange: 'NASDAQ', isFallback: true },
 };
 
+// Helper to detect if Yahoo returned an Unauthorized error in the response body
+function isYahooUnauthorized(data: any): boolean {
+  return (
+    data?.finance?.error?.code === 'Unauthorized' ||
+    data?.chart?.error?.code === 'Unauthorized' ||
+    data?.quoteResponse?.error?.code === 'Unauthorized'
+  );
+}
+
+function openCircuitBreaker() {
+  yahooCircuitBreakerOpen = true;
+  yahooCircuitBreakerAt = Date.now();
+  console.warn('[MarketData] Yahoo Finance API blocked - using demo data for 1 hour');
+}
+
 export class MarketDataService {
   private apiKey: string;
 
@@ -248,9 +263,7 @@ export class MarketDataService {
     } catch (error: any) {
       // Detect 401/403 and open circuit breaker
       if (error?.response?.status === 401 || error?.response?.status === 403) {
-        yahooCircuitBreakerOpen = true;
-        yahooCircuitBreakerAt = Date.now();
-        console.warn('[MarketData] Yahoo Finance API blocked (401/403) - using demo data for 1 hour');
+        openCircuitBreaker();
       }
       // Silent fail for other errors - return demo data or null
       return DEMO_STOCKS[symbol] || null;
@@ -280,12 +293,18 @@ export class MarketDataService {
     try {
       const url = buildYahooUrl(`/v7/finance/quote?symbols=${encodeURIComponent(symbolsStr)}&fields=symbol,shortName,longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency,fullExchangeName`);
       const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 15000 }));
+
+      // Detect Yahoo Unauthorized in body (returns HTTP 200 but with error)
+      if (isYahooUnauthorized(response.data)) {
+        openCircuitBreaker();
+        return symbols.map(s => DEMO_STOCKS[s]).filter((s): s is Stock => s !== undefined);
+      }
       
       const quotes = response.data?.quoteResponse?.result || [];
       console.log(`[MarketData] Batch-Quote: ${quotes.length}/${symbols.length} received`);
       
       if (quotes.length === 0) {
-        console.warn('[MarketData] Batch-Quote leer, fallback auf Einzel-Requests');
+        // Silent fallback when no quotes returned
         return this.getQuotesFallback(symbols);
       }
       
@@ -334,10 +353,7 @@ export class MarketDataService {
     } catch (error: any) {
       // Detect 401/403 and open circuit breaker
       if (error?.response?.status === 401 || error?.response?.status === 403) {
-        yahooCircuitBreakerOpen = true;
-        yahooCircuitBreakerAt = Date.now();
-        console.warn('[MarketData] Yahoo Finance API blocked (401/403) - using demo data for 1 hour');
-        // Return demo data for requested symbols
+        openCircuitBreaker();
         return symbols.map(s => DEMO_STOCKS[s]).filter((s): s is Stock => s !== undefined);
       }
       // Silent fail for other errors, use fallback
