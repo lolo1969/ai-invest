@@ -217,6 +217,7 @@ export function Portfolio() {
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioHistoryPoint[]>([]);
   const [loadingPortfolioHistory, setLoadingPortfolioHistory] = useState(false);
   const [portfolioHistoryCacheVersion, setPortfolioHistoryCacheVersion] = useState(0);
+  const [syncingToAlpaca, setSyncingToAlpaca] = useState(false);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -2109,6 +2110,72 @@ ${settings.aiLanguage === 'de' ? 'Antworte auf Deutsch mit Emojis für bessere �
     return `${minutes} Min. ${seconds} Sec.`;
   };
 
+  // Sync all current portfolio positions to Alpaca
+  const syncPositionsToAlpaca = async () => {
+    if (!alpacaSettings.enabled) {
+      setError('Alpaca not enabled in Settings');
+      return;
+    }
+
+    if (userPositions.length === 0) {
+      setError('No positions to sync');
+      return;
+    }
+
+    setSyncingToAlpaca(true);
+    try {
+      const alpaca = createAlpacaService(
+        settings.apiKeys.alpacaKeyId,
+        settings.apiKeys.alpacaKeySecret,
+        alpacaSettings.paper
+      );
+
+      if (!alpaca) {
+        setError('Failed to initialize Alpaca service');
+        return;
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const position of userPositions) {
+        try {
+          const mockOrder = {
+            id: crypto.randomUUID(),
+            symbol: position.symbol,
+            name: position.name,
+            quantity: position.quantity,
+            triggerPrice: position.currentPrice,
+            currentPrice: position.currentPrice,
+            orderType: 'limit-buy' as const,
+            status: 'active' as const,
+            createdAt: new Date(),
+          };
+
+          await alpaca.submitOrder(mockOrder, position.currentPrice);
+          console.log(`[Alpaca Sync] ✓ ${position.symbol} ${position.quantity} @ ${position.currentPrice.toFixed(2)} €`);
+          successCount++;
+        } catch (err: any) {
+          console.warn(`[Alpaca Sync] ✗ ${position.symbol}:`, err?.message ?? err);
+          errorCount++;
+        }
+      }
+
+      const msg = `Synced ${successCount}/${userPositions.length} positions to Alpaca${errorCount > 0 ? ` (${errorCount} failed)` : ''}`;
+      if (errorCount === 0) {
+        setError(null);
+        console.log(`[Alpaca Sync] ${msg}`);
+      } else {
+        setError(`${msg} - check console for details`);
+      }
+    } catch (error: any) {
+      console.error('[Alpaca Sync] Error:', error);
+      setError(`Sync failed: ${error.message || 'Unknown error'}`);
+    } finally {
+      setSyncingToAlpaca(false);
+    }
+  };
+
   useEffect(() => {
     if (wasAnalyzingRef.current && !analyzing && analysisResult && analysisResultRef.current) {
       analysisResultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2240,6 +2307,18 @@ ${settings.aiLanguage === 'de' ? 'Antworte auf Deutsch mit Emojis für bessere �
             <Upload size={16} />
             CSV Import
           </button>
+          {alpacaSettings.enabled && (
+            <button
+              onClick={syncPositionsToAlpaca}
+              disabled={syncingToAlpaca || userPositions.length === 0}
+              title="Sync all current positions to Alpaca Paper Trading"
+              className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 bg-cyan-600 hover:bg-cyan-700 
+                       disabled:bg-cyan-600/50 text-white rounded-lg transition-colors text-sm md:text-base"
+            >
+              <RefreshCw size={16} className={syncingToAlpaca ? 'animate-spin' : ''} />
+              <span className="hidden sm:inline">{syncingToAlpaca ? 'Syncing...' : 'Sync'}</span>
+            </button>
+          )}
           <button
             onClick={analyzePortfolio}
             disabled={analyzing || (userPositions.length === 0 && watchlist.length === 0)}
