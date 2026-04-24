@@ -27,6 +27,7 @@ import {
 import { CSVImportModal } from './CSVImportModal';
 import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
+import { createAlpacaService } from '../services/alpacaService';
 import emailjs from '@emailjs/browser';
 import type { UserPosition, AnalysisHistoryEntry } from '../types';
 import { symbolsReferToSameInstrument } from '../utils/symbolMatching';
@@ -185,7 +186,8 @@ export function Portfolio() {
     orderSettings,
     tradeHistory,
     analysisProgress,
-    setAnalysisProgress
+    setAnalysisProgress,
+    alpacaSettings
   } = useAppStore();
   
   const [showAddForm, setShowAddForm] = useState(false);
@@ -288,6 +290,31 @@ export function Portfolio() {
         date: new Date().toISOString(),
         source: 'manual',
       });
+
+      // Mirror to Alpaca if enabled (fire & forget)
+      if (alpacaSettings.enabled) {
+        const alpaca = createAlpacaService(
+          settings.apiKeys.alpacaKeyId,
+          settings.apiKeys.alpacaKeySecret,
+          alpacaSettings.paper
+        );
+        if (alpaca) {
+          const mockOrder = {
+            id: crypto.randomUUID(),
+            symbol: position.symbol,
+            name: position.name,
+            quantity,
+            triggerPrice: price,
+            currentPrice: price,
+            orderType: 'limit-buy' as const,
+            status: 'active' as const,
+            createdAt: new Date(),
+          };
+          alpaca.submitOrder(mockOrder, price)
+            .then(() => console.log(`[Alpaca] Manual buy: ${position.symbol} ${quantity} @ ${price.toFixed(2)} €`))
+            .catch((err) => console.warn(`[Alpaca] Manual buy failed for ${position.symbol}:`, err?.message ?? err));
+        }
+      }
     } else {
       const { reservedShares, availableShares } = getAvailableShares(position.symbol, position.quantity);
       if (quantity > availableShares) {
@@ -369,6 +396,31 @@ export function Portfolio() {
         date: new Date().toISOString(),
         source: 'manual',
       });
+
+      // Mirror to Alpaca if enabled (fire & forget)
+      if (alpacaSettings.enabled) {
+        const alpaca = createAlpacaService(
+          settings.apiKeys.alpacaKeyId,
+          settings.apiKeys.alpacaKeySecret,
+          alpacaSettings.paper
+        );
+        if (alpaca) {
+          const mockOrder = {
+            id: crypto.randomUUID(),
+            symbol: position.symbol,
+            name: position.name,
+            quantity,
+            triggerPrice: price,
+            currentPrice: price,
+            orderType: 'limit-sell' as const,
+            status: 'active' as const,
+            createdAt: new Date(),
+          };
+          alpaca.submitOrder(mockOrder, price)
+            .then(() => console.log(`[Alpaca] Manual sell: ${position.symbol} ${quantity} @ ${price.toFixed(2)} €`))
+            .catch((err) => console.warn(`[Alpaca] Manual sell failed for ${position.symbol}:`, err?.message ?? err));
+        }
+      }
     }
     setTradeAction(null);
     setTradeQuantity('');
@@ -1052,6 +1104,31 @@ export function Portfolio() {
       date: new Date().toISOString(),
       source: 'manual',
     });
+
+    // Mirror to Alpaca if enabled (fire & forget)
+    if (alpacaSettings.enabled) {
+      const alpaca = createAlpacaService(
+        settings.apiKeys.alpacaKeyId,
+        settings.apiKeys.alpacaKeySecret,
+        alpacaSettings.paper
+      );
+      if (alpaca) {
+        const mockOrder = {
+          id: crypto.randomUUID(),
+          symbol: newPosition.symbol,
+          name: newPosition.name,
+          quantity,
+          triggerPrice: buyPrice,
+          currentPrice: buyPrice,
+          orderType: 'limit-buy' as const,
+          status: 'active' as const,
+          createdAt: new Date(),
+        };
+        alpaca.submitOrder(mockOrder, buyPrice)
+          .then(() => console.log(`[Alpaca] Manual new buy: ${newPosition.symbol} ${quantity} @ ${buyPrice.toFixed(2)} €`))
+          .catch((err) => console.warn(`[Alpaca] Manual new buy failed for ${newPosition.symbol}:`, err?.message ?? err));
+      }
+    }
 
     setFormData({ symbol: '', isin: '', name: '', quantity: '', buyPrice: '', currentPrice: '', currency: 'EUR' });
     setShowAddForm(false);
