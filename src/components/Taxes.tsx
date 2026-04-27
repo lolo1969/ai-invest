@@ -28,45 +28,46 @@ const LUX_SPECULATION_DAYS = 183; // ~6 months
 const LUX_EXEMPTION_AMOUNT = 500; // EUR exemption on short-term gains
 
 export function Taxes() {
-  const { taxTransactions, addTaxTransaction, removeTaxTransaction, clearTaxTransactions, userPositions } = useAppStore();
+  const { taxTransactions, addTaxTransaction, removeTaxTransaction, clearTaxTransactions, userPositions, orders, tradeHistory } = useAppStore();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingTx, setEditingTx] = useState<string | null>(null);
   const [editBuyDate, setEditBuyDate] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
 
+  const getEarliestBuyDateForSymbol = (symbol: string): Date | null => {
+    const executedBuyOrder = orders
+      .filter(o => o.status === 'executed'
+        && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy')
+        && o.symbol === symbol
+        && o.executedAt != null)
+      .sort((a, b) => new Date(a.executedAt!).getTime() - new Date(b.executedAt!).getTime())[0];
+
+    if (executedBuyOrder?.executedAt) {
+      return new Date(executedBuyOrder.executedAt);
+    }
+
+    const buyTrade = tradeHistory
+      ?.filter(t => t.type === 'buy' && t.symbol === symbol)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
+
+    if (buyTrade?.date) {
+      return new Date(buyTrade.date);
+    }
+
+    return null;
+  };
+
   // Auto-Fix: Look up purchase dates from buy orders for transactions with holdingDays === 0
   useEffect(() => {
-    const store = useAppStore.getState();
-    const unknownDateTxs = store.taxTransactions.filter(
+    const unknownDateTxs = taxTransactions.filter(
       tx => (!tx.transactionType || tx.transactionType === 'capital-gain') && tx.holdingDays === 0
     );
     if (unknownDateTxs.length === 0) return;
 
     let fixed = 0;
     for (const tx of unknownDateTxs) {
-      // 1. Search through executed buy orders
-      const buyOrder = store.orders
-        .filter(o => o.status === 'executed'
-          && (o.orderType === 'limit-buy' || o.orderType === 'stop-buy')
-          && o.symbol === tx.symbol
-          && o.executedAt != null)
-        .sort((a, b) => new Date(a.executedAt!).getTime() - new Date(b.executedAt!).getTime())[0];
-
-      let foundBuyDate: Date | null = null;
-      if (buyOrder) {
-        foundBuyDate = new Date(buyOrder.executedAt!);
-      }
-
-      // 2. Fallback: Trade history
-      if (!foundBuyDate) {
-        const buyTrade = store.tradeHistory
-          ?.filter(t => t.type === 'buy' && t.symbol === tx.symbol)
-          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
-        if (buyTrade) {
-          foundBuyDate = new Date(buyTrade.date);
-        }
-      }
+      const foundBuyDate = getEarliestBuyDateForSymbol(tx.symbol);
 
       if (foundBuyDate) {
         const sellDate = new Date(tx.sellDate);
@@ -89,7 +90,7 @@ export function Taxes() {
     if (fixed > 0) {
       console.log(`[Taxes] ${fixed} Transaction(s) automatically supplemented with purchase date from orders/history`);
     }
-  }, []); // Only on first render
+  }, [taxTransactions, orders, tradeHistory, removeTaxTransaction, addTaxTransaction]);
 
   // Form state for manual entry
   const [formData, setFormData] = useState({
@@ -471,6 +472,12 @@ export function Taxes() {
               {userPositions.map(pos => {
                 const unrealized = (pos.currentPrice - pos.buyPrice) * pos.quantity;
                 const isGain = unrealized >= 0;
+                const buyDate = getEarliestBuyDateForSymbol(pos.symbol);
+                const holdingDays = buyDate
+                  ? Math.floor((Date.now() - buyDate.getTime()) / (1000 * 60 * 60 * 24))
+                  : null;
+                const taxFree = holdingDays !== null && holdingDays >= LUX_SPECULATION_DAYS;
+                const daysUntilTaxFree = holdingDays !== null ? Math.max(0, LUX_SPECULATION_DAYS - holdingDays) : null;
                 return (
                   <div key={pos.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-[#0f0f23]/50">
                     <div>
@@ -481,9 +488,16 @@ export function Taxes() {
                       <span className={`text-sm font-medium ${isGain ? 'text-green-400' : 'text-red-400'}`}>
                         {isGain ? '+' : ''}{formatCurrency(unrealized)} €
                       </span>
-                      <p className="text-xs text-gray-500">
-                        Purchase date not recorded
-                      </p>
+                      {buyDate ? (
+                        <p className={`text-xs ${taxFree ? 'text-green-400' : 'text-gray-500'}`}>
+                          Bought: {formatDate(buyDate.toISOString())}
+                          {taxFree ? ' · tax-free' : ` · ${daysUntilTaxFree} days until tax-free`}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500">
+                          Purchase date not recorded
+                        </p>
+                      )}
                     </div>
                   </div>
                 );

@@ -195,6 +195,23 @@ function normalizeBootstrapSuggestedOrders(
   return normalized;
 }
 
+function getMaxAffordableQuantity(
+  triggerPrice: number,
+  maxSpendableCash: number,
+  transactionFeeFlat: number,
+  transactionFeePercent: number
+): number {
+  if (triggerPrice <= 0 || maxSpendableCash <= 0) return 0;
+
+  const remainingAfterFlatFee = maxSpendableCash - transactionFeeFlat;
+  if (remainingAfterFlatFee <= 0) return 0;
+
+  const priceWithPercentFee = triggerPrice * (1 + transactionFeePercent / 100);
+  if (priceWithPercentFee <= 0) return 0;
+
+  return Math.max(0, Math.floor(remainingAfterFlatFee / priceWithPercentFee));
+}
+
 export async function runAutopilotCycle(): Promise<void> {
   const store = useAppStore.getState();
   const { 
@@ -696,67 +713,93 @@ function applySafetyRules(
 
   const approved: AISuggestedOrder[] = [];
   let tradesThisCycle = 0;
+  const minCashReserveValue = Math.max(0, totalPortfolioValue * (settings.minCashReservePercent / 100));
 
   for (const order of suggestedOrders) {
+    let candidateOrder = { ...order };
+
     // Max trades per cycle
     if (tradesThisCycle >= settings.maxTradesPerCycle) {
-      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Max. trades per cycle reached (${settings.maxTradesPerCycle})`, undefined, order.symbol));
+      log(createLogEntry('skipped', `⏭️ ${candidateOrder.symbol}: Max. trades per cycle reached (${settings.maxTradesPerCycle})`, undefined, candidateOrder.symbol));
       continue;
     }
 
     // Buy/Sell erlaubt?
-    const isBuy = order.orderType === 'limit-buy' || order.orderType === 'stop-buy';
-    const isSell = order.orderType === 'limit-sell' || order.orderType === 'stop-loss';
+    const isBuy = candidateOrder.orderType === 'limit-buy' || candidateOrder.orderType === 'stop-buy';
+    const isSell = candidateOrder.orderType === 'limit-sell' || candidateOrder.orderType === 'stop-loss';
     
     if (isBuy && !settings.allowBuy) {
-      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Purchases disabled`, undefined, order.symbol));
+      log(createLogEntry('skipped', `⏭️ ${candidateOrder.symbol}: Purchases disabled`, undefined, candidateOrder.symbol));
       continue;
     }
     if (isSell && !settings.allowSell) {
-      log(createLogEntry('skipped', `⏭️ ${order.symbol}: Sales disabled`, undefined, order.symbol));
+      log(createLogEntry('skipped', `⏭️ ${candidateOrder.symbol}: Sales disabled`, undefined, candidateOrder.symbol));
       continue;
     }
 
     // Neue Positionen erlaubt?
     if (isBuy && !settings.allowNewPositions && !options?.bootstrapMode) {
-      const existingPosition = findCompatibleSymbolMatch(order.symbol, userPositions, (item) => item.symbol);
+      const existingPosition = findCompatibleSymbolMatch(candidateOrder.symbol, userPositions, (item) => item.symbol);
       if (!existingPosition) {
-        log(createLogEntry('skipped', `⏭️ ${order.symbol}: Neue Positionen nicht erlaubt`, undefined, order.symbol));
+        log(createLogEntry('skipped', `⏭️ ${candidateOrder.symbol}: Neue Positionen nicht erlaubt`, undefined, candidateOrder.symbol));
         continue;
       }
     }
 
     // Nur Watchlist?
     if (settings.watchlistOnly) {
-      const inWatchlist = store.watchlist.some(s => symbolsReferToSameInstrument(s.symbol, order.symbol));
-      const inPortfolio = userPositions.some(p => symbolsReferToSameInstrument(p.symbol, order.symbol));
+      const inWatchlist = store.watchlist.some(s => symbolsReferToSameInstrument(s.symbol, candidateOrder.symbol));
+      const inPortfolio = userPositions.some(p => symbolsReferToSameInstrument(p.symbol, candidateOrder.symbol));
       if (!inWatchlist && !inPortfolio) {
-        log(createLogEntry('skipped', `⏭️ ${order.symbol}: Nicht in Watchlist/Portfolio`, undefined, order.symbol));
+        log(createLogEntry('skipped', `⏭️ ${candidateOrder.symbol}: Nicht in Watchlist/Portfolio`, undefined, candidateOrder.symbol));
         continue;
       }
     }
 
-    // Max position size
-    if (isBuy && totalPortfolioValue > 0) {
-      const orderValue = order.triggerPrice * order.quantity;
+    if (isBuy) {
       const existingValue = userPositions
-        .filter(p => symbolsReferToSameInstrument(p.symbol, order.symbol))
+        .filter(p => symbolsReferToSameInstrument(p.symbol, candidateOrder.symbol))
         .reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
-      const totalPositionValue = existingValue + orderValue;
-      const positionPercent = (totalPositionValue / totalPortfolioValue) * 100;
-      
-      if (positionPercent > settings.maxPositionPercent) {
-        log(createLogEntry('skipped', 
-          `⏭️ ${order.symbol}: Position would be ${positionPercent.toFixed(1)}% > Max ${settings.maxPositionPercent}%`,
-          undefined, order.symbol
-        ));
+
+      const maxPositionValue = totalPortfolioValue > 0
+        ? totalPortfolioValue * (settings.maxPositionPercent / 100)
+        : Number.POSITIVE_INFINITY;
+      const maxAdditionalPositionValue = Math.max(0, maxPositionValue - existingValue);
+      const maxQtyByPosition = totalPortfolioValue > 0 && Number.isFinite(maxPositionValue)
+        ? Math.floor(maxAdditionalPositionValue / Math.max(candidateOrder.triggerPrice, 0.0001))
+        : candidateOrder.quantity;
+
+      const maxSpendableCash = Math.max(0, availableCash - minCashReserveValue);
+      const maxQtyByCash = getMaxAffordableQuantity(
+        candidateOrder.triggerPrice,
+        maxSpendableCash,
+        orderSettings.transactionFeeFlat || 0,
+        orderSettings.transactionFeePercent || 0
+      );
+
+      const allowedQuantity = Math.min(candidateOrder.quantity, maxQtyByPosition, maxQtyByCash);
+      if (allowedQuantity < 1) {
+        const skipReason = maxQtyByCash < 1
+          ? `⏭️ ${candidateOrder.symbol}: Min cash reserve leaves no room for a buy order`
+          : `⏭️ ${candidateOrder.symbol}: Position is already at max ${settings.maxPositionPercent}%`;
+        log(createLogEntry('skipped', skipReason, undefined, candidateOrder.symbol));
         continue;
+      }
+
+      if (allowedQuantity < candidateOrder.quantity) {
+        log(createLogEntry(
+          'info',
+          `↘️ ${candidateOrder.symbol}: Buy quantity reduced from ${candidateOrder.quantity} to ${allowedQuantity} to respect cash reserve/position limit`,
+          undefined,
+          candidateOrder.symbol
+        ));
+        candidateOrder.quantity = allowedQuantity;
       }
     }
 
     // Min cash reserve for purchases (incl. fees and already reserved cash)
     if (isBuy) {
-      const orderCost = order.triggerPrice * order.quantity;
+      const orderCost = candidateOrder.triggerPrice * candidateOrder.quantity;
       const orderFee = (orderSettings.transactionFeeFlat || 0) + orderCost * (orderSettings.transactionFeePercent || 0) / 100;
       const totalOrderCost = orderCost + orderFee;
       const cashAfter = availableCash - totalOrderCost;
@@ -764,8 +807,8 @@ function applySafetyRules(
       
       if (cashPercentAfter < settings.minCashReservePercent) {
         log(createLogEntry('skipped',
-          `⏭️ ${order.symbol}: Cash reserve after purchase would be ${cashPercentAfter.toFixed(1)}% < Min ${settings.minCashReservePercent}%`,
-          undefined, order.symbol
+          `⏭️ ${candidateOrder.symbol}: Cash reserve after purchase would be ${cashPercentAfter.toFixed(1)}% < Min ${settings.minCashReservePercent}%`,
+          undefined, candidateOrder.symbol
         ));
         continue;
       }
@@ -773,8 +816,8 @@ function applySafetyRules(
       // Enough available cash? (incl. fees, minus reserved cash)
       if (totalOrderCost > availableCash) {
         log(createLogEntry('skipped',
-          `⏭️ ${order.symbol}: Not enough available cash (${totalOrderCost.toFixed(2)}€ incl. fees > ${availableCash.toFixed(2)}€ available)`,
-          undefined, order.symbol
+          `⏭️ ${candidateOrder.symbol}: Not enough available cash (${totalOrderCost.toFixed(2)}€ incl. fees > ${availableCash.toFixed(2)}€ available)`,
+          undefined, candidateOrder.symbol
         ));
         continue;
       }
@@ -785,25 +828,25 @@ function applySafetyRules(
 
     // Enough shares for sale? (minus already reserved by other sell orders)
     if (isSell) {
-      const position = findCompatibleSymbolMatch(order.symbol, userPositions, (item) => item.symbol);
+      const position = findCompatibleSymbolMatch(candidateOrder.symbol, userPositions, (item) => item.symbol);
       const reserved = Array.from(reservedSharesBySymbol.entries())
-        .filter(([symbol]) => symbolsReferToSameInstrument(symbol, order.symbol))
+        .filter(([symbol]) => symbolsReferToSameInstrument(symbol, candidateOrder.symbol))
         .reduce((sum, [, qty]) => sum + qty, 0);
       const availableShares = (position?.quantity ?? 0) - reserved;
-      if (!position || availableShares < order.quantity) {
+      if (!position || availableShares < candidateOrder.quantity) {
         log(createLogEntry('skipped',
-          `⏭️ ${order.symbol}: Not enough available shares (${availableShares} free, ${reserved > 0 ? `${reserved} reserved, ` : ''}required ${order.quantity})`,
-          undefined, order.symbol
+          `⏭️ ${candidateOrder.symbol}: Not enough available shares (${availableShares} free, ${reserved > 0 ? `${reserved} reserved, ` : ''}required ${candidateOrder.quantity})`,
+          undefined, candidateOrder.symbol
         ));
         continue;
       }
 
       // Reserve shares for this approved sale
-      reservedSharesBySymbol.set(position?.symbol || order.symbol, reserved + order.quantity);
+      reservedSharesBySymbol.set(position?.symbol || candidateOrder.symbol, reserved + candidateOrder.quantity);
     }
 
     // Alles OK
-    approved.push(order);
+    approved.push(candidateOrder);
     tradesThisCycle++;
   }
 

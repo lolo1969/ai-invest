@@ -183,6 +183,23 @@ function generateBootstrapBuySuggestions(
     }
 
     return $orders;
+
+    function getMaxAffordableQuantity(
+        float $triggerPrice,
+        float $maxSpendableCash,
+        float $transactionFeeFlat,
+        float $transactionFeePercent
+    ): int {
+        if ($triggerPrice <= 0 || $maxSpendableCash <= 0) return 0;
+
+        $remainingAfterFlatFee = $maxSpendableCash - $transactionFeeFlat;
+        if ($remainingAfterFlatFee <= 0) return 0;
+
+        $priceWithPercentFee = $triggerPrice * (1 + $transactionFeePercent / 100.0);
+        if ($priceWithPercentFee <= 0) return 0;
+
+        return max(0, (int)floor($remainingAfterFlatFee / $priceWithPercentFee));
+    }
 }
 
 // ─── AI Service (direkte API-Calls) ──────────────────
@@ -527,29 +544,32 @@ function applySafetyRules(array $suggestedOrders, array $currentState, array &$l
 
     $approved = [];
     $tradesThisCycle = 0;
+    $minCashReserveValue = max(0, $totalPortfolioValue * (($settings['minCashReservePercent'] ?? 10) / 100));
 
     foreach ($suggestedOrders as $order) {
+        $candidateOrder = $order;
+
         if ($tradesThisCycle >= ($settings['maxTradesPerCycle'] ?? 3)) {
-            $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Max. Trades pro Zyklus erreicht", null, $order['symbol']);
+            $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Max. Trades pro Zyklus erreicht", null, $candidateOrder['symbol']);
             continue;
         }
 
-        $isBuy = in_array($order['orderType'], ['limit-buy', 'stop-buy']);
-        $isSell = in_array($order['orderType'], ['limit-sell', 'stop-loss']);
+        $isBuy = in_array($candidateOrder['orderType'], ['limit-buy', 'stop-buy']);
+        $isSell = in_array($candidateOrder['orderType'], ['limit-sell', 'stop-loss']);
 
         if ($isBuy && empty($settings['allowBuy'])) {
-            $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Käufe deaktiviert", null, $order['symbol']);
+            $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Käufe deaktiviert", null, $candidateOrder['symbol']);
             continue;
         }
         if ($isSell && empty($settings['allowSell'])) {
-            $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Verkäufe deaktiviert", null, $order['symbol']);
+            $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Verkäufe deaktiviert", null, $candidateOrder['symbol']);
             continue;
         }
 
         if ($isBuy && empty($settings['allowNewPositions']) && empty($currentState['_autopilotBootstrapMode'])) {
-            $existing = array_filter($userPositions, fn($p) => $p['symbol'] === $order['symbol']);
+            $existing = array_filter($userPositions, fn($p) => $p['symbol'] === $candidateOrder['symbol']);
             if (empty($existing)) {
-                $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Neue Positionen nicht erlaubt", null, $order['symbol']);
+                $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Neue Positionen nicht erlaubt", null, $candidateOrder['symbol']);
                 continue;
             }
         }
@@ -559,32 +579,54 @@ function applySafetyRules(array $suggestedOrders, array $currentState, array &$l
             $runtimeWatchlistSymbols = array_column($currentState['watchlist'] ?? [], 'symbol');
             $watchlistSymbols = array_values(array_unique(array_merge($watchlistSymbols, $runtimeWatchlistSymbols)));
             $portfolioSymbols = array_column($userPositions, 'symbol');
-            if (!in_array($order['symbol'], $watchlistSymbols) && !in_array($order['symbol'], $portfolioSymbols)) {
-                $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Nicht in Watchlist/Portfolio", null, $order['symbol']);
+            if (!in_array($candidateOrder['symbol'], $watchlistSymbols) && !in_array($candidateOrder['symbol'], $portfolioSymbols)) {
+                $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Nicht in Watchlist/Portfolio", null, $candidateOrder['symbol']);
                 continue;
             }
         }
 
-        // Position-Größe
-        if ($isBuy && $totalPortfolioValue > 0) {
-            $orderValue = $order['triggerPrice'] * $order['quantity'];
+        if ($isBuy) {
             $existingValue = 0;
             foreach ($userPositions as $p) {
-                if ($p['symbol'] === $order['symbol']) {
+                if ($p['symbol'] === $candidateOrder['symbol']) {
                     $existingValue += ($p['currentPrice'] ?? 0) * ($p['quantity'] ?? 0);
                 }
             }
-            $positionPercent = (($existingValue + $orderValue) / $totalPortfolioValue) * 100;
-            $maxPercent = $settings['maxPositionPercent'] ?? 20;
-            if ($positionPercent > $maxPercent) {
-                $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Position wäre " . number_format($positionPercent, 1) . "% > Max {$maxPercent}%", null, $order['symbol']);
+
+            $maxPercent = (float)($settings['maxPositionPercent'] ?? 20);
+            $maxPositionValue = $totalPortfolioValue > 0 ? $totalPortfolioValue * ($maxPercent / 100.0) : INF;
+            $maxAdditionalPositionValue = max(0, $maxPositionValue - $existingValue);
+            $maxQtyByPosition = is_infinite($maxPositionValue)
+                ? (int)($candidateOrder['quantity'] ?? 0)
+                : (int)floor($maxAdditionalPositionValue / max((float)$candidateOrder['triggerPrice'], 0.0001));
+
+            $maxSpendableCash = max(0, $availableCash - $minCashReserveValue);
+            $maxQtyByCash = getMaxAffordableQuantity(
+                (float)$candidateOrder['triggerPrice'],
+                $maxSpendableCash,
+                (float)($orderSettings['transactionFeeFlat'] ?? 0),
+                (float)($orderSettings['transactionFeePercent'] ?? 0)
+            );
+
+            $allowedQuantity = min((int)($candidateOrder['quantity'] ?? 0), $maxQtyByPosition, $maxQtyByCash);
+            if ($allowedQuantity < 1) {
+                if ($maxQtyByCash < 1) {
+                    $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Mindest-Cash-Reserve lässt keinen Kauf zu", null, $candidateOrder['symbol']);
+                } else {
+                    $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Position liegt bereits am Maximum von {$maxPercent}%", null, $candidateOrder['symbol']);
+                }
                 continue;
+            }
+
+            if ($allowedQuantity < (int)($candidateOrder['quantity'] ?? 0)) {
+                $logEntries[] = createLogEntry('info', "↘️ {$candidateOrder['symbol']}: Kaufmenge von {$candidateOrder['quantity']} auf {$allowedQuantity} reduziert, um Cash-Reserve/Positionslimit einzuhalten", null, $candidateOrder['symbol']);
+                $candidateOrder['quantity'] = $allowedQuantity;
             }
         }
 
         // Cash prüfen
         if ($isBuy) {
-            $orderCost = $order['triggerPrice'] * $order['quantity'];
+            $orderCost = $candidateOrder['triggerPrice'] * $candidateOrder['quantity'];
             $orderFee = ($orderSettings['transactionFeeFlat'] ?? 0) + $orderCost * ($orderSettings['transactionFeePercent'] ?? 0) / 100;
             $totalOrderCost = $orderCost + $orderFee;
             $cashAfter = $availableCash - $totalOrderCost;
@@ -592,11 +634,11 @@ function applySafetyRules(array $suggestedOrders, array $currentState, array &$l
 
             $minCash = $settings['minCashReservePercent'] ?? 10;
             if ($cashPercentAfter < $minCash) {
-                $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Cash-Reserve wäre " . number_format($cashPercentAfter, 1) . "% < Min {$minCash}%", null, $order['symbol']);
+                $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Cash-Reserve wäre " . number_format($cashPercentAfter, 1) . "% < Min {$minCash}%", null, $candidateOrder['symbol']);
                 continue;
             }
             if ($totalOrderCost > $availableCash) {
-                $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Nicht genug Cash (" . number_format($totalOrderCost, 2) . "€ > " . number_format($availableCash, 2) . "€)", null, $order['symbol']);
+                $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Nicht genug Cash (" . number_format($totalOrderCost, 2) . "€ > " . number_format($availableCash, 2) . "€)", null, $candidateOrder['symbol']);
                 continue;
             }
             $availableCash -= $totalOrderCost;
@@ -606,21 +648,21 @@ function applySafetyRules(array $suggestedOrders, array $currentState, array &$l
         if ($isSell) {
             $position = null;
             foreach ($userPositions as $p) {
-                if ($p['symbol'] === $order['symbol']) {
+                if ($p['symbol'] === $candidateOrder['symbol']) {
                     $position = $p;
                     break;
                 }
             }
-            $reserved = $reservedShares[$order['symbol']] ?? 0;
+            $reserved = $reservedShares[$candidateOrder['symbol']] ?? 0;
             $available = ($position['quantity'] ?? 0) - $reserved;
-            if (!$position || $available < $order['quantity']) {
-                $logEntries[] = createLogEntry('skipped', "⏭️ {$order['symbol']}: Nicht genug Aktien ({$available} frei, benötigt {$order['quantity']})", null, $order['symbol']);
+            if (!$position || $available < $candidateOrder['quantity']) {
+                $logEntries[] = createLogEntry('skipped', "⏭️ {$candidateOrder['symbol']}: Nicht genug Aktien ({$available} frei, benötigt {$candidateOrder['quantity']})", null, $candidateOrder['symbol']);
                 continue;
             }
-            $reservedShares[$order['symbol']] = $reserved + $order['quantity'];
+            $reservedShares[$candidateOrder['symbol']] = $reserved + $candidateOrder['quantity'];
         }
 
-        $approved[] = $order;
+        $approved[] = $candidateOrder;
         $tradesThisCycle++;
     }
 

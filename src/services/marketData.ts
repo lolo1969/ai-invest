@@ -67,6 +67,11 @@ function openCircuitBreaker() {
   console.warn('[MarketData] Yahoo Finance API blocked - using demo data for 1 hour');
 }
 
+function resetCircuitBreaker() {
+  yahooCircuitBreakerOpen = false;
+  yahooCircuitBreakerAt = 0;
+}
+
 export class MarketDataService {
   private apiKey: string;
 
@@ -215,7 +220,7 @@ export class MarketDataService {
         return DEMO_STOCKS[symbol] || null;
       } else {
         // Reset circuit breaker after cooldown
-        yahooCircuitBreakerOpen = false;
+        resetCircuitBreaker();
       }
     }
 
@@ -274,16 +279,15 @@ export class MarketDataService {
   // This uses 1 HTTP request for ALL symbols instead of 1 per symbol!
   async getQuotesBatch(symbols: string[]): Promise<Stock[]> {
     if (symbols.length === 0) return [];
-    
-    // Check if circuit breaker is still open
+
+    // If the single-quote chart endpoint was blocked earlier, avoid hammering Yahoo
+    // and fall back to the existing per-symbol path, which will return demo/null.
     if (yahooCircuitBreakerOpen) {
       const timeSinceTriggered = Date.now() - yahooCircuitBreakerAt;
       if (timeSinceTriggered < CIRCUIT_BREAKER_COOLDOWN) {
-        // Circuit breaker still open, use demo data directly
-        return symbols.map(s => DEMO_STOCKS[s]).filter((s): s is Stock => s !== undefined);
+        return this.getQuotesFallback(symbols);
       } else {
-        // Reset circuit breaker after cooldown
-        yahooCircuitBreakerOpen = false;
+        resetCircuitBreaker();
       }
     }
     
@@ -294,10 +298,12 @@ export class MarketDataService {
       const url = buildYahooUrl(`/v7/finance/quote?symbols=${encodeURIComponent(symbolsStr)}&fields=symbol,shortName,longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency,fullExchangeName`);
       const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 15000 }));
 
-      // Detect Yahoo Unauthorized in body (returns HTTP 200 but with error)
+      // The quote batch endpoint is increasingly blocked by Yahoo.
+      // Fall back to per-symbol chart requests instead of tripping the global breaker,
+      // because the chart endpoint still works reliably.
       if (isYahooUnauthorized(response.data)) {
-        openCircuitBreaker();
-        return symbols.map(s => DEMO_STOCKS[s]).filter((s): s is Stock => s !== undefined);
+        console.warn('[MarketData] Yahoo batch quote endpoint unauthorized - falling back to chart endpoint');
+        return this.getQuotesFallback(symbols);
       }
       
       const quotes = response.data?.quoteResponse?.result || [];
@@ -351,10 +357,11 @@ export class MarketDataService {
       
       return stocks;
     } catch (error: any) {
-      // Detect 401/403 and open circuit breaker
+      // The batch endpoint can return 401/403 even while single-symbol chart requests still work.
+      // Do not open the global circuit breaker in that case.
       if (error?.response?.status === 401 || error?.response?.status === 403) {
-        openCircuitBreaker();
-        return symbols.map(s => DEMO_STOCKS[s]).filter((s): s is Stock => s !== undefined);
+        console.warn('[MarketData] Yahoo batch quote HTTP unauthorized - falling back to chart endpoint');
+        return this.getQuotesFallback(symbols);
       }
       // Silent fail for other errors, use fallback
       return this.getQuotesFallback(symbols);
