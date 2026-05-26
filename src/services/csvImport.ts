@@ -25,6 +25,7 @@ export interface AggregatedPosition {
   averageBuyPrice: number;
   totalInvested: number;
   currency: string;
+  buyDate?: string;
   transactions: ParsedTransaction[];
 }
 
@@ -55,7 +56,7 @@ const COLUMN_MAPS: Record<string, string[]> = {
   type: ['typ', 'type', 'art', 'transaktion', 'transaktionstyp', 'aktion', 'order', 'seite', 'side'],
   category: ['kategorie', 'category'],
   description: ['beschreibung', 'description', 'verwendungszweck', 'text'],
-  date: ['datum', 'date', 'zeit', 'zeitpunkt', 'buchungsdatum', 'ausführungsdatum', 'valuta', 'datetime'],
+  date: ['datetime', 'datum', 'date', 'zeit', 'zeitpunkt', 'buchungsdatum', 'ausführungsdatum', 'valuta'],
   currency: ['währung', 'waehrung', 'currency', 'cur'],
   symbol: ['symbol', 'ticker', 'kürzel', 'kuerzel'],
 };
@@ -134,21 +135,55 @@ function parseDate(value: string): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
 
+  // Try ISO format with time first
   const isoDate = new Date(trimmed);
   if (!Number.isNaN(isoDate.getTime())) {
     return isoDate.toISOString();
   }
 
-  const match = trimmed.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?$/);
-  if (!match) return undefined;
+  // Try YYYY-MM-DDTHH:mm:ss.sssZ or similar formats
+  const fullIsoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{3}))?Z?$/);
+  if (fullIsoMatch) {
+    const year = Number(fullIsoMatch[1]);
+    const month = Number(fullIsoMatch[2]) - 1;
+    const day = Number(fullIsoMatch[3]);
+    const hour = Number(fullIsoMatch[4]);
+    const minute = Number(fullIsoMatch[5]);
+    const second = Number(fullIsoMatch[6] || 0);
+    const millisecond = Number(fullIsoMatch[7] || 0);
+    const date = new Date(Date.UTC(year, month, day, hour, minute, second, millisecond));
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
 
-  const day = Number(match[1]);
-  const month = Number(match[2]) - 1;
-  const year = Number(match[3].length === 2 ? `20${match[3]}` : match[3]);
-  const hour = Number(match[4] || 12);
-  const minute = Number(match[5] || 0);
-  const date = new Date(year, month, day, hour, minute, 0, 0);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  // Try simple YYYY-MM-DD format (assume noon UTC)
+  const simpleDateMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (simpleDateMatch) {
+    const year = Number(simpleDateMatch[1]);
+    const month = Number(simpleDateMatch[2]) - 1;
+    const day = Number(simpleDateMatch[3]);
+    const date = new Date(Date.UTC(year, month, day, 12, 0, 0, 0));
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+
+  // Try German format DD.MM.YYYY HH:mm (in UTC)
+  const germanMatch = trimmed.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?$/);
+  if (germanMatch) {
+    const day = Number(germanMatch[1]);
+    const month = Number(germanMatch[2]) - 1;
+    const year = Number(germanMatch[3].length === 2 ? `20${germanMatch[3]}` : germanMatch[3]);
+    const hour = Number(germanMatch[4] || 12);
+    const minute = Number(germanMatch[5] || 0);
+    const date = new Date(Date.UTC(year, month, day, hour, minute, 0, 0));
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+
+  return undefined;
 }
 
 // Match CSV header to known column type
@@ -380,7 +415,7 @@ function aggregateTransactionsToPositions(transactions: ParsedTransaction[], war
     if (tx.type === 'buy') {
       // Include fees in the per-share cost basis (matches Trade Republic FIFO method)
       const priceWithFees = tx.quantity > 0 ? (tx.totalAmount + tx.fees) / tx.quantity : tx.price;
-      pos.lots.push({ quantity: tx.quantity, buyPrice: priceWithFees });
+      pos.lots.push({ quantity: tx.quantity, buyPrice: priceWithFees, buyDate: tx.date });
     } else {
       // FIFO: consume oldest lots first
       let remaining = tx.quantity;
@@ -407,6 +442,16 @@ function aggregateTransactionsToPositions(transactions: ParsedTransaction[], war
 
     const totalCost = pos.lots.reduce((s, l) => s + l.quantity * l.buyPrice, 0);
     const averageBuyPrice = totalQty > 0 ? totalCost / totalQty : 0;
+    
+    // Extract earliest remaining buy date from lots
+    const remainingLotBuyDates = pos.lots
+      .filter((l) => l.quantity > 0.0000001 && !!l.buyDate)
+      .map((l) => new Date(l.buyDate as string).getTime())
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => a - b);
+    const earliestRemainingBuyDate = remainingLotBuyDates.length > 0
+      ? new Date(remainingLotBuyDates[0]).toISOString()
+      : undefined;
 
     results.push({
       isin: pos.isin,
@@ -416,6 +461,7 @@ function aggregateTransactionsToPositions(transactions: ParsedTransaction[], war
       averageBuyPrice: Math.round(averageBuyPrice * 100) / 100,
       totalInvested: Math.round(totalCost * 100) / 100,
       currency: pos.currency,
+      buyDate: earliestRemainingBuyDate,
       transactions: pos.transactions,
     });
   }
@@ -460,12 +506,24 @@ export function parseCSV(content: string, feeOptions?: FeeOptions): ImportResult
     }
   }
   
-  // Find which header maps to which type
+  // Find which header maps to which type.
+  // If multiple CSV headers map to the same logical column, keep the one with higher alias priority.
   const reverseMap: Record<string, string> = {}; // columnType → csvHeader
   for (const [csvHeader, colType] of Object.entries(columnMapping)) {
-    reverseMap[colType] = csvHeader;
+    const existingHeader = reverseMap[colType];
+    if (!existingHeader) {
+      reverseMap[colType] = csvHeader;
+      continue;
+    }
+
+    const aliases = COLUMN_MAPS[colType] || [];
+    const candidateRank = aliases.indexOf(csvHeader.toLowerCase().trim());
+    const existingRank = aliases.indexOf(existingHeader.toLowerCase().trim());
+
+    if (candidateRank !== -1 && (existingRank === -1 || candidateRank < existingRank)) {
+      reverseMap[colType] = csvHeader;
+    }
   }
-  
   // Check if we have minimum required columns
   const hasName = !!reverseMap.name;
   const hasQuantity = !!reverseMap.quantity;
@@ -709,6 +767,7 @@ export function toUserPositions(aggregated: AggregatedPosition[]): UserPosition[
     buyPrice: Math.round(pos.averageBuyPrice * 100) / 100,
     currentPrice: Math.round(pos.averageBuyPrice * 100) / 100, // Will be updated via Yahoo later
     currency: pos.currency || 'EUR',
+    buyDate: pos.buyDate,
     useYahooPrice: true, // Auto-update prices
   }));
 }

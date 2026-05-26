@@ -43,13 +43,23 @@ export function useServerSync() {
         // Conflict-Callback registrieren: Wenn ein Push einen Konflikt erzeugt,
         // we use the server-merged state
         setOnConflictCallback((mergedState) => {
+          const currentState = useAppStore.getState();
+          const mergedTradeHistory = (mergedState?.tradeHistory?.length ?? 0) > 0
+            ? mergedState.tradeHistory
+            : currentState.tradeHistory;
+          const mergedTaxTransactions = (mergedState?.taxTransactions?.length ?? 0) > 0
+            ? mergedState.taxTransactions
+            : currentState.taxTransactions;
+
           skipNextPushRef.current = true;
           useAppStore.setState({
             ...mergedState,
+            tradeHistory: mergedTradeHistory,
+            taxTransactions: mergedTaxTransactions,
             // don't overwrite UI state
-            isLoading: useAppStore.getState().isLoading,
-            isAnalyzing: useAppStore.getState().isAnalyzing,
-            error: useAppStore.getState().error,
+            isLoading: currentState.isLoading,
+            isAnalyzing: currentState.isAnalyzing,
+            error: currentState.error,
           });
           console.log('[ServerSync] ⚠️ Conflict resolved – using merged state');
         });
@@ -68,6 +78,10 @@ export function useServerSync() {
           if (serverLastRun && (!localLastRun || new Date(serverLastRun) > new Date(localLastRun))) {
             // Server has newer autopilot data → merge
             skipNextPushRef.current = true; // Prevent push loop
+            const localTradeHistory = currentState.tradeHistory || [];
+            const localTaxTransactions = currentState.taxTransactions || [];
+            const serverTradeHistory = serverState.tradeHistory || [];
+            const serverTaxTransactions = serverState.taxTransactions || [];
             
             useAppStore.setState({
               autopilotState: serverState.autopilotState,
@@ -76,6 +90,8 @@ export function useServerSync() {
               userPositions: serverState.userPositions,
               cashBalance: serverState.cashBalance,
               signals: serverState.signals,
+              tradeHistory: serverTradeHistory.length > 0 ? serverTradeHistory : localTradeHistory,
+              taxTransactions: serverTaxTransactions.length > 0 ? serverTaxTransactions : localTaxTransactions,
               lastAnalysis: serverState.lastAnalysis,
               lastAnalysisDate: serverState.lastAnalysisDate,
               analysisHistory: serverState.analysisHistory,
@@ -128,8 +144,16 @@ export function useServerSync() {
             }
           } else {
             skipNextPushRef.current = true;
+            const mergedTradeHistory = (serverData.state.tradeHistory?.length ?? 0) > 0
+              ? serverData.state.tradeHistory
+              : currentState.tradeHistory;
+            const mergedTaxTransactions = (serverData.state.taxTransactions?.length ?? 0) > 0
+              ? serverData.state.taxTransactions
+              : currentState.taxTransactions;
             useAppStore.setState({
               ...serverData.state,
+              tradeHistory: mergedTradeHistory,
+              taxTransactions: mergedTaxTransactions,
               isLoading: currentState.isLoading,
               isAnalyzing: currentState.isAnalyzing,
               error: currentState.error,
@@ -220,6 +244,8 @@ function extractSyncState(state: any) {
     autopilotSettings: state.autopilotSettings,
     autopilotLog: state.autopilotLog,
     autopilotState: state.autopilotState,
+    taxTransactions: state.taxTransactions,
+    tradeHistory: state.tradeHistory,
     portfolios: state.portfolios,
     activePortfolioId: state.activePortfolioId,
     priceAlerts: state.priceAlerts,

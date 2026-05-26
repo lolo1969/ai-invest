@@ -12,6 +12,7 @@ interface CSVImportModalProps {
 export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
   const {
     addUserPosition,
+    updateUserPosition,
     userPositions,
     addTradeHistory,
     tradeHistory,
@@ -287,7 +288,13 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     const selectedList = importResult.positions.filter((_, i) => selectedPositions.has(i));
     const userPos = toUserPositions(selectedList);
     const hasCashImport = importResult.totalCashIn > 0 || importResult.totalCashOut > 0;
-    const totalOperations = userPos.length + importResult.tradeHistory.length + importResult.taxTransactions.length + (hasCashImport ? 1 : 0) || 1;
+    const isInitialMergeImport = importMode === 'merge'
+      && userPositions.length === 0
+      && tradeHistory.length === 0
+      && taxTransactions.length === 0
+      && Math.abs(cashBalance) < 0.0001;
+    const shouldApplyCashImport = hasCashImport && (importMode === 'overwrite' || isInitialMergeImport);
+    const totalOperations = userPos.length + importResult.tradeHistory.length + importResult.taxTransactions.length + (shouldApplyCashImport ? 1 : 0) || 1;
     let processed = 0;
     
     // Apply fetched prices and resolved symbols
@@ -350,6 +357,12 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     
     let importedPositions = 0;
     for (const pos of userPos) {
+      const matchingExisting = importMode === 'overwrite'
+        ? undefined
+        : userPositions.find((existing) =>
+            (pos.isin && existing.isin && existing.isin.toUpperCase() === pos.isin.toUpperCase()) ||
+            existing.symbol.toUpperCase() === pos.symbol.toUpperCase(),
+          );
       const isDuplicate = 
         (pos.isin && existingISINs.has(pos.isin.toUpperCase())) ||
         existingSymbols.has(pos.symbol.toUpperCase());
@@ -357,6 +370,34 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
       if (!isDuplicate) {
         addUserPosition(pos);
         importedPositions++;
+      } else if (matchingExisting) {
+        const updates: Partial<typeof matchingExisting> = {};
+        // Keep position quantity aligned with imported transaction history aggregation.
+        // Without this, sold shares can remain visible after merge imports.
+        if (Math.abs((matchingExisting.quantity || 0) - (pos.quantity || 0)) > 0.0001) {
+          updates.quantity = pos.quantity;
+        }
+        // Refresh average buy price if import clearly provides a meaningful value.
+        if (pos.buyPrice > 0 && Math.abs((matchingExisting.buyPrice || 0) - pos.buyPrice) > 0.0001) {
+          updates.buyPrice = pos.buyPrice;
+        }
+        // In merge mode, only backfill metadata that is currently missing.
+        if (!matchingExisting.buyDate && pos.buyDate) {
+          updates.buyDate = pos.buyDate;
+        } else if (matchingExisting.buyDate && pos.buyDate) {
+          const existingTs = new Date(matchingExisting.buyDate).getTime();
+          const importedTs = new Date(pos.buyDate).getTime();
+          // If import provides a later FIFO buy date, prefer it to avoid false tax-free status.
+          if (Number.isFinite(existingTs) && Number.isFinite(importedTs) && importedTs > existingTs) {
+            updates.buyDate = pos.buyDate;
+          }
+        }
+        if (!matchingExisting.isin && pos.isin) {
+          updates.isin = pos.isin;
+        }
+        if (Object.keys(updates).length > 0) {
+          updateUserPosition(matchingExisting.id, updates);
+        }
       }
       processed++;
       setImportProgress(Math.round((processed / totalOperations) * 100));
@@ -393,7 +434,7 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     }
 
     let appliedCash = 0;
-    if (hasCashImport) {
+    if (shouldApplyCashImport) {
       const nextCashBalance = importMode === 'overwrite'
         ? importResult.netCashChange
         : cashBalance + importResult.netCashChange;

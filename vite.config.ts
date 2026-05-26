@@ -81,6 +81,7 @@ export default defineConfig({
     })
   ],
   build: {
+    outDir: 'dist/public',
     rollupOptions: {
       output: {
         manualChunks: {

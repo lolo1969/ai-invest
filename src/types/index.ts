@@ -73,6 +73,7 @@ export interface UserPosition {
   buyPrice: number;
   currentPrice: number;
   currency: string;
+  buyDate?: string;  // ISO date when this position was first purchased
   useYahooPrice?: boolean;  // Auto-update price from Yahoo Finance
 }
 

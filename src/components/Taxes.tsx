@@ -55,6 +55,16 @@ export function Taxes() {
       return new Date(buyTrade.date);
     }
 
+    const fallbackPositionBuyDate = userPositions
+      .filter(p => p.buyDate && p.symbol.toUpperCase() === symbol.toUpperCase())
+      .map(p => new Date(p.buyDate as string))
+      .filter(d => Number.isFinite(d.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+
+    if (fallbackPositionBuyDate) {
+      return fallbackPositionBuyDate;
+    }
+
     return null;
   };
 

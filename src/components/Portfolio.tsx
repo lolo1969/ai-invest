@@ -29,7 +29,7 @@ import { useAppStore } from '../store/useAppStore';
 import { marketDataService } from '../services/marketData';
 import { createAlpacaService } from '../services/alpacaService';
 import emailjs from '@emailjs/browser';
-import type { UserPosition, AnalysisHistoryEntry } from '../types';
+import type { UserPosition, AnalysisHistoryEntry, TradeHistoryEntry, TaxTransaction } from '../types';
 import { symbolsReferToSameInstrument } from '../utils/symbolMatching';
 
 interface SymbolSuggestion {
@@ -48,6 +48,109 @@ interface PortfolioHistoryPoint {
   value: number;
   changePercent: number;
 }
+
+const ISIN_REGEX = /^[A-Z]{2}[A-Z0-9]{10}$/;
+
+const normalizeInstrumentName = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+
+const normalizeIsin = (s?: string) => (s || '').trim().toUpperCase();
+
+const looksLikeIsin = (value?: string) => ISIN_REGEX.test(normalizeIsin(value));
+
+const instrumentNamesLikelyMatch = (leftName: string, rightName: string): boolean => {
+  const left = normalizeInstrumentName(leftName);
+  const right = normalizeInstrumentName(rightName);
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  // Avoid fuzzy fallback for fund/index names: too many false positives
+  // (e.g. "MSCI World" vs "MSCI World Small Cap").
+  const fundLikeRegex = /(msci|stoxx|ucits|etf|index|fund|small cap|em imi|amundi|ishares|xtrackers)/i;
+  if (fundLikeRegex.test(leftName) || fundLikeRegex.test(rightName)) {
+    return false;
+  }
+
+  const shorter = left.length <= right.length ? left : right;
+  const longer = left.length <= right.length ? right : left;
+  if (shorter.length >= 8 && longer.includes(shorter)) return true;
+
+  const stopWords = new Set(['inc', 'corp', 'corporation', 'etf', 'plc', 'ag', 'sa', 'class', 'usd', 'eur', 'acc', 'dist']);
+  const leftTokens = left.split(' ').filter((token) => token.length >= 4 && !stopWords.has(token));
+  const rightTokens = new Set(right.split(' ').filter((token) => token.length >= 4 && !stopWords.has(token)));
+  if (leftTokens.length === 0 || rightTokens.size === 0) return false;
+
+  const overlap = leftTokens.filter((token) => rightTokens.has(token)).length;
+  return overlap >= 2;
+};
+
+const tradeMatchesPosition = (trade: TradeHistoryEntry, position: UserPosition): boolean => {
+  if (symbolsReferToSameInstrument(trade.symbol, position.symbol)) return true;
+
+  const tradeSymbolIsin = normalizeIsin(trade.symbol);
+  const positionIsin = normalizeIsin(position.isin);
+  if (positionIsin && tradeSymbolIsin === positionIsin) return true;
+
+  const positionSymbolIsin = looksLikeIsin(position.symbol) ? normalizeIsin(position.symbol) : '';
+  if (positionSymbolIsin && tradeSymbolIsin === positionSymbolIsin) return true;
+
+  return instrumentNamesLikelyMatch(trade.name, position.name);
+};
+
+const taxTransactionMatchesPosition = (tx: TaxTransaction, position: UserPosition): boolean => {
+  if (tx.transactionType && tx.transactionType !== 'capital-gain') return false;
+  if (symbolsReferToSameInstrument(tx.symbol, position.symbol)) return true;
+
+  const txSymbolIsin = normalizeIsin(tx.symbol);
+  const positionIsin = normalizeIsin(position.isin);
+  if (positionIsin && txSymbolIsin === positionIsin) return true;
+
+  const positionSymbolIsin = looksLikeIsin(position.symbol) ? normalizeIsin(position.symbol) : '';
+  if (positionSymbolIsin && txSymbolIsin === positionSymbolIsin) return true;
+
+  return instrumentNamesLikelyMatch(tx.name, position.name);
+};
+
+interface FifoSellEvent {
+  quantity: number;
+  date: string;
+}
+
+const getFifoSellEvents = (
+  position: UserPosition,
+  trades: TradeHistoryEntry[],
+  taxes: TaxTransaction[]
+): FifoSellEvent[] => {
+  const tradeSells = trades
+    .filter((t) => t.type === 'sell' && tradeMatchesPosition(t, position))
+    .map((s) => ({ quantity: s.quantity, date: s.date }));
+
+  const taxSells = taxes
+    .filter((tx) => taxTransactionMatchesPosition(tx, position))
+    .map((tx) => ({ quantity: tx.quantity, date: tx.sellDate }));
+
+  // Use trade history as primary source, then patch missing/partial timestamps from tax data.
+  const tradeQtyByDate = new Map<string, number>();
+  for (const sell of tradeSells) {
+    tradeQtyByDate.set(sell.date, (tradeQtyByDate.get(sell.date) ?? 0) + sell.quantity);
+  }
+
+  const taxQtyByDate = new Map<string, number>();
+  for (const sell of taxSells) {
+    taxQtyByDate.set(sell.date, (taxQtyByDate.get(sell.date) ?? 0) + sell.quantity);
+  }
+
+  const normalized: FifoSellEvent[] = [...tradeSells];
+  for (const [date, taxQty] of taxQtyByDate.entries()) {
+    const tradeQty = tradeQtyByDate.get(date) ?? 0;
+    const missingQty = taxQty - tradeQty;
+    if (missingQty > 0.0001) {
+      normalized.push({ date, quantity: missingQty });
+    }
+  }
+
+  return normalized.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+};
 
 const HISTORY_CACHE_TTL_MS = 10 * 60 * 1000;
 const PORTFOLIO_CHART_RANGES: PortfolioChartRange[] = ['1d', '5d', '1mo', '1y'];
@@ -1191,15 +1294,8 @@ export function Portfolio() {
         
         // FIFO holding period for Luxembourg tax (183 days)
         const today = new Date();
-        const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
         const matchingBuys = tradeHistory
-          .filter(t => {
-            if (t.type !== 'buy') return false;
-            if (symbolsReferToSameInstrument(t.symbol, p.symbol)) return true;
-            if (p.isin && t.symbol === p.isin) return true;
-            if (normName(t.name) === normName(p.name)) return true;
-            return false;
-          })
+          .filter(t => t.type === 'buy' && tradeMatchesPosition(t, p))
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
         if (matchingBuys.length > 0) {
@@ -1210,13 +1306,7 @@ export function Portfolio() {
 
           // Build FIFO lots and subtract sales
           const lots = matchingBuys.map(t => ({ qty: t.quantity, date: new Date(t.date), days: Math.floor((today.getTime() - new Date(t.date).getTime()) / 86400000) }));
-          const sells = tradeHistory.filter(t => {
-            if (t.type !== 'sell') return false;
-            if (symbolsReferToSameInstrument(t.symbol, p.symbol)) return true;
-            if (p.isin && t.symbol === p.isin) return true;
-            if (normName(t.name) === normName(p.name)) return true;
-            return false;
-          }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          const sells = getFifoSellEvents(p, tradeHistory, taxTransactions);
           for (const sell of sells) {
             let rem = sell.quantity;
             for (const lot of lots) { if (rem <= 0) break; const c = Math.min(lot.qty, rem); lot.qty -= c; rem -= c; }
@@ -2094,9 +2184,6 @@ ${settings.aiLanguage === 'de' ? 'Antworte auf Deutsch mit Emojis f√ºr bessere √
   // FIFO holding period analysis per position (Luxembourg: 183 days = tax-free)
   const LUX_SPECULATION_DAYS = 183;
 
-  const normalizeInstrumentName = (s: string) =>
-    s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-
   const formatQuantity = (qty: number) =>
     qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(4).replace(/\.?0+$/, '');
 
@@ -2191,33 +2278,38 @@ ${settings.aiLanguage === 'de' ? 'Antworte auf Deutsch mit Emojis f√ºr bessere √
 
     for (const position of userPositions) {
       const matchingBuys = tradeHistory
-        .filter(t => {
-          if (t.type !== 'buy') return false;
-          if (symbolsReferToSameInstrument(t.symbol, position.symbol)) return true;
-          if (position.isin && t.symbol === position.isin) return true;
-          if (normalizeInstrumentName(t.name) === normalizeInstrumentName(position.name)) return true;
-          return false;
-        })
+        .filter(t => t.type === 'buy' && tradeMatchesPosition(t, position))
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      if (matchingBuys.length === 0) {
+      const fallbackBuyDate = position.buyDate ? new Date(position.buyDate) : null;
+      const fallbackBuyDateValid = !!fallbackBuyDate && Number.isFinite(fallbackBuyDate.getTime());
+      const effectiveBuys = matchingBuys.length > 0
+        ? matchingBuys
+        : (fallbackBuyDateValid
+          ? [{
+              id: `fallback-${position.id}`,
+              type: 'buy' as const,
+              symbol: position.symbol,
+              name: position.name,
+              quantity: position.quantity,
+              price: position.buyPrice,
+              totalAmount: position.quantity * position.buyPrice,
+              fees: 0,
+              date: fallbackBuyDate!.toISOString(),
+              source: 'manual' as const,
+            }]
+          : []);
+
+      if (effectiveBuys.length === 0) {
         result[position.id] = { shortTerm: -1, taxFree: -1, nextFreeDays: null, lastFreeDays: null, shortTermValue: 0, taxFreeValue: 0, pendingLots: [] }; // -1 = no history
         continue;
       }
 
       // Build FIFO lots
-      const lots = matchingBuys.map(t => ({ qty: t.quantity, date: new Date(t.date) }));
+      const lots = effectiveBuys.map(t => ({ qty: t.quantity, date: new Date(t.date) }));
 
       // Subtract sales from lots
-      const sells = tradeHistory
-        .filter(t => {
-          if (t.type !== 'sell') return false;
-          if (symbolsReferToSameInstrument(t.symbol, position.symbol)) return true;
-          if (position.isin && t.symbol === position.isin) return true;
-          if (normalizeInstrumentName(t.name) === normalizeInstrumentName(position.name)) return true;
-          return false;
-        })
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const sells = getFifoSellEvents(position, tradeHistory, taxTransactions);
 
       for (const sell of sells) {
         let remaining = sell.quantity;
@@ -2247,6 +2339,27 @@ ${settings.aiLanguage === 'de' ? 'Antworte auf Deutsch mit Emojis f√ºr bessere √
           if (maxDaysRemaining === null || daysLeft > maxDaysRemaining) maxDaysRemaining = daysLeft;
           shortTerm += lot.qty;
           pendingLotsMap.set(daysLeft, (pendingLotsMap.get(daysLeft) ?? 0) + lot.qty);
+        }
+      }
+
+      // If history matching consumes all lots although the imported position is still open,
+      // fall back to the imported snapshot buy date for display purposes.
+      if (shortTerm + taxFree <= 0.0001 && position.quantity > 0 && fallbackBuyDateValid) {
+        const fallbackHoldingDays = Math.floor((today.getTime() - fallbackBuyDate!.getTime()) / 86400000);
+        shortTerm = 0;
+        taxFree = 0;
+        minDaysRemaining = null;
+        maxDaysRemaining = null;
+        pendingLotsMap.clear();
+
+        if (fallbackHoldingDays >= LUX_SPECULATION_DAYS) {
+          taxFree = position.quantity;
+        } else {
+          const daysLeft = LUX_SPECULATION_DAYS - fallbackHoldingDays;
+          shortTerm = position.quantity;
+          minDaysRemaining = daysLeft;
+          maxDaysRemaining = daysLeft;
+          pendingLotsMap.set(daysLeft, position.quantity);
         }
       }
 
@@ -3240,7 +3353,7 @@ ${settings.aiLanguage === 'de' ? 'Antworte auf Deutsch mit Emojis f√ºr bessere √
                 <div className="text-right text-xs text-gray-500 space-y-1">
                   {lastAnalysisDate && (
                     <div>
-                      {new Date(lastAnalysisDate).toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {new Date(lastAnalysisDate).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </div>
                   )}
                   {formatAnalysisDuration(lastAnalysisDurationMs) && (

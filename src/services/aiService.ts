@@ -340,7 +340,8 @@ export class AIService {
     }
 
     const now = new Date();
-    const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = `${now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}, ${timeStr}`;
 
     return `You are an experienced investment analyst with expertise in technical analysis, fundamental analysis, macroeconomics and geopolitics. Analyze the following stocks HOLISTICALLY based on all available factors and provide well-founded buy/sell recommendations.
 

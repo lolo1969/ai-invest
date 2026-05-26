@@ -5,7 +5,7 @@
     # API-Requests (außer proxy.php) → server-php/index.php
     RewriteCond %{REQUEST_URI} ^/api/ [NC]
     RewriteCond %{REQUEST_URI} !^/api/proxy\.php [NC]
-    RewriteRule ^api/(.*)$ server-php/index.php [QSA,L,E=PATH_INFO:/api/$1]
+    RewriteRule ^api/(.*)$ ../server-php/index.php [QSA,L,E=PATH_INFO:/api/$1]
 
     # Statische Dateien direkt ausliefern
     RewriteCond %{REQUEST_FILENAME} -f [OR]

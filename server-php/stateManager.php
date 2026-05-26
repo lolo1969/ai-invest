@@ -85,6 +85,8 @@ function getDefaultState(): array {
             'totalOrdersCreated' => 0,
             'totalOrdersExecuted' => 0,
         ],
+        'taxTransactions' => [],
+        'tradeHistory' => [],
         'lastAnalysis' => null,
         'lastAnalysisDate' => null,
         'analysisHistory' => [],
@@ -299,6 +301,32 @@ function smartMerge(array $server, array $client): array {
         foreach ($client['signals'] as $sig) {
             if (!in_array($sig['id'] ?? '', $serverSignalIds)) {
                 $merged['signals'][] = $sig;
+            }
+        }
+    }
+
+    // Trade history: Union per ID (preserve newest first)
+    if (isset($client['tradeHistory'])) {
+        $serverTradeIds = array_column($server['tradeHistory'] ?? [], 'id');
+        foreach ($client['tradeHistory'] as $trade) {
+            if (!in_array($trade['id'] ?? '', $serverTradeIds)) {
+                $merged['tradeHistory'][] = $trade;
+            }
+        }
+        usort($merged['tradeHistory'], function ($a, $b) {
+            return strtotime($b['date'] ?? '0') - strtotime($a['date'] ?? '0');
+        });
+        if (count($merged['tradeHistory']) > 500) {
+            $merged['tradeHistory'] = array_slice($merged['tradeHistory'], 0, 500);
+        }
+    }
+
+    // Tax transactions: Union per ID
+    if (isset($client['taxTransactions'])) {
+        $serverTaxIds = array_column($server['taxTransactions'] ?? [], 'id');
+        foreach ($client['taxTransactions'] as $tx) {
+            if (!in_array($tx['id'] ?? '', $serverTaxIds)) {
+                $merged['taxTransactions'][] = $tx;
             }
         }
     }
