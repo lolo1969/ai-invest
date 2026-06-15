@@ -195,6 +195,75 @@ function normalizeBootstrapSuggestedOrders(
   return normalized;
 }
 
+function generateCashRebalanceBuySuggestions(
+  stocks: Stock[],
+  userPositions: Position[],
+  availableCash: number,
+  totalPortfolioValue: number,
+  minCashReservePercent: number,
+  maxTradesPerCycle: number,
+  maxPositionPercent: number,
+  allowNewPositions: boolean
+): AISuggestedOrder[] {
+  if (availableCash <= 0 || totalPortfolioValue <= 0 || stocks.length === 0) return [];
+
+  const targetCashReserve = totalPortfolioValue * (minCashReservePercent / 100);
+  let remainingInvestableCash = Math.max(0, availableCash - targetCashReserve);
+  if (remainingInvestableCash <= 0) return [];
+
+  const tradeSlots = Math.max(1, maxTradesPerCycle);
+  const maxPositionValue = totalPortfolioValue * (maxPositionPercent / 100);
+
+  const candidates = stocks
+    .filter((stock) => stock.price > 0)
+    .filter((stock) => {
+      if (allowNewPositions) return true;
+      return !!findCompatibleSymbolMatch(stock.symbol, userPositions, (item) => item.stock.symbol);
+    })
+    .sort((a, b) => {
+      const aIsFallback = a.isFallback ? 1 : 0;
+      const bIsFallback = b.isFallback ? 1 : 0;
+      if (aIsFallback !== bIsFallback) return aIsFallback - bIsFallback;
+
+      const aHasPosition = findCompatibleSymbolMatch(a.symbol, userPositions, (item) => item.stock.symbol) ? 1 : 0;
+      const bHasPosition = findCompatibleSymbolMatch(b.symbol, userPositions, (item) => item.stock.symbol) ? 1 : 0;
+      if (aHasPosition !== bHasPosition) return bHasPosition - aHasPosition;
+
+      return b.changePercent - a.changePercent;
+    });
+
+  const orders: AISuggestedOrder[] = [];
+  for (const stock of candidates) {
+    if (orders.length >= tradeSlots || remainingInvestableCash <= 0) break;
+
+    const existingValue = userPositions
+      .filter((position) => symbolsReferToSameInstrument(position.stock.symbol, stock.symbol))
+      .reduce((sum, position) => sum + position.currentPrice * position.quantity, 0);
+
+    const remainingPositionCapacity = Math.max(0, maxPositionValue - existingValue);
+    if (remainingPositionCapacity <= 0) continue;
+
+    const remainingSlots = Math.max(1, tradeSlots - orders.length);
+    const budgetPerTrade = remainingInvestableCash / remainingSlots;
+    const usableBudget = Math.max(0, Math.min(budgetPerTrade, remainingPositionCapacity));
+    const quantity = Math.floor(usableBudget / stock.price);
+    if (quantity < 1) continue;
+
+    const orderValue = quantity * stock.price;
+    remainingInvestableCash = Math.max(0, remainingInvestableCash - orderValue);
+
+    orders.push({
+      symbol: stock.symbol,
+      orderType: 'limit-buy',
+      quantity,
+      triggerPrice: Math.round(stock.price * 100) / 100,
+      reasoning: `Cash-Rebalance: Cash-Anteil ueber Zielreserve (${minCashReservePercent}%), daher zusaetzlicher Deployment-Kauf.`,
+    });
+  }
+
+  return orders;
+}
+
 function getMaxAffordableQuantity(
   triggerPrice: number,
   maxSpendableCash: number,
@@ -488,6 +557,41 @@ export async function runAutopilotCycle(): Promise<void> {
           suggestedOrders = bootstrapOrders;
           log(createLogEntry('info', `🌱 Bootstrap fallback generated ${bootstrapOrders.length} cash-based buy order(s)`));
         }
+      }
+    }
+
+    const totalAssetsForReserve = portfolioVal + cashBalance;
+    const targetCashReserve = totalAssetsForReserve * (settings.minCashReservePercent / 100);
+    const excessCash = Math.max(0, availableCash - targetCashReserve);
+    const hasBuySuggestion = suggestedOrders.some(
+      order => order.orderType === 'limit-buy' || order.orderType === 'stop-buy'
+    );
+
+    // If cash is significantly above target reserve and AI produced no buy idea,
+    // force a constrained cash-deployment fallback.
+    if (settings.allowBuy && excessCash > 0 && !hasBuySuggestion) {
+      const rebalanceOrders = generateCashRebalanceBuySuggestions(
+        stocks,
+        currentPositions,
+        availableCash,
+        totalAssetsForReserve,
+        settings.minCashReservePercent,
+        settings.maxTradesPerCycle,
+        settings.maxPositionPercent,
+        settings.allowNewPositions
+      );
+
+      if (rebalanceOrders.length > 0) {
+        suggestedOrders = [...rebalanceOrders, ...suggestedOrders];
+        log(createLogEntry(
+          'info',
+          `💸 Cash-Rebalance fallback generated ${rebalanceOrders.length} buy order(s) to reduce excess cash (${excessCash.toFixed(2)}€ above reserve target)`
+        ));
+      } else {
+        log(createLogEntry(
+          'warning',
+          '⚠️ Cash is above reserve target, but no rebalance buys were possible under current limits (max position/new positions/watchlist).'
+        ));
       }
     }
     

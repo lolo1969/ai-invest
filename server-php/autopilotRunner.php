@@ -202,6 +202,91 @@ function generateBootstrapBuySuggestions(
     }
 }
 
+function generateCashRebalanceBuySuggestions(
+    array $stocks,
+    array $userPositions,
+    float $availableCash,
+    float $totalPortfolioValue,
+    float $minCashReservePercent,
+    int $maxTradesPerCycle,
+    float $maxPositionPercent,
+    bool $allowNewPositions
+): array {
+    if ($availableCash <= 0 || $totalPortfolioValue <= 0 || empty($stocks)) return [];
+
+    $targetCashReserve = $totalPortfolioValue * ($minCashReservePercent / 100.0);
+    $remainingInvestableCash = max(0.0, $availableCash - $targetCashReserve);
+    if ($remainingInvestableCash <= 0) return [];
+
+    $tradeSlots = max(1, $maxTradesPerCycle);
+    $maxPositionValue = $totalPortfolioValue * ($maxPositionPercent / 100.0);
+
+    $candidates = array_values(array_filter($stocks, function ($s) use ($allowNewPositions, $userPositions) {
+        $symbol = $s['symbol'] ?? '';
+        $price = (float)($s['price'] ?? 0);
+        if ($symbol === '' || $price <= 0) return false;
+        if ($allowNewPositions) return true;
+        foreach ($userPositions as $p) {
+            if (($p['symbol'] ?? '') === $symbol) return true;
+        }
+        return false;
+    }));
+
+    usort($candidates, function ($a, $b) use ($userPositions) {
+        $aFallback = !empty($a['isFallback']) ? 1 : 0;
+        $bFallback = !empty($b['isFallback']) ? 1 : 0;
+        if ($aFallback !== $bFallback) return $aFallback - $bFallback;
+
+        $aHasPosition = 0;
+        $bHasPosition = 0;
+        foreach ($userPositions as $p) {
+            if (($p['symbol'] ?? '') === ($a['symbol'] ?? '')) $aHasPosition = 1;
+            if (($p['symbol'] ?? '') === ($b['symbol'] ?? '')) $bHasPosition = 1;
+        }
+        if ($aHasPosition !== $bHasPosition) return $bHasPosition - $aHasPosition;
+
+        return (($b['changePercent'] ?? 0) <=> ($a['changePercent'] ?? 0));
+    });
+
+    $orders = [];
+    foreach ($candidates as $stock) {
+        if (count($orders) >= $tradeSlots || $remainingInvestableCash <= 0) break;
+
+        $symbol = $stock['symbol'] ?? '';
+        $price = (float)($stock['price'] ?? 0);
+        if ($symbol === '' || $price <= 0) continue;
+
+        $existingValue = 0.0;
+        foreach ($userPositions as $p) {
+            if (($p['symbol'] ?? '') === $symbol) {
+                $existingValue += (float)($p['currentPrice'] ?? 0) * (float)($p['quantity'] ?? 0);
+            }
+        }
+
+        $remainingPositionCapacity = max(0.0, $maxPositionValue - $existingValue);
+        if ($remainingPositionCapacity <= 0) continue;
+
+        $remainingSlots = max(1, $tradeSlots - count($orders));
+        $budgetPerTrade = $remainingInvestableCash / $remainingSlots;
+        $usableBudget = max(0.0, min($budgetPerTrade, $remainingPositionCapacity));
+        $qty = (int)floor($usableBudget / $price);
+        if ($qty < 1) continue;
+
+        $orderValue = $qty * $price;
+        $remainingInvestableCash = max(0.0, $remainingInvestableCash - $orderValue);
+
+        $orders[] = [
+            'symbol' => $symbol,
+            'orderType' => 'limit-buy',
+            'quantity' => $qty,
+            'triggerPrice' => round($price, 2),
+            'reasoning' => 'Cash-Rebalance: Cash-Anteil liegt ueber Zielreserve, daher zusaetzlicher Deployment-Kauf.',
+        ];
+    }
+
+    return $orders;
+}
+
 // ─── AI Service (direkte API-Calls) ──────────────────
 
 function callAI(string $prompt, array $appSettings): string {
@@ -941,6 +1026,44 @@ function runAutopilotCycle(string $sessionId): void {
                     $suggestedOrders = $bootstrapOrders;
                     $logEntries[] = createLogEntry('info', '🌱 Bootstrap-Fallback: cash-basierte Kauforders wurden erzeugt');
                 }
+            }
+        }
+
+        $totalAssetsForReserve = $portfolioVal + ($currentState['cashBalance'] ?? 0);
+        $targetCashReserve = $totalAssetsForReserve * (((float)($settings['minCashReservePercent'] ?? 10)) / 100.0);
+        $excessCash = max(0.0, $availCash - $targetCashReserve);
+        $hasBuySuggestion = false;
+        foreach ($suggestedOrders as $order) {
+            $type = $order['orderType'] ?? '';
+            if ($type === 'limit-buy' || $type === 'stop-buy') {
+                $hasBuySuggestion = true;
+                break;
+            }
+        }
+
+        if (!empty($settings['allowBuy']) && $excessCash > 0 && !$hasBuySuggestion) {
+            $rebalanceOrders = generateCashRebalanceBuySuggestions(
+                $stocks,
+                $currentState['userPositions'] ?? [],
+                (float)$availCash,
+                (float)$totalAssetsForReserve,
+                (float)($settings['minCashReservePercent'] ?? 10),
+                (int)($settings['maxTradesPerCycle'] ?? 3),
+                (float)($settings['maxPositionPercent'] ?? 20),
+                !empty($settings['allowNewPositions'])
+            );
+
+            if (!empty($rebalanceOrders)) {
+                $suggestedOrders = array_merge($rebalanceOrders, $suggestedOrders);
+                $logEntries[] = createLogEntry(
+                    'info',
+                    '💸 Cash-Rebalance-Fallback: ' . count($rebalanceOrders) . ' Buy-Orders erzeugt (Cash ueber Zielreserve)'
+                );
+            } else {
+                $logEntries[] = createLogEntry(
+                    'warning',
+                    '⚠️ Cash liegt ueber Zielreserve, aber unter den aktuellen Limits (Positionslimit/neue Positionen/Watchlist) waren keine Rebalance-Kaeufe moeglich.'
+                );
             }
         }
 
