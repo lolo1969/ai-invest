@@ -178,9 +178,9 @@ const defaultSettings: UserSettings = {
     alpacaKeySecret: '',
   },
   aiProvider: 'gemini',
-  claudeModel: 'claude-opus-4-6',
-  openaiModel: 'gpt-5.4',
-  geminiModel: 'gemini-2.5-flash',
+  claudeModel: 'claude-opus-4-8',
+  openaiModel: 'gpt-5.5',
+  geminiModel: 'gemini-3.5-flash',
   customPrompt: '',
   aiLanguage: 'en',
 };
@@ -244,12 +244,33 @@ function getSettingsWithoutApiKeys(settings: UserSettings): UserSettings {
   };
 }
 
+const claudeModelMigration: Record<string, UserSettings['claudeModel']> = {
+  'claude-opus-4-6': 'claude-opus-4-8',
+};
+
+const openAIModelMigration: Record<string, UserSettings['openaiModel']> = {
+  'gpt-5.4': 'gpt-5.5',
+};
+
+const geminiModelMigration: Record<string, UserSettings['geminiModel']> = {
+  'gemini-2.5-flash': 'gemini-3.5-flash',
+};
+
+function normalizeModelSettings(settings: UserSettings): UserSettings {
+  return {
+    ...settings,
+    claudeModel: claudeModelMigration[settings.claudeModel] ?? settings.claudeModel,
+    openaiModel: openAIModelMigration[settings.openaiModel] ?? settings.openaiModel,
+    geminiModel: geminiModelMigration[settings.geminiModel] ?? settings.geminiModel,
+  };
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       // Settings
       settings: {
-        ...defaultSettings,
+        ...normalizeModelSettings(defaultSettings),
         apiKeys: readApiKeysFromSessionStorage(),
       },
       updateSettings: (newSettings) =>
@@ -258,17 +279,19 @@ export const useAppStore = create<AppState>()(
             ? normalizeApiKeys({ ...state.settings.apiKeys, ...newSettings.apiKeys })
             : state.settings.apiKeys;
           const nextSettings: UserSettings = {
-            ...state.settings,
+            ...normalizeModelSettings(state.settings),
             ...newSettings,
             apiKeys: mergedApiKeys,
           };
+
+          const normalizedSettings = normalizeModelSettings(nextSettings);
 
           if (newSettings.apiKeys) {
             writeApiKeysToSessionStorage(mergedApiKeys);
           }
 
           return {
-            settings: nextSettings,
+            settings: normalizedSettings,
           };
         }),
 
@@ -694,6 +717,12 @@ export const useAppStore = create<AppState>()(
           return;
         }
         if (!state) return;
+
+        state.updateSettings({
+          claudeModel: state.settings.claudeModel,
+          openaiModel: state.settings.openaiModel,
+          geminiModel: state.settings.geminiModel,
+        });
 
         // If sessionStorage still has keys (migration from old variant), prefer those
         const sessionApiKeys = readApiKeysFromSessionStorage();

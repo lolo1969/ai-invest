@@ -20,7 +20,7 @@ export class AIService {
   private openaiModel: OpenAIModel;
   private geminiModel: GeminiModel;
 
-  constructor(apiKey: string, provider: AIProvider = 'claude', claudeModel: ClaudeModel = 'claude-opus-4-6', openaiModel: OpenAIModel = 'gpt-5.4', geminiModel: GeminiModel = 'gemini-2.5-flash') {
+  constructor(apiKey: string, provider: AIProvider = 'claude', claudeModel: ClaudeModel = 'claude-opus-4-8', openaiModel: OpenAIModel = 'gpt-5.5', geminiModel: GeminiModel = 'gemini-3.5-flash') {
     this.apiKey = apiKey;
     this.provider = provider;
     this.claudeModel = claudeModel;
@@ -766,7 +766,7 @@ let currentClaudeModel: ClaudeModel | null = null;
 let currentOpenaiModel: OpenAIModel | null = null;
 let currentGeminiModel: GeminiModel | null = null;
 
-export const getAIService = (apiKey: string, provider: AIProvider = 'claude', claudeModel: ClaudeModel = 'claude-opus-4-6', openaiModel: OpenAIModel = 'gpt-5.4', geminiModel: GeminiModel = 'gemini-2.5-flash'): AIService => {
+export const getAIService = (apiKey: string, provider: AIProvider = 'claude', claudeModel: ClaudeModel = 'claude-opus-4-8', openaiModel: OpenAIModel = 'gpt-5.5', geminiModel: GeminiModel = 'gemini-3.5-flash'): AIService => {
   if (!aiServiceInstance || aiServiceInstance['apiKey'] !== apiKey || currentProvider !== provider || currentClaudeModel !== claudeModel || currentOpenaiModel !== openaiModel || currentGeminiModel !== geminiModel) {
     aiServiceInstance = new AIService(apiKey, provider, claudeModel, openaiModel, geminiModel);
     currentProvider = provider;

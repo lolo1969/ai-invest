@@ -2,6 +2,13 @@ import axios from 'axios';
 import type { Stock, HistoricalData } from '../types';
 import { calculateTechnicalIndicators } from '../utils/technicalIndicators';
 
+export interface StockSearchResult {
+  symbol: string;
+  name: string;
+  isin?: string;
+  exchange?: string;
+}
+
 // Use own PHP proxy on production, Vite proxy for local dev
 const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
 const OWN_PROXY = '/api/proxy.php?url=';
@@ -83,6 +90,19 @@ export class MarketDataService {
     this.apiKey = apiKey;
   }
 
+  private normalizeCurrencyCode(currency: string): string {
+    const raw = (currency || '').trim();
+    if (!raw) return 'USD';
+
+    // Yahoo can return British pence as "GBp" (lowercase p),
+    // which would incorrectly become GBP when uppercased.
+    if (raw === 'GBp' || raw === 'GBX') return 'GBX';
+
+    const upper = raw.toUpperCase();
+    if (upper === 'GBX') return 'GBX';
+    return upper;
+  }
+
   // Retry wrapper for network errors (ENETDOWN, ECONNRESET, ETIMEDOUT etc.)
   private async fetchWithRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 1500): Promise<T> {
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -119,7 +139,7 @@ export class MarketDataService {
 
   // Get exchange rate for any currency → EUR
   async getFxRateToEur(currency: string): Promise<number> {
-    const cur = currency.toUpperCase();
+    const cur = this.normalizeCurrencyCode(currency);
     if (cur === 'EUR') return 1;
     
     // GBX = British Pence (1/100 GBP) — common for London-listed stocks
@@ -203,7 +223,7 @@ export class MarketDataService {
 
   // Convert a price from any currency to EUR
   async convertToEur(price: number, fromCurrency: string): Promise<number> {
-    const cur = fromCurrency.toUpperCase();
+    const cur = this.normalizeCurrencyCode(fromCurrency);
     if (cur === 'EUR') return price;
     const rate = await this.getFxRateToEur(cur);
     return price * rate;
@@ -239,7 +259,7 @@ export class MarketDataService {
       const meta = result.meta;
       let price = meta.regularMarketPrice || 0;
       let previousClose = meta.previousClose || meta.chartPreviousClose || price;
-      const originalCurrency = meta.currency || 'USD';
+      const originalCurrency = this.normalizeCurrencyCode(meta.currency || 'USD');
       
       // Convert any non-EUR currency to EUR
       if (originalCurrency.toUpperCase() !== 'EUR') {
@@ -315,7 +335,7 @@ export class MarketDataService {
       }
       
       // Pre-fetch FX rates for all currencies in this batch
-      const currencies = new Set(quotes.map((q: any) => (q.currency || 'USD').toUpperCase()));
+      const currencies = new Set(quotes.map((q: any) => this.normalizeCurrencyCode(q.currency || 'USD')));
       const fxRates: Record<string, number> = { EUR: 1 };
       for (const cur of currencies) {
         const currency = cur as string;
@@ -330,7 +350,7 @@ export class MarketDataService {
         try {
           let price = q.regularMarketPrice || 0;
           let previousClose = q.regularMarketPreviousClose || price;
-          const originalCurrency = (q.currency || 'USD').toUpperCase();
+          const originalCurrency = this.normalizeCurrencyCode(q.currency || 'USD');
           
           if (originalCurrency !== 'EUR') {
             const rate = fxRates[originalCurrency] || 1;
@@ -405,7 +425,7 @@ export class MarketDataService {
 
       const timestamps = result.timestamp || [];
       const quote = result.indicators?.quote?.[0] || {};
-      const originalCurrency = (result.meta?.currency || 'USD').toUpperCase();
+      const originalCurrency = this.normalizeCurrencyCode(result.meta?.currency || 'USD');
       const fxRate = originalCurrency === 'EUR' ? 1 : await this.getFxRateToEur(originalCurrency);
 
       return timestamps.map((ts: number, i: number) => ({
@@ -423,7 +443,7 @@ export class MarketDataService {
   }
 
   // Search for stocks
-  async searchStocks(query: string): Promise<{ symbol: string; name: string }[]> {
+  async searchStocks(query: string): Promise<StockSearchResult[]> {
     try {
       const url = buildYahooUrl(`/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`);
       const response = await this.fetchWithRetry(() => axios.get(url, { timeout: 10000 }));
@@ -431,6 +451,8 @@ export class MarketDataService {
       return (response.data.quotes || []).map((q: any) => ({
         symbol: q.symbol,
         name: q.shortname || q.longname || q.symbol,
+        isin: q.isin,
+        exchange: q.exchDisp || q.exchange,
       }));
     } catch (error) {
       // Silent fail - return fallback stocks

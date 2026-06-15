@@ -84,7 +84,7 @@ src/
 - **Build Tool:** Vite 7.3
 - **Styling:** Tailwind CSS 4.1
 - **State Management:** Zustand (with localStorage persistence)
-- **AI:** Claude API (claude-sonnet-4-20250514)
+- **AI:** Claude API (claude-opus-4-8)
 - **Price Data:** Yahoo Finance via CORS Proxy
 - **Notifications:** Telegram Bot API + EmailJS
 - **PWA:** vite-plugin-pwa

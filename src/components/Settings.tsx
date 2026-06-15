@@ -577,7 +577,7 @@ export function Settings() {
           </label>
           {settings.aiProvider === 'claude' ? (
             <div className="flex gap-3 flex-wrap">
-              {([                { value: 'claude-opus-4-6' as ClaudeModel, label: '🔮 Claude Opus 4.6', desc: 'Best quality (latest model)' },
+              {([                { value: 'claude-opus-4-8' as ClaudeModel, label: '🔮 Claude Opus 4.8', desc: 'Best quality (latest model)' },
                 { value: 'claude-sonnet-4-6' as ClaudeModel, label: '🟣 Claude Sonnet 4.6', desc: 'Fast & intelligent' },
                 { value: 'claude-haiku-4-5-20251001' as ClaudeModel, label: '⚡ Claude Haiku 4.5', desc: 'Fastest' },
               ]).map((model) => (
@@ -585,7 +585,7 @@ export function Settings() {
                   key={model.value}
                   onClick={() => updateSettings({ claudeModel: model.value })}
                   className={`flex-1 min-w-[140px] px-4 py-3 rounded-lg border transition-colors text-left ${
-                    (settings.claudeModel || 'claude-opus-4-6') === model.value
+                    (settings.claudeModel || 'claude-opus-4-8') === model.value
                       ? 'bg-purple-600 border-purple-500 text-white'
                       : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-purple-500'
                   }`}
@@ -598,7 +598,7 @@ export function Settings() {
           ) : settings.aiProvider === 'gemini' ? (
             <div className="flex gap-3 flex-wrap">
               {([
-                { value: 'gemini-2.5-flash' as GeminiModel, label: '⚡ Gemini 2.5 Flash', desc: 'Fast & free' },
+                { value: 'gemini-3.5-flash' as GeminiModel, label: '⚡ Gemini 3.5 Flash', desc: 'Fast & current flagship' },
                 { value: 'gemini-2.5-pro' as GeminiModel, label: '🔵 Gemini 2.5 Pro', desc: 'Most powerful model' },
                 { value: 'gemini-2.5-flash-lite' as GeminiModel, label: '💨 Gemini 2.5 Flash-Lite', desc: 'Cheapest & fastest' },
               ]).map((model) => (
@@ -606,7 +606,7 @@ export function Settings() {
                   key={model.value}
                   onClick={() => updateSettings({ geminiModel: model.value })}
                   className={`flex-1 min-w-[140px] px-4 py-3 rounded-lg border transition-colors text-left ${
-                    (settings.geminiModel || 'gemini-2.5-flash') === model.value
+                    (settings.geminiModel || 'gemini-3.5-flash') === model.value
                       ? 'bg-blue-600 border-blue-500 text-white'
                       : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-blue-500'
                   }`}
@@ -619,7 +619,7 @@ export function Settings() {
           ) : (
             <div className="flex gap-3 flex-wrap">
               {([
-                { value: 'gpt-5.4' as OpenAIModel, label: '🟢 GPT-5.4', desc: 'Best quality (latest model)' },
+                { value: 'gpt-5.5' as OpenAIModel, label: '🟢 GPT-5.5', desc: 'Best quality (latest model)' },
                 { value: 'gpt-5.4-mini' as OpenAIModel, label: '🟡 GPT-5.4 Mini', desc: 'Fast & inexpensive' },
                 { value: 'gpt-5.4-nano' as OpenAIModel, label: '⚪ GPT-5.4 Nano', desc: 'Most inexpensive' },
               ]).map((model) => (
@@ -627,7 +627,7 @@ export function Settings() {
                   key={model.value}
                   onClick={() => updateSettings({ openaiModel: model.value })}
                   className={`flex-1 min-w-[140px] px-4 py-3 rounded-lg border transition-colors text-left ${
-                    (settings.openaiModel || 'gpt-5.4') === model.value
+                    (settings.openaiModel || 'gpt-5.5') === model.value
                       ? 'bg-green-600 border-green-500 text-white'
                       : 'bg-[#252542] border-[#3a3a5a] text-gray-300 hover:border-green-500'
                   }`}

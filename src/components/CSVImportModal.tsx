@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Upload, FileText, AlertTriangle, Check, X, Loader2 } from 'lucide-react';
 import { parseCSV, toUserPositions, type ImportResult, type AggregatedPosition } from '../services/csvImport';
 import { useAppStore } from '../store/useAppStore';
-import { marketDataService } from '../services/marketData';
+import { marketDataService, type StockSearchResult } from '../services/marketData';
 
 interface CSVImportModalProps {
   isOpen: boolean;
@@ -155,6 +155,47 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     return tokenMatches * 10;
   };
 
+  const scoreIsinCandidate = (
+    position: AggregatedPosition,
+    candidate: StockSearchResult,
+    searchedIsin: string,
+  ): number => {
+    let score = scoreSearchResult(position.name, candidate);
+
+    if (candidate.isin?.toUpperCase() === searchedIsin) {
+      score += 1000;
+    }
+
+    const posSymbol = (position.symbol || '').toUpperCase();
+    const candSymbol = (candidate.symbol || '').toUpperCase();
+    if (posSymbol && candSymbol === posSymbol) {
+      score += 250;
+    }
+    if (posSymbol.endsWith('.L') && candSymbol.endsWith('.L')) {
+      score += 120;
+    }
+
+    const exch = (candidate.exchange || '').toLowerCase();
+    if (exch.includes('london') || exch.includes('lse')) {
+      score += 60;
+    }
+
+    return score;
+  };
+
+  const getPreferredSymbolsForPosition = (position: AggregatedPosition): string[] => {
+    const isin = (position.isin || '').toUpperCase();
+    const name = (position.name || '').toLowerCase();
+
+    // iShares Physical Gold ETC (Trade Republic: Physical Gold USD (Acc))
+    // Prefer EUR listings first so imported prices are closest to broker quotes.
+    if (isin === 'IE00B4ND3602' || name.includes('physical gold usd')) {
+      return ['PPFB.DE', 'PPFB.F', 'EGLN.L', 'SGLN.L', 'IGLN.L'];
+    }
+
+    return [];
+  };
+
   const resolveQuoteForPosition = async (position: AggregatedPosition): Promise<{ price?: number; symbol?: string }> => {
     const directLookup = position.symbol || position.isin || position.name;
     const triedSymbols = new Set<string>();
@@ -169,12 +210,27 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
       return null;
     };
 
+    const preferredSymbols = getPreferredSymbolsForPosition(position);
+    for (const preferredSymbol of preferredSymbols) {
+      const preferredResult = await tryQuote(preferredSymbol);
+      if (preferredResult) return preferredResult;
+    }
+
     const directResult = await tryQuote(directLookup);
     if (directResult) return directResult;
 
     if (position.isin) {
       const isinResults = await marketDataService.searchStocks(position.isin);
-      for (const candidate of isinResults.slice(0, 5)) {
+      const searchedIsin = position.isin.toUpperCase();
+      const rankedIsinCandidates = isinResults
+        .map((candidate) => ({
+          candidate,
+          score: scoreIsinCandidate(position, candidate, searchedIsin),
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8);
+
+      for (const { candidate } of rankedIsinCandidates) {
         const result = await tryQuote(candidate.symbol);
         if (result) return result;
       }
@@ -256,6 +312,28 @@ export function CSVImportModal({ isOpen, onClose }: CSVImportModalProps) {
     }
     for (const [isin, name] of tradeIsinMap.entries()) {
       try {
+        const preferredPosition: AggregatedPosition = {
+          isin,
+          name,
+          symbol: undefined,
+          quantity: 0,
+          averageBuyPrice: 0,
+          totalInvested: 0,
+          currency: 'EUR',
+          transactions: [],
+        };
+        const preferredSymbols = getPreferredSymbolsForPosition(preferredPosition);
+        let resolvedFromPreferred = false;
+        for (const preferredSymbol of preferredSymbols) {
+          const quote = await marketDataService.getQuote(preferredSymbol);
+          if (quote && quote.price > 0) {
+            symbols[`isin:${isin}`] = quote.symbol || preferredSymbol;
+            resolvedFromPreferred = true;
+            break;
+          }
+        }
+        if (resolvedFromPreferred) continue;
+
         const searchResults = await marketDataService.searchStocks(isin);
         const fallbackSearchResults = searchResults.length > 0 ? searchResults : await marketDataService.searchStocks(name);
         const rankedCandidates = fallbackSearchResults

@@ -6,9 +6,9 @@ export type SignalType = 'BUY' | 'SELL' | 'HOLD';
 export type RiskLevel = 'low' | 'medium' | 'high';
 export type AIProvider = 'claude' | 'openai' | 'gemini';
 export type AILanguage = 'en' | 'de' | 'fr';
-export type ClaudeModel = 'claude-opus-4-6' | 'claude-sonnet-4-6' | 'claude-haiku-4-5-20251001';
-export type OpenAIModel = 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5.4-nano';
-export type GeminiModel = 'gemini-2.5-flash' | 'gemini-2.5-pro' | 'gemini-2.5-flash-lite';
+export type ClaudeModel = 'claude-opus-4-8' | 'claude-sonnet-4-6' | 'claude-haiku-4-5-20251001';
+export type OpenAIModel = 'gpt-5.5' | 'gpt-5.4-mini' | 'gpt-5.4-nano';
+export type GeminiModel = 'gemini-3.5-flash' | 'gemini-2.5-pro' | 'gemini-2.5-flash-lite';
 
 export interface Stock {
   symbol: string;
