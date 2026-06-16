@@ -862,16 +862,13 @@ export function Portfolio() {
         .filter((ts) => Number.isFinite(ts))
         .sort((a, b) => a - b)[0];
 
-      const earliestBuyOrderCreatedTimestamp = orders
-        .filter((order) =>
-          (order.orderType === 'limit-buy' || order.orderType === 'stop-buy')
-          && matchesOrderToSymbol(order)
-        )
-        .map((order) => new Date(order.createdAt as Date).getTime())
+      const earliestPositionBuyDateTimestamp = userPositions
+        .filter((position) => symbolsReferToSameInstrument(position.symbol, symbol))
+        .map((position) => position.buyDate ? new Date(position.buyDate).getTime() : NaN)
         .filter((ts) => Number.isFinite(ts))
         .sort((a, b) => a - b)[0];
 
-      const acquisitionCandidates = [earliestBuyTradeTimestamp, earliestExecutedBuyOrderTimestamp, earliestBuyOrderCreatedTimestamp]
+      const acquisitionCandidates = [earliestBuyTradeTimestamp, earliestExecutedBuyOrderTimestamp, earliestPositionBuyDateTimestamp]
         .filter((ts): ts is number => typeof ts === 'number' && Number.isFinite(ts));
       const firstAcquisitionTimestamp = acquisitionCandidates.length > 0
         ? Math.min(...acquisitionCandidates)
@@ -894,7 +891,7 @@ export function Portfolio() {
       .map(([key, timestamp]) => ({ key, timestamp }));
 
     if (sortedBuckets.length === 0) {
-      const fallbackValue = userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
+      const fallbackValue = userPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0) + cashBalance;
       setPortfolioHistory([
         {
           timestamp: Date.now(),
@@ -911,7 +908,12 @@ export function Portfolio() {
     const hasHistoricalTimeline =
       tradeHistory.some((trade) => trade.type === 'buy')
       || taxTransactions.length > 0
-      || orders.some((order) => order.orderType === 'limit-buy' || order.orderType === 'stop-buy');
+      || userPositions.some((position) => !!position.buyDate)
+      || orders.some((order) =>
+        (order.orderType === 'limit-buy' || order.orderType === 'stop-buy')
+        && order.status === 'executed'
+        && !!order.executedAt
+      );
 
     const normalizedSymbolSeries = symbolSeries.map((series) => {
       let trades = series.trades.filter(
@@ -983,16 +985,19 @@ export function Portfolio() {
     orders.forEach((order) => {
       if (!(order.orderType === 'limit-buy' || order.orderType === 'stop-buy')) return;
 
-      const createdTs = new Date(order.createdAt as Date).getTime();
-      if (Number.isFinite(createdTs)) {
-        globalHistoryStartCandidates.push(createdTs);
-      }
-
       if (order.executedAt) {
         const executedTs = new Date(order.executedAt as Date).getTime();
         if (Number.isFinite(executedTs)) {
           globalHistoryStartCandidates.push(executedTs);
         }
+      }
+    });
+
+    userPositions.forEach((position) => {
+      if (!position.buyDate) return;
+      const ts = new Date(position.buyDate).getTime();
+      if (Number.isFinite(ts)) {
+        globalHistoryStartCandidates.push(ts);
       }
     });
 
@@ -1010,11 +1015,11 @@ export function Portfolio() {
         return {
           timestamp: bucket.timestamp,
           label: formatLabel(new Date(bucket.timestamp)),
-          value: 0,
+          value: Math.max(0, cashBalance),
         };
       }
 
-      let totalValue = 0;
+      let totalValue = Math.max(0, cashBalance);
 
       normalizedSymbolSeries.forEach((series) => {
         while (series.tradeIndex < series.trades.length && series.trades[series.tradeIndex].timestamp <= bucket.timestamp) {
@@ -1050,7 +1055,7 @@ export function Portfolio() {
       };
     });
 
-    const currentPortfolioValue = userPositions.reduce((sum, p) => sum + (p.currentPrice * p.quantity), 0);
+    const currentPortfolioValue = userPositions.reduce((sum, p) => sum + (p.currentPrice * p.quantity), 0) + cashBalance;
     if (chartPointsRaw.length > 0) {
       chartPointsRaw[chartPointsRaw.length - 1] = {
         ...chartPointsRaw[chartPointsRaw.length - 1],
@@ -1065,7 +1070,7 @@ export function Portfolio() {
       changePercent: baseValue > 0 ? ((point.value - baseValue) / baseValue) * 100 : 0,
     }));
     setPortfolioHistory(chartPoints);
-  }, [orders, portfolioChartRange, portfolioSymbolSignature, portfolioQuantitySignature, portfolioHistoryCacheVersion, taxTransactions, tradeHistory, userPositions]);
+  }, [cashBalance, orders, portfolioChartRange, portfolioSymbolSignature, portfolioQuantitySignature, portfolioHistoryCacheVersion, taxTransactions, tradeHistory, userPositions]);
 
   const portfolioHistoryStart = portfolioHistory.length > 0 ? (portfolioHistory.find((p) => p.value > 0)?.value ?? 0) : 0;
   const portfolioHistoryEnd = portfolioHistory.length > 0 ? portfolioHistory[portfolioHistory.length - 1].value : 0;
