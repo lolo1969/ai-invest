@@ -6,7 +6,37 @@
  * einen komplett isolierten State (Portfolio, Orders, Einstellungen).
  */
 
-define('DATA_DIR', __DIR__ . '/data');
+function resolveDataDir(): string {
+    $configured = getenv('VESTIA_DATA_DIR');
+    if ($configured !== false && $configured !== '') {
+        $dir = rtrim($configured, '/\\');
+        if ($dir !== '') {
+            @mkdir($dir, 0755, true);
+            return $dir;
+        }
+    }
+
+    $candidates = [
+        __DIR__ . '/data',
+        dirname(__DIR__) . '/server-php/data',
+        dirname(dirname(__DIR__)) . '/server-php/data',
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (!is_dir($candidate)) continue;
+
+        $stateFiles = glob($candidate . '/state-*.json');
+        if ($stateFiles !== false && count($stateFiles) > 0) {
+            return $candidate;
+        }
+    }
+
+    $defaultDir = __DIR__ . '/data';
+    @mkdir($defaultDir, 0755, true);
+    return $defaultDir;
+}
+
+define('DATA_DIR', resolveDataDir());
 
 // Ensure data directory exists
 if (!is_dir(DATA_DIR)) {
@@ -31,8 +61,34 @@ function getStateFilePath(string $sessionId): string {
     return DATA_DIR . "/state-{$safeId}.json";
 }
 
-// Keine Migration mehr zu 'default' – die default-Session wird nicht mehr verwendet.
-// state-default.json verbleibt als tote Datei und wird von listSessions() ignoriert.
+/**
+ * Symbolvergleich mit konservanter Alias-Logik:
+ * - Exakte Gleichheit gewinnt.
+ * - Basissymbol == Suffix-Variante gilt als gleich (z.B. ENR vs ENR.DE).
+ * - Zwei unterschiedliche Suffix-Varianten bleiben verschieden (z.B. BRK.A vs BRK.B).
+ */
+function symbolsReferToSameInstrumentPhp(string $a, string $b): bool {
+    $left = strtoupper(trim($a));
+    $right = strtoupper(trim($b));
+    if ($left === '' || $right === '') return false;
+    if ($left === $right) return true;
+
+    $leftParts = explode('.', $left, 2);
+    $rightParts = explode('.', $right, 2);
+    $leftBase = $leftParts[0] ?? $left;
+    $rightBase = $rightParts[0] ?? $right;
+    $leftHasSuffix = count($leftParts) > 1 && $leftParts[1] !== '';
+    $rightHasSuffix = count($rightParts) > 1 && $rightParts[1] !== '';
+
+    if ($leftBase !== $rightBase) return false;
+
+    // Nur Basissymbol-vs-Suffix als Alias behandeln.
+    return $leftHasSuffix !== $rightHasSuffix;
+}
+
+// Keine aktive Migration mehr zu 'default'.
+// Legacy-States in state-default.json können aber noch produktive Automationen
+// enthalten und werden daher von listSessions() bei Bedarf berücksichtigt.
 
 function getDefaultState(): array {
     return [
@@ -44,9 +100,9 @@ function getDefaultState(): array {
             'notifications' => ['email' => ['enabled' => false], 'telegram' => ['enabled' => false]],
             'apiKeys' => ['claude' => '', 'openai' => '', 'gemini' => '', 'marketData' => ''],
             'aiProvider' => 'gemini',
-            'claudeModel' => 'claude-opus-4-6',
-            'openaiModel' => 'gpt-5.2',
-            'geminiModel' => 'gemini-2.5-flash',
+            'claudeModel' => 'claude-opus-5',
+            'openaiModel' => 'gpt-5.5',
+            'geminiModel' => 'gemini-3.8-flash',
             'customPrompt' => '',
         ],
         'userPositions' => [],
@@ -56,6 +112,7 @@ function getDefaultState(): array {
         'watchlist' => [],
         'signals' => [],
         'orders' => [],
+        'deletedOrderIds' => [],
         'orderSettings' => [
             'autoExecute' => false,
             'checkIntervalSeconds' => 30,
@@ -109,21 +166,68 @@ function getStateVersion(string $sessionId): int {
 /**
  * Alle aktiven Session-IDs auflisten
  */
+function shouldIncludeLegacyDefaultSession(string $file): bool {
+    if (!is_file($file)) return false;
+
+    try {
+        $raw = file_get_contents($file);
+        $parsed = json_decode($raw ?: '', true);
+        if (!is_array($parsed)) return false;
+
+        $state = $parsed['state'] ?? $parsed;
+        if (!is_array($state)) return false;
+
+        $autopilotEnabled = !empty($state['autopilotSettings']['enabled']);
+        $orderAutoExecute = !empty($state['orderSettings']['autoExecute']);
+        $hasActiveOrders = false;
+
+        foreach (($state['orders'] ?? []) as $order) {
+            if (($order['status'] ?? null) === 'active') {
+                $hasActiveOrders = true;
+                break;
+            }
+        }
+
+        return $autopilotEnabled || ($orderAutoExecute && $hasActiveOrders);
+    } catch (\Throwable $e) {
+        error_log('[StateManager] Fehler beim Prüfen der default-Session: ' . $e->getMessage());
+        return false;
+    }
+}
+
 function listSessions(): array {
     $files = glob(DATA_DIR . '/state-*.json');
     if ($files === false) return [];
 
     $sessions = [];
+    $defaultFile = null;
+
     foreach ($files as $file) {
         $basename = basename($file);
         $id = preg_replace('/^state-(.+)\.json$/', '$1', $basename);
-        // 'default' Session überspringen – sie enthält keine eigenen User-Daten
-        if ($id === 'default') continue;
+
+        if ($id === 'default') {
+            $defaultFile = $file;
+            continue;
+        }
+
         if (preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $id)) {
             $sessions[] = $id;
         }
     }
-    return $sessions;
+
+    // Legacy default session only exists for old single-user setups.
+    // When real browser sessions are present, a stale default state must not
+    // keep triggering autopilot/orders in the background.
+    if (!empty($sessions)) {
+        return array_values(array_unique($sessions));
+    }
+
+    if ($defaultFile !== null && shouldIncludeLegacyDefaultSession($defaultFile)) {
+        return ['default'];
+    }
+
+    return [];
 }
 
 /**
@@ -140,6 +244,60 @@ function deepMerge(array $base, array $override): array {
         }
     }
     return $merged;
+}
+
+/**
+ * Orders robust per ID mergen und serverseitige Runtime-Orders nicht verlieren.
+ */
+function mergeOrdersById(array $serverOrders, array $clientOrders, array $clientDeletedOrderIds = []): array {
+    $deletedOrderIds = array_values(array_unique(array_filter($clientDeletedOrderIds, 'is_string')));
+
+    $mergedOrders = array_values(array_filter($serverOrders, function ($order) use ($deletedOrderIds): bool {
+        return !in_array($order['id'] ?? '', $deletedOrderIds, true);
+    }));
+
+    $serverOrderMap = [];
+    foreach ($mergedOrders as $o) {
+        $id = (string)($o['id'] ?? '');
+        if ($id !== '') {
+            $serverOrderMap[$id] = $o;
+        }
+    }
+
+    $statusPriority = ['pending' => 0, 'active' => 1, 'executed' => 2, 'cancelled' => 2, 'expired' => 2];
+
+    foreach ($clientOrders as $clientOrder) {
+        $orderId = (string)($clientOrder['id'] ?? '');
+        if ($orderId === '' || in_array($orderId, $deletedOrderIds, true)) {
+            continue;
+        }
+
+        if (!isset($serverOrderMap[$orderId])) {
+            $mergedOrders[] = $clientOrder;
+            $serverOrderMap[$orderId] = $clientOrder;
+            continue;
+        }
+
+        $serverOrder = $serverOrderMap[$orderId];
+        $clientPrio = $statusPriority[$clientOrder['status'] ?? 'pending'] ?? 0;
+        $serverPrio = $statusPriority[$serverOrder['status'] ?? 'pending'] ?? 0;
+        $idx = array_search($orderId, array_column($mergedOrders, 'id'), true);
+
+        if ($idx === false) {
+            continue;
+        }
+
+        if ($clientPrio > $serverPrio) {
+            $mergedOrders[$idx] = $clientOrder;
+            $serverOrderMap[$orderId] = $clientOrder;
+        } elseif ($clientPrio === $serverPrio) {
+            $merged = array_merge($serverOrder, $clientOrder);
+            $mergedOrders[$idx] = $merged;
+            $serverOrderMap[$orderId] = $merged;
+        }
+    }
+
+    return array_values($mergedOrders);
 }
 
 /**
@@ -228,6 +386,24 @@ function mergeClientState(array $clientState, int $clientVersion, string $sessio
         return ['merged' => $merged, 'conflict' => true, 'serverVersion' => getStateVersion($safeId)];
     } else {
         $merged = deepMerge($current, $clientState);
+
+        // Schutz: Client ohne Version darf serverseitig erzeugte Orders nicht überschreiben.
+        if ($clientVersion <= 0 && (isset($clientState['orders']) || isset($clientState['deletedOrderIds']))) {
+            $merged['orders'] = mergeOrdersById(
+                $current['orders'] ?? [],
+                $clientState['orders'] ?? [],
+                $clientState['deletedOrderIds'] ?? []
+            );
+
+            $deletedOrderIds = array_values(array_unique(array_filter(($clientState['deletedOrderIds'] ?? []), 'is_string')));
+            $merged['deletedOrderIds'] = array_values(array_unique(array_merge(
+                $current['deletedOrderIds'] ?? [],
+                $deletedOrderIds
+            )));
+
+            error_log("[StateManager] Session {$safeId}: clientVersion fehlt/0, Orders konservativ gemerged");
+        }
+
         saveState($merged, $safeId);
         return ['merged' => $merged, 'conflict' => false, 'serverVersion' => getStateVersion($safeId)];
     }
@@ -259,30 +435,18 @@ function smartMerge(array $server, array $client): array {
         $merged['userPositions'] = $mergedPositions;
     }
 
-    // Orders: Per ID mergen
-    if (isset($client['orders'])) {
-        $serverOrderMap = [];
-        foreach ($server['orders'] as $o) {
-            $serverOrderMap[$o['id']] = $o;
-        }
-        $mergedOrders = $server['orders'];
-        $statusPriority = ['pending' => 0, 'active' => 1, 'executed' => 2, 'cancelled' => 2, 'expired' => 2];
-        foreach ($client['orders'] as $clientOrder) {
-            if (!isset($serverOrderMap[$clientOrder['id']])) {
-                $mergedOrders[] = $clientOrder;
-            } else {
-                $serverOrder = $serverOrderMap[$clientOrder['id']];
-                $clientPrio = $statusPriority[$clientOrder['status']] ?? 0;
-                $serverPrio = $statusPriority[$serverOrder['status']] ?? 0;
-                if ($clientPrio > $serverPrio) {
-                    $idx = array_search($clientOrder['id'], array_column($mergedOrders, 'id'));
-                    if ($idx !== false) {
-                        $mergedOrders[$idx] = $clientOrder;
-                    }
-                }
-            }
-        }
-        $merged['orders'] = array_values($mergedOrders);
+    // Orders: Per ID mergen, aber gelöschte Orders explizit entfernen
+    if (isset($client['orders']) || isset($client['deletedOrderIds'])) {
+        $merged['orders'] = mergeOrdersById(
+            $server['orders'] ?? [],
+            $client['orders'] ?? [],
+            $client['deletedOrderIds'] ?? []
+        );
+
+        $deletedOrderIds = array_values(array_unique(array_filter(($client['deletedOrderIds'] ?? []), 'is_string')));
+        $merged['deletedOrderIds'] = array_values(array_unique(array_merge(
+            $server['deletedOrderIds'] ?? [], $deletedOrderIds
+        )));
     }
 
     // Watchlist: Union
@@ -355,6 +519,11 @@ function smartMerge(array $server, array $client): array {
         $merged['orderSettings'] = array_merge($server['orderSettings'] ?? [], $client['orderSettings']);
     }
 
+    // Broker-Settings: Client gewinnt
+    if (isset($client['alpacaSettings'])) {
+        $merged['alpacaSettings'] = array_merge($server['alpacaSettings'] ?? [], $client['alpacaSettings']);
+    }
+
     // Price Alerts: Per ID mergen
     if (isset($client['priceAlerts'])) {
         $serverAlertIds = array_column($server['priceAlerts'], 'id');
@@ -406,7 +575,7 @@ function addOrder(array $order, string $sessionId): void {
 
     $sameDirection = array_filter($s['orders'], function ($o) use ($order, $isBuy, $isSell) {
         if (!in_array($o['status'], ['active', 'pending'])) return false;
-        if ($o['symbol'] !== $order['symbol']) return false;
+        if (!symbolsReferToSameInstrumentPhp((string)($o['symbol'] ?? ''), (string)($order['symbol'] ?? ''))) return false;
         if ($isBuy && in_array($o['orderType'], ['limit-buy', 'stop-buy'])) return true;
         if ($isSell && in_array($o['orderType'], ['limit-sell', 'stop-loss'])) return true;
         return false;
@@ -442,7 +611,7 @@ function cancelOrder(string $orderId, string $sessionId): void {
 /**
  * Order ausführen
  */
-function executeOrder(string $orderId, float $executedPrice, string $sessionId): void {
+function executeOrder(string $orderId, float $executedPrice, string $sessionId, string $executionSource = 'server'): void {
     $s = loadState($sessionId);
     $orderIdx = null;
     foreach ($s['orders'] as $i => $o) {
@@ -485,7 +654,7 @@ function executeOrder(string $orderId, float $executedPrice, string $sessionId):
 
         $existingIdx = null;
         foreach ($s['userPositions'] as $pi => $p) {
-            if ($p['symbol'] === $order['symbol']) {
+            if (symbolsReferToSameInstrumentPhp((string)($p['symbol'] ?? ''), (string)($order['symbol'] ?? ''))) {
                 $existingIdx = $pi;
                 break;
             }
@@ -513,7 +682,7 @@ function executeOrder(string $orderId, float $executedPrice, string $sessionId):
         // Verkauf
         $existingIdx = null;
         foreach ($s['userPositions'] as $pi => $p) {
-            if ($p['symbol'] === $order['symbol']) {
+            if (symbolsReferToSameInstrumentPhp((string)($p['symbol'] ?? ''), (string)($order['symbol'] ?? ''))) {
                 $existingIdx = $pi;
                 break;
             }
@@ -536,6 +705,7 @@ function executeOrder(string $orderId, float $executedPrice, string $sessionId):
     $order['status'] = 'executed';
     $order['executedAt'] = gmdate('Y-m-d\TH:i:s\Z');
     $order['executedPrice'] = $executedPrice;
+    $order['executionSource'] = $executionSource;
     saveState($s, $sessionId);
 }
 

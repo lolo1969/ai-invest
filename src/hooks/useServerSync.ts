@@ -17,7 +17,9 @@ import {
   setOnConflictCallback,
   pullState,
   flushPendingState,
+  getKnownServerVersion,
 } from '../services/syncService';
+import { mergeServerStateWithClientConfig } from '../services/serverSyncMerge';
 
 function toTimestamp(value?: string | null): number {
   if (!value) return 0;
@@ -29,6 +31,7 @@ export function useServerSync() {
   const [serverConnected, setServerConnected] = useState(false);
   const [serverInfo, setServerInfo] = useState<any>(null);
   const skipNextPushRef = useRef(false);
+  const appliedServerVersionRef = useRef(0);
 
   // Initial: Check server and start sync
   useEffect(() => {
@@ -53,7 +56,7 @@ export function useServerSync() {
 
           skipNextPushRef.current = true;
           useAppStore.setState({
-            ...mergedState,
+            ...mergeServerStateWithClientConfig(mergedState, currentState),
             tradeHistory: mergedTradeHistory,
             taxTransactions: mergedTaxTransactions,
             // don't overwrite UI state
@@ -68,37 +71,36 @@ export function useServerSync() {
         cleanup = startSync((serverState) => {
           if (!serverState) return;
 
-          // Compare timestamps to decide who is more current
           const currentState = useAppStore.getState();
-          
-          // Server autopilot state takes precedence (it runs the cycles)
-          const serverLastRun = serverState.autopilotState?.lastRunAt;
-          const localLastRun = currentState.autopilotState?.lastRunAt;
-          
-          if (serverLastRun && (!localLastRun || new Date(serverLastRun) > new Date(localLastRun))) {
-            // Server has newer autopilot data → merge
-            skipNextPushRef.current = true; // Prevent push loop
-            const localTradeHistory = currentState.tradeHistory || [];
-            const localTaxTransactions = currentState.taxTransactions || [];
-            const serverTradeHistory = serverState.tradeHistory || [];
-            const serverTaxTransactions = serverState.taxTransactions || [];
-            
-            useAppStore.setState({
-              autopilotState: serverState.autopilotState,
-              autopilotLog: serverState.autopilotLog,
-              orders: serverState.orders,
-              userPositions: serverState.userPositions,
-              cashBalance: serverState.cashBalance,
-              signals: serverState.signals,
-              tradeHistory: serverTradeHistory.length > 0 ? serverTradeHistory : localTradeHistory,
-              taxTransactions: serverTaxTransactions.length > 0 ? serverTaxTransactions : localTaxTransactions,
-              lastAnalysis: serverState.lastAnalysis,
-              lastAnalysisDate: serverState.lastAnalysisDate,
-              analysisHistory: serverState.analysisHistory,
-            });
-            
-            console.log('[ServerSync] Adopted state from server (newer autopilot data)');
+          const serverVersion = getKnownServerVersion();
+
+          if (serverVersion <= appliedServerVersionRef.current) {
+            return;
           }
+
+          skipNextPushRef.current = true;
+          const localTradeHistory = currentState.tradeHistory || [];
+          const localTaxTransactions = currentState.taxTransactions || [];
+          const serverTradeHistory = serverState.tradeHistory || [];
+          const serverTaxTransactions = serverState.taxTransactions || [];
+
+          useAppStore.setState({
+            autopilotState: serverState.autopilotState,
+            autopilotLog: serverState.autopilotLog,
+            orders: serverState.orders,
+            deletedOrderIds: serverState.deletedOrderIds,
+            userPositions: serverState.userPositions,
+            cashBalance: serverState.cashBalance,
+            signals: serverState.signals,
+            tradeHistory: serverTradeHistory.length > 0 ? serverTradeHistory : localTradeHistory,
+            taxTransactions: serverTaxTransactions.length > 0 ? serverTaxTransactions : localTaxTransactions,
+            lastAnalysis: serverState.lastAnalysis,
+            lastAnalysisDate: serverState.lastAnalysisDate,
+            analysisHistory: serverState.analysisHistory,
+          });
+          appliedServerVersionRef.current = serverVersion;
+
+          console.log('[ServerSync] Adopted state from server (newer version)');
         });
 
         // Initial sync:
@@ -130,7 +132,7 @@ export function useServerSync() {
             if (pushResult.ok && pushResult.conflict && pushResult.mergedState) {
               skipNextPushRef.current = true;
               useAppStore.setState({
-                ...pushResult.mergedState,
+                ...mergeServerStateWithClientConfig(pushResult.mergedState, currentState),
                 isLoading: currentState.isLoading,
                 isAnalyzing: currentState.isAnalyzing,
                 error: currentState.error,
@@ -150,28 +152,36 @@ export function useServerSync() {
             const mergedTaxTransactions = (serverData.state.taxTransactions?.length ?? 0) > 0
               ? serverData.state.taxTransactions
               : currentState.taxTransactions;
+            const mergedInitialState = mergeServerStateWithClientConfig(serverData.state, currentState);
+
+            const configPushResult = await pushState(extractSyncState(mergedInitialState));
+
             useAppStore.setState({
-              ...serverData.state,
+              ...(configPushResult.ok && configPushResult.mergedState
+                ? mergeServerStateWithClientConfig(configPushResult.mergedState, currentState)
+                : mergedInitialState),
               tradeHistory: mergedTradeHistory,
               taxTransactions: mergedTaxTransactions,
               isLoading: currentState.isLoading,
               isAnalyzing: currentState.isAnalyzing,
               error: currentState.error,
             });
-            console.log('[ServerSync] Initial state loaded from server (server takes precedence) ✅');
+            appliedServerVersionRef.current = configPushResult.stateVersion ?? serverData.stateVersion;
+            console.log('[ServerSync] Initial server data merged; client configuration takes precedence ✅');
           }
-        } else if (localHasData) {
-          // Server leer → lokalen State pushen
-          const pushResult = await pushState(extractSyncState(currentState));
+        } else {
+          // No portfolio data yet: synchronize the session configuration only.
+          const pushResult = await pushState(extractSyncConfig(currentState));
 
           if (pushResult.ok && pushResult.conflict && pushResult.mergedState) {
             skipNextPushRef.current = true;
             useAppStore.setState({
-              ...pushResult.mergedState,
+              ...mergeServerStateWithClientConfig(pushResult.mergedState, currentState),
               isLoading: currentState.isLoading,
               isAnalyzing: currentState.isAnalyzing,
               error: currentState.error,
             });
+            appliedServerVersionRef.current = pushResult.stateVersion ?? getKnownServerVersion();
             console.log('[ServerSync] Initial merge – merged state adopted ✅');
           } else if (pushResult.ok) {
             console.log('[ServerSync] Initial state push successful 🙋');
@@ -188,7 +198,7 @@ export function useServerSync() {
 
     return () => {
       if (cleanup) cleanup();
-      setOnConflictCallback(() => {});
+      setOnConflictCallback(null);
       window.removeEventListener('beforeunload', handleUnload);
     };
   }, []);
@@ -224,6 +234,17 @@ export function useServerSync() {
   return { serverConnected, serverInfo };
 }
 
+function extractSyncConfig(state: any) {
+  return {
+    settings: state.settings,
+    orderSettings: state.orderSettings,
+    autopilotSettings: state.autopilotSettings,
+    alpacaSettings: state.alpacaSettings,
+    portfolios: state.portfolios,
+    activePortfolioId: state.activePortfolioId,
+  };
+}
+
 /**
  * Extracts the sync-relevant fields from the store state
  */
@@ -237,11 +258,13 @@ function extractSyncState(state: any) {
     watchlist: state.watchlist,
     signals: state.signals,
     orders: state.orders,
+    deletedOrderIds: state.deletedOrderIds,
     orderSettings: state.orderSettings,
     lastAnalysis: state.lastAnalysis,
     lastAnalysisDate: state.lastAnalysisDate,
     analysisHistory: state.analysisHistory,
     autopilotSettings: state.autopilotSettings,
+    alpacaSettings: state.alpacaSettings,
     autopilotLog: state.autopilotLog,
     autopilotState: state.autopilotState,
     taxTransactions: state.taxTransactions,
