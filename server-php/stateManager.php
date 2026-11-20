@@ -43,10 +43,12 @@ if (!is_dir(DATA_DIR)) {
     mkdir(DATA_DIR, 0755, true);
 }
 
-// Session-ID Validierung: Alphanumerisch + Bindestrich, max 64 Zeichen
-// Akzeptiert sowohl alte 12-Zeichen IDs als auch volle UUIDs
+// Session-ID Validierung: Alphanumerisch + Bindestrich, max 64 Zeichen.
+// Reservierte Legacy-Session-Namen sind nicht als Bearer-Token gültig.
 function isValidSessionId(string $sessionId): bool {
-    return !empty($sessionId) && preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $sessionId);
+    return $sessionId !== 'default'
+        && !empty($sessionId)
+        && preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $sessionId);
 }
 
 function validateSessionId(string $sessionId): string {
@@ -166,68 +168,22 @@ function getStateVersion(string $sessionId): int {
 /**
  * Alle aktiven Session-IDs auflisten
  */
-function shouldIncludeLegacyDefaultSession(string $file): bool {
-    if (!is_file($file)) return false;
-
-    try {
-        $raw = file_get_contents($file);
-        $parsed = json_decode($raw ?: '', true);
-        if (!is_array($parsed)) return false;
-
-        $state = $parsed['state'] ?? $parsed;
-        if (!is_array($state)) return false;
-
-        $autopilotEnabled = !empty($state['autopilotSettings']['enabled']);
-        $orderAutoExecute = !empty($state['orderSettings']['autoExecute']);
-        $hasActiveOrders = false;
-
-        foreach (($state['orders'] ?? []) as $order) {
-            if (($order['status'] ?? null) === 'active') {
-                $hasActiveOrders = true;
-                break;
-            }
-        }
-
-        return $autopilotEnabled || ($orderAutoExecute && $hasActiveOrders);
-    } catch (\Throwable $e) {
-        error_log('[StateManager] Fehler beim Prüfen der default-Session: ' . $e->getMessage());
-        return false;
-    }
-}
-
 function listSessions(): array {
     $files = glob(DATA_DIR . '/state-*.json');
     if ($files === false) return [];
 
     $sessions = [];
-    $defaultFile = null;
 
     foreach ($files as $file) {
         $basename = basename($file);
         $id = preg_replace('/^state-(.+)\.json$/', '$1', $basename);
 
-        if ($id === 'default') {
-            $defaultFile = $file;
-            continue;
-        }
-
-        if (preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $id)) {
+        if (isValidSessionId($id)) {
             $sessions[] = $id;
         }
     }
 
-    // Legacy default session only exists for old single-user setups.
-    // When real browser sessions are present, a stale default state must not
-    // keep triggering autopilot/orders in the background.
-    if (!empty($sessions)) {
-        return array_values(array_unique($sessions));
-    }
-
-    if ($defaultFile !== null && shouldIncludeLegacyDefaultSession($defaultFile)) {
-        return ['default'];
-    }
-
-    return [];
+    return array_values(array_unique($sessions));
 }
 
 /**

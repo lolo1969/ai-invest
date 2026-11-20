@@ -21,9 +21,18 @@ require_once __DIR__ . '/autopilotRunner.php';
 require_once __DIR__ . '/orderExecutor.php';
 
 // ─── CORS Headers ────────────────────────────────────
-// In Produktion: Auf die eigene Domain einschränken
-$allowedOrigin = getenv('CORS_ORIGIN') ?: '*';
-header("Access-Control-Allow-Origin: {$allowedOrigin}");
+$configuredOrigins = getenv('CORS_ORIGIN');
+$allowedOrigins = array_values(array_filter(array_map(
+    'trim',
+    explode(',', $configuredOrigins !== false && $configuredOrigins !== ''
+        ? $configuredOrigins
+        : 'https://invest.manes.lu')
+)));
+$requestOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($requestOrigin !== '' && in_array($requestOrigin, $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: {$requestOrigin}");
+    header('Vary: Origin');
+}
 header('Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Content-Type: application/json');
@@ -44,6 +53,15 @@ function sendJSON(mixed $data, int $status = 200): void {
 
 function sendError(string $message, int $status = 400): void {
     sendJSON(['error' => $message], $status);
+}
+
+function sanitizeStateForResponse(array $state): array {
+    if (isset($state['settings']['apiKeys']) && is_array($state['settings']['apiKeys'])) {
+        foreach (array_keys($state['settings']['apiKeys']) as $key) {
+            $state['settings']['apiKeys'][$key] = '';
+        }
+    }
+    return $state;
 }
 
 function getRequestBody(): array {
@@ -79,7 +97,10 @@ if (empty($path)) $path = '/';
 
 // Session-ID aus Authorization-Header (bevorzugt) oder Query-Fallback (für sendBeacon)
 $sessionId = null;
-$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+$environmentAuth = getenv('HTTP_AUTHORIZATION');
+$authHeader = $_SERVER['HTTP_AUTHORIZATION']
+    ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+    ?? ($environmentAuth !== false ? $environmentAuth : '');
 if (preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
     $sessionId = $matches[1];
 } else {
@@ -117,7 +138,7 @@ try {
     if ($path === '/api/state' && $method === 'GET') {
         $state = loadState($sessionId);
         sendJSON([
-            'state' => $state,
+            'state' => sanitizeStateForResponse($state),
             'stateVersion' => getStateVersion($sessionId),
             'sessionId' => $sessionId,
         ]);
@@ -139,7 +160,7 @@ try {
             'message' => $result['conflict'] ? 'State gemerged (Konflikt aufgelöst)' : 'State synchronisiert',
             'stateVersion' => $result['serverVersion'],
             'conflict' => $result['conflict'],
-            'state' => $result['conflict'] ? $result['merged'] : null,
+            'state' => $result['conflict'] ? sanitizeStateForResponse($result['merged']) : null,
             'sessionId' => $sessionId,
         ]);
     }
